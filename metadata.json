@@ -1,0 +1,6 @@
+{
+  "name": "CAD零件参数化白板",
+  "description": "一个基于Web的白板应用程序，提供标准CAD零件库。用户可以将零件添加到画布上并实时自定义其尺寸。",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
