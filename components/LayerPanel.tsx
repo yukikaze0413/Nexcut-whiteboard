@@ -1,5 +1,5 @@
 import React, { useState, useEffect, KeyboardEvent } from 'react';
-import type { Layer } from '../types';
+import type { Layer, PrintingMethod } from '../types';
 
 interface LayerPanelProps {
   layers: Layer[];
@@ -86,6 +86,16 @@ const LayerItem: React.FC<{
             {layer.name}
           </span>
         )}
+        {/* 新增打印方式下拉框 */}
+        <select
+          value={layer.printingMethod || 'scan'}
+          onChange={e => { e.stopPropagation(); onUpdate({ printingMethod: e.target.value as PrintingMethod }); }}
+          className="ml-2 bg-white border border-gray-300 rounded px-1 text-xs"
+          title="打印方式"
+        >
+          <option value="scan">扫描</option>
+          <option value="engrave">雕刻</option>
+        </select>
       </div>
       <div className={`flex items-center gap-1 transition-opacity opacity-0 ${isEditing ? '' : 'group-hover:opacity-100'}`}>
           <button onClick={(e) => { e.stopPropagation(); onMove('up'); }} disabled={isTop} className="p-1 rounded hover:bg-gray-200 disabled:opacity-25" title="上移"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg></button>

@@ -9,6 +9,7 @@ interface ToolbarProps {
   onUndo: () => void;
   canUndo: boolean;
   onImportFile?: (file: { name: string; ext: string; content: string }) => void;
+  onNext: () => void;
 }
 
 const tools = [
@@ -25,7 +26,7 @@ const categoryTools = [
     { type: 'PART_LIBRARY' as const, name: '零件库', icon: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M11 3H3v8h8V3zm10 0h-8v8h8V3zM3 21h8v-8H3v8zm10 0h8v-8h-8v8z" /></svg> },
 ];
 
-const Toolbar: React.FC<ToolbarProps> = ({ onOpenCategoryPicker, onAddImage, activeTool, onSetTool, onUndo, canUndo, onImportFile }) => {
+const Toolbar: React.FC<ToolbarProps> = ({ onOpenCategoryPicker, onAddImage, activeTool, onSetTool, onUndo, canUndo, onImportFile, onNext }) => {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -135,6 +136,13 @@ const Toolbar: React.FC<ToolbarProps> = ({ onOpenCategoryPicker, onAddImage, act
           accept=".dxf,.svg,.plt"
           onChange={handleImport}
         />
+        {/* 新增“下一步”按钮 */}
+        <button
+          onClick={onNext}
+          className="ml-6 px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-md text-base transition-colors"
+        >
+          下一步
+        </button>
     </div>
   );
 };

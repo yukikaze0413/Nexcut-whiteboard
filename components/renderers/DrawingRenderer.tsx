@@ -6,9 +6,7 @@ interface DrawingRendererProps {
   isSelected: boolean;
 }
 
-const pointsToString = (points: { x: number; y: number }[]) => {
-  return points.map(p => `${p.x},${p.y}`).join(' ');
-};
+
 
 const DrawingRenderer: React.FC<DrawingRendererProps> = ({ drawing, isSelected }) => {
   const { points, color, strokeWidth, fillColor } = drawing;

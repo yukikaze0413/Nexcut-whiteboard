@@ -124,7 +124,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
          onUpdateItem(dragState.id, { x: initialItem.x + dx, y: initialItem.y + dy });
       }
     } else if (drawingState) {
-      setDrawingState(prev => ({ ...prev, points: [...prev.points, pos] }));
+      setDrawingState(prev => (prev ? { ...prev, points: [...prev.points, pos] } : null));
     } else if (panState) {
         const dx = event.clientX - panState.startClient.x;
         const dy = event.clientY - panState.startClient.y;

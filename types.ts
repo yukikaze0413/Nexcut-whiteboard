@@ -28,10 +28,16 @@ export enum CanvasItemType {
   IMAGE = 'IMAGE',
 }
 
+export enum PrintingMethod {
+  SCAN = 'scan',
+  ENGRAVE = 'engrave',
+}
+
 export interface Layer {
   id: string;
   name: string;
   isVisible: boolean;
+  printingMethod: PrintingMethod;
 }
 
 export interface PartParameters {

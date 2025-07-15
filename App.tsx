@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import type { CanvasItem, CanvasItemData, PartType, Layer, Part, ImageObject } from './types';
-import { CanvasItemType, ToolType } from './types';
+import { CanvasItemType, ToolType, PrintingMethod } from './types';
 import { PART_LIBRARY, BASIC_SHAPES } from './constants';
 import Toolbar from './components/Toolbar';
 import Canvas from './components/Canvas';
@@ -59,9 +59,16 @@ function getGroupBoundingBox(items: CanvasItemData[]): {minX: number, minY: numb
 const MAX_HISTORY = 50;
 const ALL_PARTS = [...BASIC_SHAPES, ...PART_LIBRARY];
 
-const App: React.FC = () => {
+// 1. 定义AppProps接口，支持canvasWidth和canvasHeight
+interface AppProps {
+  canvasWidth?: number;
+  canvasHeight?: number;
+}
+
+// 2. App组件支持props传入宽高，默认500
+const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
   const firstLayerId = `layer_${Date.now()}`;
-  const [layers, setLayers] = useState<Layer[]>([{ id: firstLayerId, name: '图层 1', isVisible: true }]);
+  const [layers, setLayers] = useState<Layer[]>([{ id: firstLayerId, name: '图层 1', isVisible: true, printingMethod: PrintingMethod.SCAN }]);
   const [items, setItems] = useState<CanvasItem[]>([]);
   const [history, setHistory] = useState<[Layer[], CanvasItem[]][]>([]);
   
@@ -70,8 +77,7 @@ const App: React.FC = () => {
   const [activeTool, setActiveTool] = useState<ToolType>(ToolType.SELECT);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
 
-  const canvasWidth = 500;
-  const canvasHeight = 500;
+  // 移除原有的const canvasWidth = 500; const canvasHeight = 500;
   
   const pushHistory = useCallback((currentLayers: Layer[], currentItems: CanvasItem[]) => {
     setHistory(prev => [...prev.slice(prev.length - MAX_HISTORY + 1), [currentLayers, currentItems]]);
@@ -157,7 +163,7 @@ const App: React.FC = () => {
   // Layer Management
   const addLayer = useCallback(() => {
     pushHistory(layers, items);
-    const newLayer: Layer = { id: `layer_${Date.now()}`, name: `图层 ${layers.length + 1}`, isVisible: true };
+    const newLayer: Layer = { id: `layer_${Date.now()}`, name: `图层 ${layers.length + 1}`, isVisible: true, printingMethod: PrintingMethod.SCAN };
     setLayers(prev => [newLayer, ...prev]);
     setActiveLayerId(newLayer.id);
   }, [layers, items, pushHistory]);
@@ -635,6 +641,58 @@ const App: React.FC = () => {
     alert('不支持的文件类型');
   }, [addItems, parseSvgWithSvgson]);
 
+  // 分图层导出预览
+  const handleNext = async () => {
+    // 1. 获取每个图层的items
+    const layerData = await Promise.all(layers.map(async layer => {
+      // 只导出可见图层
+      if (!layer.isVisible) return null;
+      // 只导出当前图层的items
+      const layerItems = items.filter(item => item.layerId === layer.id);
+      // 构造SVG字符串
+      const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${canvasWidth}' height='${canvasHeight}' viewBox='0 0 ${canvasWidth} ${canvasHeight}'>` +
+        `<g>${document.querySelectorAll(`[data-layer-id='${layer.id}']`)[0]?.innerHTML || ''}</g></svg>`;
+      // SVG转图片
+      const imgUrl = await new Promise(resolve => {
+        const img = new window.Image();
+        const svgBlob = new Blob([svg], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(svgBlob);
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = canvasWidth;
+          canvas.height = canvasHeight;
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.drawImage(img, 0, 0);
+          URL.revokeObjectURL(url);
+          resolve(canvas.toDataURL('image/png'));
+        };
+        img.src = url;
+      });
+      return {
+        id: layer.id,
+        name: layer.name,
+        printingMethod: layer.printingMethod,
+        bitmap: imgUrl
+      };
+    }));
+    // 过滤掉不可见图层
+    const filtered = layerData.filter(Boolean);
+    // 弹窗预览
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.write('<html><head><title>分图层导出预览</title></head><body style="font-family:sans-serif">');
+      win.document.write('<h2>分图层导出预览</h2>');
+      filtered.forEach(layer => {
+        if (!layer) return;
+        win.document.write(`<div style="margin-bottom:32px"><h3>${layer.name}（打印方式：${layer.printingMethod}）</h3><img src="${layer.bitmap}" style="max-width:400px;border:1px solid #ccc;"/></div>`);
+      });
+      win.document.write('</body></html>');
+      win.document.close();
+    } else {
+      alert('无法打开新窗口，请检查浏览器设置');
+    }
+  };
+
   const selectedItem = items.find(p => p.id === selectedItemId) || null;
 
   return (
@@ -664,6 +722,7 @@ const App: React.FC = () => {
                     onUndo={undo}
                     canUndo={history.length > 0}
                     onImportFile={handleImportFile}
+                    onNext={handleNext}
                 />
             </footer>
         </div>
@@ -704,5 +763,14 @@ const App: React.FC = () => {
     </div>
   );
 };
+
+// 声明window.Android类型
+declare global {
+  interface Window {
+    Android?: {
+      onNextStep?: (data: string) => void;
+    };
+  }
+}
 
 export default App;

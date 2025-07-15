@@ -1,7 +1,7 @@
 import React from 'react';
 import { BASIC_SHAPES, PART_LIBRARY } from '../constants';
 import type { PartDefinition } from '../types';
-import { CanvasItemType } from '../types';
+
 
 interface CategoryPickerProps {
   category: string;
