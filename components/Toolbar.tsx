@@ -43,6 +43,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ onOpenCategoryPicker, onAddImage, act
       };
       reader.readAsDataURL(file);
     }
+    event.currentTarget.value = ''; 
   };
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -63,6 +64,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ onOpenCategoryPicker, onAddImage, act
       }
     };
     reader.readAsText(file);
+    event.currentTarget.value = ''; 
   };
 
   const ToolButton: React.FC<{
