@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 export enum ToolType {
   SELECT = 'SELECT',
   PEN = 'PEN',
+  ERASER = 'ERASER',
   TEXT = 'TEXT',
 }
 

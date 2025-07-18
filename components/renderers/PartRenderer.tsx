@@ -7,15 +7,151 @@ interface PartRendererProps {
   isSelected: boolean;
 }
 
+// 新增 SelectionBox 组件
+interface SelectionBoxProps {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+}
+const SelectionBox: React.FC<SelectionBoxProps> = ({ x, y, width, height, rotation }) => (
+  <rect
+    x={x - width / 2}
+    y={y - height / 2}
+    width={width}
+    height={height}
+    fill="none"
+    stroke="#2563eb"
+    strokeWidth={2}
+    strokeDasharray="6,4"
+    pointerEvents="none"
+    transform={`rotate(${rotation}, ${x}, ${y})`}
+  />
+);
+
 const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
-  const strokeColor = isSelected ? '#34d399' : '#1f2937'; // Emerald-400 or Gray-800 for "black"
-  const strokeWidth = isSelected ? 2 : 1;
+  const strokeColor = '#1f2937'; // 始终为默认色
+  const strokeWidth = 1;
   const fillColor = 'none';
 
   const { parameters, rotation } = part;
   const transform = `rotate(${rotation})`;
   
   const HITBOX_STROKE_WIDTH = 20;
+  const ENLARGE = 8; // 包络盒放大像素
+
+  // 修改 getBoundingBox，返回 {x, y, width, height, rotation}
+  function getBoundingBox() {
+    switch (part.type) {
+      case CanvasItemType.RECTANGLE:
+      case CanvasItemType.RECTANGLE_WITH_HOLES: {
+        const { width = 100, height = 60 } = parameters;
+        return {
+          x: 0,
+          y: 0,
+          width: width + ENLARGE,
+          height: height + ENLARGE,
+          rotation: rotation || 0,
+        };
+      }
+      case CanvasItemType.CIRCLE:
+      case CanvasItemType.CIRCLE_WITH_HOLES: {
+        const { radius = 40 } = parameters;
+        return {
+          x: 0,
+          y: 0,
+          width: radius * 2 + ENLARGE,
+          height: radius * 2 + ENLARGE,
+          rotation: rotation || 0,
+        };
+      }
+      case CanvasItemType.LINE: {
+        const { length = 100 } = parameters;
+        return {
+          x: 0,
+          y: 0,
+          width: length + ENLARGE,
+          height: ENLARGE + 4,
+          rotation: rotation || 0,
+        };
+      }
+      case CanvasItemType.POLYLINE: {
+        const { seg1 = 40, seg2 = 50, angle = 135, seg3 = 40 } = parameters;
+        const rad = ((180 - angle) * Math.PI) / 180;
+        const p0 = { x: 0, y: 0 };
+        const p1 = { x: p0.x + seg1, y: p0.y };
+        const p2 = { x: p1.x + seg2 * Math.cos(rad), y: p1.y - seg2 * Math.sin(rad) };
+        const p3 = { x: p2.x + seg3, y: p2.y };
+        const allPoints = [p0, p1, p2, p3];
+        const minX = Math.min(...allPoints.map(p => p.x));
+        const maxX = Math.max(...allPoints.map(p => p.x));
+        const minY = Math.min(...allPoints.map(p => p.y));
+        const maxY = Math.max(...allPoints.map(p => p.y));
+        return {
+          x: (minX + maxX) / 2,
+          y: (minY + maxY) / 2,
+          width: (maxX - minX) + ENLARGE,
+          height: (maxY - minY) + ENLARGE,
+          rotation: rotation || 0,
+        };
+      }
+      case CanvasItemType.ARC:
+      case CanvasItemType.SECTOR: {
+        const { radius = 50 } = parameters;
+        return {
+          x: 0,
+          y: 0,
+          width: radius * 2 + ENLARGE,
+          height: radius * 2 + ENLARGE,
+          rotation: rotation || 0,
+        };
+      }
+      case CanvasItemType.L_BRACKET:
+      case CanvasItemType.U_CHANNEL: {
+        const { width = 80, height = 80 } = parameters;
+        return {
+          x: 0,
+          y: 0,
+          width: width + ENLARGE,
+          height: height + ENLARGE,
+          rotation: rotation || 0,
+        };
+      }
+      case CanvasItemType.FLANGE:
+      case CanvasItemType.TORUS: {
+        const { outerDiameter = 120, outerRadius = 60 } = parameters;
+        const r = outerDiameter ? outerDiameter / 2 : (outerRadius || 60);
+        return {
+          x: 0,
+          y: 0,
+          width: r * 2 + ENLARGE,
+          height: r * 2 + ENLARGE,
+          rotation: rotation || 0,
+        };
+      }
+      case CanvasItemType.EQUILATERAL_TRIANGLE:
+      case CanvasItemType.ISOSCELES_RIGHT_TRIANGLE: {
+        const { sideLength = 80, legLength = 80 } = parameters;
+        const s = sideLength || legLength;
+        return {
+          x: 0,
+          y: 0,
+          width: s + ENLARGE,
+          height: s + ENLARGE,
+          rotation: rotation || 0,
+        };
+      }
+      default:
+        return null;
+    }
+  }
+
+  // 调试输出
+  if (isSelected) {
+    // eslint-disable-next-line no-console
+    console.log('包络盒调试', part.type, part, parameters);
+  }
 
   const renderWithHitbox = <T extends SVGElement>(visual: React.ReactElement<React.SVGProps<T>>, hitbox?: React.ReactElement) => {
     const hitboxElement = hitbox ?? React.cloneElement(visual, {
@@ -45,7 +181,15 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
           stroke={strokeColor}
           strokeWidth={strokeWidth}
         />;
-      return renderWithHitbox(rect);
+      const bbox = getBoundingBox();
+      return (
+        <g>
+          {isSelected && bbox && (
+            <SelectionBox {...bbox} />
+          )}
+          {renderWithHitbox(rect)}
+        </g>
+      );
     }
     case CanvasItemType.CIRCLE: {
       const { radius = 40 } = parameters;
@@ -57,18 +201,28 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
           stroke={strokeColor}
           strokeWidth={strokeWidth}
         />;
-        return renderWithHitbox(circle);
+      const bbox = getBoundingBox();
+      return (
+        <g>
+          {isSelected && bbox && (
+            <SelectionBox {...bbox} />
+          )}
+          {renderWithHitbox(circle)}
+        </g>
+      );
     }
      case CanvasItemType.LINE: {
       const { length = 100 } = parameters;
-      const line = <path
-          d={`M ${-length / 2} 0 L ${length / 2} 0`}
-          fill="none"
-          stroke={strokeColor}
-          strokeWidth={strokeWidth * 2}
-          strokeLinecap="round"
-        />
-      return renderWithHitbox(line);
+      const d = `M ${-length / 2} 0 L ${length / 2} 0`;
+      const bbox = getBoundingBox();
+      return (
+        <g>
+          {isSelected && bbox && (
+            <SelectionBox {...bbox} />
+          )}
+          {renderWithHitbox(<path d={d} fill="none" stroke={strokeColor} strokeWidth={strokeWidth * 2} strokeLinecap="round" />)}
+        </g>
+      );
     }
     case CanvasItemType.POLYLINE: {
       const { seg1 = 40, seg2 = 50, angle = 135, seg3 = 40 } = parameters;
@@ -94,16 +248,15 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
       const pathData = allPoints.map((p, i) =>
           `${i === 0 ? 'M' : 'L'} ${p.x + offsetX} ${p.y + offsetY}`
       ).join(' ');
-
-      const polyline = <path
-          d={pathData}
-          fill="none"
-          stroke={strokeColor}
-          strokeWidth={strokeWidth * 2}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-      return renderWithHitbox(polyline);
+      const bbox = getBoundingBox();
+      return (
+        <g>
+          {isSelected && bbox && (
+            <SelectionBox {...bbox} />
+          )}
+          {renderWithHitbox(<path d={pathData} fill="none" stroke={strokeColor} strokeWidth={strokeWidth * 2} strokeLinejoin="round" strokeLinecap="round" />)}
+        </g>
+      );
     }
     case CanvasItemType.ARC: {
       const { radius = 50, startAngle = -90, sweepAngle = 180 } = parameters;
@@ -121,15 +274,15 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
       const sweepFlag = sweepAngle > 0 ? 1 : 0;
 
       const pathData = `M ${sx} ${sy} A ${radius} ${radius} 0 ${largeArcFlag} ${sweepFlag} ${ex} ${ey}`;
-
-      const arc = <path
-          d={pathData}
-          fill="none"
-          stroke={strokeColor}
-          strokeWidth={strokeWidth * 2}
-          strokeLinecap="round"
-        />
-      return renderWithHitbox(arc);
+      const bbox = getBoundingBox();
+      return (
+        <g>
+          {isSelected && bbox && (
+            <SelectionBox {...bbox} />
+          )}
+          {renderWithHitbox(<path d={pathData} fill="none" stroke={strokeColor} strokeWidth={strokeWidth * 2} strokeLinecap="round" />)}
+        </g>
+      );
     }
     case CanvasItemType.SECTOR: {
       const { radius = 50, startAngle = -90, sweepAngle = 90 } = parameters;
@@ -147,22 +300,15 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
       const sweepFlag = sweepAngle > 0 ? 1 : 0;
 
       const pathData = `M 0 0 L ${sx} ${sy} A ${radius} ${radius} 0 ${largeArcFlag} ${sweepFlag} ${ex} ${ey} Z`;
-
-      const sector = <path
-          d={pathData}
-          fill={fillColor}
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-          strokeLinejoin="round"
-        />
-      const hitbox = <path
-          d={pathData}
-          fill="transparent"
-          stroke="transparent"
-          strokeWidth={HITBOX_STROKE_WIDTH}
-          strokeLinejoin="round"
-        />
-      return renderWithHitbox(sector, hitbox);
+      const bbox = getBoundingBox();
+      return (
+        <g>
+          {isSelected && bbox && (
+            <SelectionBox {...bbox} />
+          )}
+          {renderWithHitbox(<path d={pathData} fill={fillColor} stroke={strokeColor} strokeWidth={strokeWidth} strokeLinejoin="round" />)}
+        </g>
+      );
     }
     case CanvasItemType.L_BRACKET: {
       const { width = 80, height = 80, thickness = 15 } = parameters;
@@ -175,21 +321,15 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
         L ${-width/2} ${height/2}
         Z
       `;
-      const bracket = <path
-          d={pathData}
-          fill={fillColor}
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-          strokeLinejoin="round"
-        />
-      const hitbox = <path
-          d={pathData}
-          fill="transparent"
-          stroke="transparent"
-          strokeWidth={HITBOX_STROKE_WIDTH}
-          strokeLinejoin="round"
-        />;
-      return renderWithHitbox(bracket, hitbox);
+      const bbox = getBoundingBox();
+      return (
+        <g>
+          {isSelected && bbox && (
+            <SelectionBox {...bbox} />
+          )}
+          {renderWithHitbox(<path d={pathData} fill={fillColor} stroke={strokeColor} strokeWidth={strokeWidth} strokeLinejoin="round" />)}
+        </g>
+      );
     }
     case CanvasItemType.U_CHANNEL: {
       const { width = 80, height = 100, thickness = 10 } = parameters;
@@ -204,21 +344,15 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
         L ${-width/2} ${height/2}
         Z
       `;
-      const channel = <path
-          d={simplePathData}
-          fill={fillColor}
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-          strokeLinejoin="round"
-        />
-      const hitbox = <path
-          d={simplePathData}
-          fill="transparent"
-          stroke="transparent"
-          strokeWidth={HITBOX_STROKE_WIDTH}
-          strokeLinejoin="round"
-        />;
-      return renderWithHitbox(channel, hitbox);
+      const bbox = getBoundingBox();
+      return (
+        <g>
+          {isSelected && bbox && (
+            <SelectionBox {...bbox} />
+          )}
+          {renderWithHitbox(<path d={simplePathData} fill={fillColor} stroke={strokeColor} strokeWidth={strokeWidth} strokeLinejoin="round" />)}
+        </g>
+      );
     }
     case CanvasItemType.FLANGE: {
       const {
@@ -248,23 +382,15 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
         pathData += ` Z`;
       }
 
-      const flange = <path
-          d={pathData}
-          fill={fillColor}
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-          fillRule="evenodd"
-          strokeLinejoin="round"
-        />;
-      const hitbox = <path
-          d={pathData}
-          fill="transparent"
-          stroke="transparent"
-          strokeWidth={HITBOX_STROKE_WIDTH}
-          fillRule="evenodd"
-          strokeLinejoin="round"
-      />;
-      return renderWithHitbox(flange, hitbox);
+      const bbox = getBoundingBox();
+      return (
+        <g>
+          {isSelected && bbox && (
+            <SelectionBox {...bbox} />
+          )}
+          {renderWithHitbox(<path d={pathData} fill={fillColor} stroke={strokeColor} strokeWidth={strokeWidth} fillRule="evenodd" strokeLinejoin="round" />)}
+        </g>
+      );
     }
     case CanvasItemType.TORUS: {
       const { outerRadius = 60, innerRadius = 30 } = parameters;
@@ -273,21 +399,15 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
         `M ${-outerRadius}, 0 A ${outerRadius},${outerRadius} 0 1,1 ${outerRadius},0 A ${outerRadius},${outerRadius} 0 1,1 ${-outerRadius},0 Z` +
         // Inner circle
         `M ${-innerRadius}, 0 A ${innerRadius},${innerRadius} 0 1,1 ${innerRadius},0 A ${innerRadius},${innerRadius} 0 1,1 ${-innerRadius},0 Z`;
-      const torus = <path
-          d={pathData}
-          fill={fillColor}
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-          fillRule="evenodd"
-        />
-      const hitbox = <path
-          d={pathData}
-          fill="transparent"
-          stroke="transparent"
-          strokeWidth={HITBOX_STROKE_WIDTH}
-          fillRule="evenodd"
-        />;
-      return renderWithHitbox(torus, hitbox);
+      const bbox = getBoundingBox();
+      return (
+        <g>
+          {isSelected && bbox && (
+            <SelectionBox {...bbox} />
+          )}
+          {renderWithHitbox(<path d={pathData} fill={fillColor} stroke={strokeColor} strokeWidth={strokeWidth} fillRule="evenodd" />)}
+        </g>
+      );
     }
     case CanvasItemType.EQUILATERAL_TRIANGLE: {
       const { sideLength = 80 } = parameters;
@@ -297,21 +417,15 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
       const p2 = { x: -sideLength / 2, y: (1/3) * h };
       const p3 = { x: sideLength / 2, y: (1/3) * h };
       const pathData = `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y} L ${p3.x} ${p3.y} Z`;
-      const triangle = <path
-          d={pathData}
-          fill={fillColor}
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-          strokeLinejoin="round"
-        />;
-      const hitbox = <path
-          d={pathData}
-          fill="transparent"
-          stroke="transparent"
-          strokeWidth={HITBOX_STROKE_WIDTH}
-          strokeLinejoin="round"
-        />;
-      return renderWithHitbox(triangle, hitbox);
+      const bbox = getBoundingBox();
+      return (
+        <g>
+          {isSelected && bbox && (
+            <SelectionBox {...bbox} />
+          )}
+          {renderWithHitbox(<path d={pathData} fill={fillColor} stroke={strokeColor} strokeWidth={strokeWidth} strokeLinejoin="round" />)}
+        </g>
+      );
     }
     case CanvasItemType.ISOSCELES_RIGHT_TRIANGLE: {
         const { legLength = 80 } = parameters;
@@ -321,21 +435,15 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
         const p2 = { x: (2 * l) / 3, y: -l / 3 }; // top-right
         const p3 = { x: -l / 3, y: (2 * l) / 3 }; // bottom-left
         const pathData = `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y} L ${p3.x} ${p3.y} Z`;
-        const triangle = <path
-            d={pathData}
-            fill={fillColor}
-            stroke={strokeColor}
-            strokeWidth={strokeWidth}
-            strokeLinejoin="round"
-          />;
-        const hitbox = <path
-            d={pathData}
-            fill="transparent"
-            stroke="transparent"
-            strokeWidth={HITBOX_STROKE_WIDTH}
-            strokeLinejoin="round"
-          />;
-        return renderWithHitbox(triangle, hitbox);
+        const bbox = getBoundingBox();
+        return (
+          <g>
+            {isSelected && bbox && (
+              <SelectionBox {...bbox} />
+            )}
+            {renderWithHitbox(<path d={pathData} fill={fillColor} stroke={strokeColor} strokeWidth={strokeWidth} strokeLinejoin="round" />)}
+          </g>
+        );
       }
     case CanvasItemType.CIRCLE_WITH_HOLES: {
       const { radius = 80, holeRadius = 8, holeCount = 4, holeDistance = 50 } = parameters;
@@ -347,21 +455,15 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
         const holeY = holeDistance * Math.sin(angle);
         pathData += ` M ${holeX + holeRadius},${holeY} A ${holeRadius},${holeRadius} 0 1,1 ${holeX - holeRadius},${holeY} A ${holeRadius},${holeRadius} 0 1,1 ${holeX + holeRadius},${holeY} Z`;
       }
-      const item = <path
-          d={pathData}
-          fill={fillColor}
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-          fillRule="evenodd"
-        />;
-      const hitbox = <path
-          d={pathData}
-          fill="transparent"
-          stroke="transparent"
-          strokeWidth={HITBOX_STROKE_WIDTH}
-          fillRule="evenodd"
-        />;
-      return renderWithHitbox(item, hitbox);
+      const bbox = getBoundingBox();
+      return (
+        <g>
+          {isSelected && bbox && (
+            <SelectionBox {...bbox} />
+          )}
+          {renderWithHitbox(<path d={pathData} fill={fillColor} stroke={strokeColor} strokeWidth={strokeWidth} fillRule="evenodd" />)}
+        </g>
+      );
     }
     case CanvasItemType.RECTANGLE_WITH_HOLES: {
       const { width = 120, height = 80, holeRadius = 8, horizontalMargin = 20, verticalMargin = 20 } = parameters;
@@ -377,21 +479,15 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
       holePositions.forEach(pos => {
         pathData += ` M ${pos.x + holeRadius},${pos.y} A ${holeRadius},${holeRadius} 0 1,1 ${pos.x - holeRadius},${pos.y} A ${holeRadius},${holeRadius} 0 1,1 ${pos.x + holeRadius},${pos.y} Z`;
       });
-      const item = <path
-          d={pathData}
-          fill={fillColor}
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-          fillRule="evenodd"
-        />;
-      const hitbox = <path
-          d={pathData}
-          fill="transparent"
-          stroke="transparent"
-          strokeWidth={HITBOX_STROKE_WIDTH}
-          fillRule="evenodd"
-        />;
-      return renderWithHitbox(item, hitbox);
+      const bbox = getBoundingBox();
+      return (
+        <g>
+          {isSelected && bbox && (
+            <SelectionBox {...bbox} />
+          )}
+          {renderWithHitbox(<path d={pathData} fill={fillColor} stroke={strokeColor} strokeWidth={strokeWidth} fillRule="evenodd" />)}
+        </g>
+      );
     }
     default:
       return null;

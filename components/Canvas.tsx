@@ -3,6 +3,7 @@ import type { CanvasItem, CanvasItemData, Layer, Drawing, TextObject } from '../
 import { ToolType, CanvasItemType } from '../types';
 import CanvasItemRenderer from './renderers/CanvasItemRenderer';
 import Ruler from './Ruler';
+import HomeIcon from '../assets/回零.svg';
 
 interface CanvasProps {
   items: CanvasItem[];
@@ -15,17 +16,66 @@ interface CanvasProps {
   activeTool: ToolType;
   canvasWidth: number;
   canvasHeight: number;
+  setItems: React.Dispatch<React.SetStateAction<CanvasItem[]>>; // 新增
+  eraserRadius: number;
 }
 
 const RULER_SIZE = 30; // in pixels
 
-const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelectItem, onUpdateItem, onAddItem, onCommitUpdate, activeTool, canvasWidth, canvasHeight }) => {
+// 辅助函数：计算点到线段的最小距离
+function pointToSegmentDistance(px: number, py: number, x1: number, y1: number, x2: number, y2: number) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  if (dx === 0 && dy === 0) {
+    // 退化为点
+    return Math.hypot(px - x1, py - y1);
+  }
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
+  const projX = x1 + t * dx;
+  const projY = y1 + t * dy;
+  return Math.hypot(px - projX, py - projY);
+}
+// 新增：在一条线段上用二分法找到与圆交点
+function findCircleSegmentIntersection(
+  px: number, py: number, r: number,
+  x1: number, y1: number, x2: number, y2: number,
+  tol: number = 0.5
+): { x: number; y: number } | null {
+  let t0 = 0, t1 = 1;
+  let found = false;
+  let mid = 0.5;
+  let pA = { x: x1, y: y1 };
+  let pB = { x: x2, y: y2 };
+  // 只在距离小于r的区间内细分
+  for (let i = 0; i < 20; i++) {
+    mid = (t0 + t1) / 2;
+    const x = x1 + (x2 - x1) * mid;
+    const y = y1 + (y2 - y1) * mid;
+    const d = Math.hypot(x - px, y - py);
+    if (Math.abs(d - r) < tol) {
+      found = true;
+      return { x, y };
+    }
+    if (d > r) {
+      t1 = mid;
+    } else {
+      t0 = mid;
+    }
+  }
+  if (found) return { x: x1 + (x2 - x1) * mid, y: y1 + (y2 - y1) * mid };
+  return null;
+}
+
+const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelectItem, onUpdateItem, onAddItem, onCommitUpdate, activeTool, canvasWidth, canvasHeight, setItems, eraserRadius }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const svgContainerRef = useRef<HTMLDivElement>(null);
   
   const [dragState, setDragState] = useState<{ id: string; initialItem: CanvasItem; startPos: { x: number; y: number } } | null>(null);
   const [drawingState, setDrawingState] = useState<{ points: {x:number, y:number}[] } | null>(null);
   const [panState, setPanState] = useState<{ startClient: { x: number, y: number }, startViewBox: { x: number, y: number } } | null>(null);
+  const [eraserState, setEraserState] = useState<{ lastPos: { x: number; y: number } | null } | null>(null);
+  // 新增：记录橡皮擦指针位置
+  const [eraserPos, setEraserPos] = useState<{x:number, y:number} | null>(null);
 
   const [viewBox, setViewBox] = useState({ x: 0, y: 0 });
   const [canvasSize, setCanvasSize] = useState({ width: 1, height: 1 });
@@ -42,6 +92,13 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
     }
     return () => resizeObserver.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (activeTool !== ToolType.ERASER) {
+      setEraserPos(null);
+      setEraserState(null);
+    }
+  }, [activeTool]);
 
   const getPointerPosition = (event: React.PointerEvent | React.MouseEvent): { x: number; y: number } => {
     if (!svgRef.current) return { x: 0, y: 0 };
@@ -102,6 +159,11 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
           rotation: 0,
         } as Omit<TextObject, 'id' | 'layerId'>);
         break;
+
+      case ToolType.ERASER:
+        setEraserState({ lastPos: pos });
+        setEraserPos(pos); // 记录橡皮擦位置
+        break;
     }
   }, [activeTool, onSelectItem, items, layers, onAddItem, viewBox, selectedItemId]);
 
@@ -110,6 +172,8 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
       setDragState(null);
       setDrawingState(null);
       setPanState(null);
+      setEraserState(null);
+      setEraserPos(null); // 松开时隐藏橡皮擦圈
       return;
     };
     
@@ -125,6 +189,55 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
       }
     } else if (drawingState) {
       setDrawingState(prev => (prev ? { ...prev, points: [...prev.points, pos] } : null));
+    } else if (eraserState) {
+      setEraserPos(pos); // 跟随橡皮擦
+      let changed = false;
+      let newItems: CanvasItem[] = items;
+      items.forEach(item => {
+        if (item.type === CanvasItemType.DRAWING) {
+          const globalPoints = item.points.map(p => ({ x: (item.x ?? 0) + p.x, y: (item.y ?? 0) + p.y }));
+          let seg: typeof globalPoints = [globalPoints[0]];
+          const segments: typeof globalPoints[] = [];
+          for (let i = 0; i < globalPoints.length - 1; i++) {
+            const p1 = globalPoints[i];
+            const p2 = globalPoints[i + 1];
+            const dist = pointToSegmentDistance(pos.x, pos.y, p1.x, p1.y, p2.x, p2.y);
+            if (dist < eraserRadius) {
+              // 细腻断开：在交点插入新点
+              const inter = findCircleSegmentIntersection(pos.x, pos.y, eraserRadius, p1.x, p1.y, p2.x, p2.y);
+              if (inter) {
+                seg.push(inter);
+              }
+              if (seg.length > 1) segments.push(seg);
+              seg = [p2];
+              changed = true;
+            } else {
+              seg.push(p2);
+            }
+          }
+          if (seg.length > 1) segments.push(seg);
+          if (changed) {
+            newItems = newItems.filter(it => it.id !== item.id);
+            segments.forEach(segPoints => {
+              if (segPoints.length > 1) {
+                const minX = Math.min(...segPoints.map(p => p.x));
+                const minY = Math.min(...segPoints.map(p => p.y));
+                newItems.push({
+                  ...item,
+                  id: `item_${Date.now()}_${Math.random()}`,
+                  x: minX,
+                  y: minY,
+                  points: segPoints.map(p => ({ x: p.x - minX, y: p.y - minY })),
+                });
+              }
+            });
+          }
+        }
+      });
+      if (changed) {
+        setEraserState({ lastPos: pos });
+        setItems(newItems); // 直接更新items
+      }
     } else if (panState) {
         const dx = event.clientX - panState.startClient.x;
         const dy = event.clientY - panState.startClient.y;
@@ -133,7 +246,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
             y: panState.startViewBox.y - dy
         });
     }
-  }, [dragState, drawingState, panState, onUpdateItem]);
+  }, [dragState, drawingState, panState, eraserState, items, onUpdateItem, setItems, eraserRadius]);
 
   const handlePointerUp = useCallback(() => {
     if (dragState) {
@@ -153,9 +266,14 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
         strokeWidth: 4,
       } as Omit<Drawing, 'id' | 'layerId'>);
     }
+    if (eraserState) {
+      onCommitUpdate();
+      setEraserState(null);
+    }
     setDrawingState(null);
     setPanState(null);
-  }, [dragState, drawingState, onAddItem, onCommitUpdate]);
+    setEraserPos(null); // 松开时隐藏橡皮擦圈
+  }, [dragState, drawingState, eraserState, onAddItem, onCommitUpdate]);
   
   const cursorClass = useMemo(() => {
     if (panState) return 'cursor-grabbing';
@@ -237,16 +355,24 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
                 strokeLinejoin="round"
               />
             )}
+            {activeTool === ToolType.ERASER && eraserPos && (
+              <circle
+                cx={eraserPos.x}
+                cy={eraserPos.y}
+                r={eraserRadius}
+                fill="rgba(0,0,0,0.08)"
+                stroke="#16a34a"
+                strokeWidth={2}
+                pointerEvents="none"
+              />
+            )}
           </svg>
           <button
               onClick={() => setViewBox({ x: 0, y: 0 })}
               className="absolute bottom-4 left-4 z-10 bg-white p-2 rounded-full shadow-md text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
               title="回到原点"
           >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 10l-4.95-4.95z" clipRule="evenodd" />
-                  <path d="M5.75 3a.75.75 0 00-1.5 0v3.5A.75.75 0 005 7.25H8.5a.75.75 0 000-1.5H5.75V3z" />
-              </svg>
+              <img src={HomeIcon} alt="回零" className="h-5 w-5" />
           </button>
         </div>
     </div>
