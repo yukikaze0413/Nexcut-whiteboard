@@ -3,7 +3,7 @@ import type { CanvasItem, CanvasItemData, Layer, Drawing, TextObject } from '../
 import { ToolType, CanvasItemType } from '../types';
 import CanvasItemRenderer from './renderers/CanvasItemRenderer';
 import Ruler from './Ruler';
-import HomeIcon from '../assets/回零.svg';
+import pointicon from '../assets/回零.svg'
 
 interface CanvasProps {
   items: CanvasItem[];
@@ -372,7 +372,11 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
               className="absolute bottom-4 left-4 z-10 bg-white p-2 rounded-full shadow-md text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
               title="回到原点"
           >
-              <img src={HomeIcon} alt="回零" className="h-5 w-5" />
+            <img src={pointicon} alt="回零" className="h-5 w-5" />
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 10l-4.95-4.95z" clipRule="evenodd" />
+                  <path d="M5.75 3a.75.75 0 00-1.5 0v3.5A.75.75 0 005 7.25H8.5a.75.75 0 000-1.5H5.75V3z" />
+              </svg>
           </button>
         </div>
     </div>
