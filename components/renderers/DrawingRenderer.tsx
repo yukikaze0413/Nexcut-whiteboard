@@ -1,40 +1,72 @@
 import React from 'react';
 import type { Drawing } from '../../types';
+// @ts-ignore
+import { findMinBoundingRect } from 'min-bounding-rectangle';
 
 interface DrawingRendererProps {
   drawing: Drawing;
   isSelected: boolean;
 }
 
+const pointsToString = (points: { x: number; y: number }[]) => {
+  return points.map(p => `${p.x},${p.y}`).join(' ');
+};
 
+const getCentroid = (points: { x: number; y: number }[]) => {
+  const n = points.length;
+  const sum = points.reduce(
+    (acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }),
+    { x: 0, y: 0 }
+  );
+  return { x: sum.x / n, y: sum.y / n };
+};
 
 const DrawingRenderer: React.FC<DrawingRendererProps> = ({ drawing, isSelected }) => {
   const { points, color, strokeWidth, fillColor } = drawing;
   const ENLARGE = 8;
   const HITBOX_STROKE_WIDTH = 20; // 点击区域宽度
   if (!points || points.length < 2) return null;
+
+  // 计算 OBB
+  const polygon = points.map(p => [p.x, p.y] as [number, number]);
+  let obb: [number, number][] = [];
+  try {
+    // @ts-ignore
+    obb = findMinBoundingRect(polygon);
+  } catch (e) {
+    // 兜底：如果计算失败，obb为空
+    obb = [];
+  }
+
+  // 计算 OBB 的中心、宽高、旋转角度
+  let obbRect = null;
+  if (obb.length >= 4) {
+    const [p1, p2, p3] = obb;
+    const centerX = (p1[0] + obb[2][0]) / 2;
+    const centerY = (p1[1] + obb[2][1]) / 2;
+    const width = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+    const height = Math.hypot(p3[0] - p2[0], p3[1] - p2[1]);
+    const angle = Math.atan2(p2[1] - p1[1], p2[0] - p1[0]) * 180 / Math.PI;
+    obbRect = { centerX, centerY, width, height, angle };
+  }
+
+  // 原始路径
   const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-  // 计算包络盒
-  const minX = Math.min(...points.map(p => p.x));
-  const maxX = Math.max(...points.map(p => p.x));
-  const minY = Math.min(...points.map(p => p.y));
-  const maxY = Math.max(...points.map(p => p.y));
-  const w = maxX - minX;
-  const h = maxY - minY;
-  const strokeExpand = (strokeWidth || 0) / 2;
+
   return (
     <g>
-      {isSelected && (
+      {isSelected && obbRect && (
         <rect
-          x={minX - ENLARGE / 2 - strokeExpand}
-          y={minY - ENLARGE / 2 - strokeExpand}
-          width={w + ENLARGE + strokeExpand * 2}
-          height={h + ENLARGE + strokeExpand * 2}
+          x={obbRect.centerX - obbRect.width / 2 - ENLARGE / 2}
+          y={obbRect.centerY - obbRect.height / 2 - ENLARGE / 2}
+          width={obbRect.width + ENLARGE}
+          height={obbRect.height + ENLARGE}
           fill="none"
           stroke="#2563eb"
           strokeWidth={2}
           strokeDasharray="6,4"
           pointerEvents="none"
+          transform={`rotate(${obbRect.angle}, ${obbRect.centerX}, ${obbRect.centerY})`}
         />
       )}
       {/* 透明的点击区域 */}

@@ -14,6 +14,7 @@
     "dxf-parser": "^1.1.2",
     "fabric": "^5.5.2",
     "hpgl": "^0.8.7-12",
+    "min-bounding-rectangle": "^1.1.3",
     "paper": "^0.12.18",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

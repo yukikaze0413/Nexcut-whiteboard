@@ -76,6 +76,11 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
   const [eraserState, setEraserState] = useState<{ lastPos: { x: number; y: number } | null } | null>(null);
   // 新增：记录橡皮擦指针位置
   const [eraserPos, setEraserPos] = useState<{x:number, y:number} | null>(null);
+  const [pinchState, setPinchState] = useState<null | {
+    startDistance: number;
+    startViewBox: { x: number; y: number; width: number; height: number };
+    isPinching: boolean;
+  }>(null);
 
   const [viewBox, setViewBox] = useState({ x: 0, y: 0 });
   const [canvasSize, setCanvasSize] = useState({ width: 1, height: 1 });
@@ -100,6 +105,69 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
     }
   }, [activeTool]);
 
+  // 计算两指距离
+  function getTouchDistance(touches: TouchList) {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // 监听touch事件
+  useEffect(() => {
+    const container = svgContainerRef.current;
+    if (!container) return;
+
+    function handleTouchStart(e: TouchEvent) {
+      if (e.touches.length === 2) {
+        // 记录初始距离和viewBox
+        setPinchState({
+          startDistance: getTouchDistance(e.touches),
+          startViewBox: { x: viewBox.x, y: viewBox.y, width: canvasSize.width, height: canvasSize.height },
+          isPinching: true,
+        });
+      }
+    }
+
+    function handleTouchMove(e: TouchEvent) {
+      if (pinchState && pinchState.isPinching && e.touches.length === 2) {
+        e.preventDefault(); // 禁止页面滚动
+        const newDistance = getTouchDistance(e.touches);
+        let scale = newDistance / pinchState.startDistance;
+        // 限制缩放比例
+        scale = Math.max(0.2, Math.min(5, scale));
+        // 以中心为缩放中心，调整viewBox宽高
+        const newWidth = pinchState.startViewBox.width / scale;
+        const newHeight = pinchState.startViewBox.height / scale;
+        // 保持中心点不变
+        const centerX = pinchState.startViewBox.x + pinchState.startViewBox.width / 2;
+        const centerY = pinchState.startViewBox.y + pinchState.startViewBox.height / 2;
+        setViewBox({
+          x: centerX - newWidth / 2,
+          y: centerY - newHeight / 2,
+        });
+        setCanvasSize({ width: newWidth, height: newHeight });
+      }
+    }
+
+    function handleTouchEnd(e: TouchEvent) {
+      if (e.touches.length < 2) {
+        setPinchState(null);
+      }
+    }
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: false });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd, { passive: false });
+    container.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [svgContainerRef, viewBox, canvasSize, pinchState]);
+
   const getPointerPosition = (event: React.PointerEvent | React.MouseEvent): { x: number; y: number } => {
     if (!svgRef.current) return { x: 0, y: 0 };
     const CTM = svgRef.current.getScreenCTM();
@@ -110,6 +178,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
   };
   
   const handlePointerDown = useCallback((event: React.PointerEvent) => {
+    if (pinchState?.isPinching) return;
     const pos = getPointerPosition(event);
     const target = event.target as SVGElement;
     const itemId = (event.target as SVGElement).closest('[data-item-id]')?.getAttribute('data-item-id');
@@ -165,9 +234,10 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
         setEraserPos(pos); // 记录橡皮擦位置
         break;
     }
-  }, [activeTool, onSelectItem, items, layers, onAddItem, viewBox, selectedItemId]);
+  }, [activeTool, onSelectItem, items, layers, onAddItem, viewBox, selectedItemId, pinchState]);
 
   const handlePointerMove = useCallback((event: React.PointerEvent) => {
+    if (pinchState?.isPinching) return;
     if (event.buttons !== 1) {
       setDragState(null);
       setDrawingState(null);
@@ -246,9 +316,10 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
             y: panState.startViewBox.y - dy
         });
     }
-  }, [dragState, drawingState, panState, eraserState, items, onUpdateItem, setItems, eraserRadius]);
+  }, [dragState, drawingState, panState, eraserState, items, onUpdateItem, setItems, eraserRadius, pinchState]);
 
   const handlePointerUp = useCallback(() => {
+    if (pinchState?.isPinching) return;
     if (dragState) {
       onCommitUpdate();
       setDragState(null);
@@ -273,7 +344,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
     setDrawingState(null);
     setPanState(null);
     setEraserPos(null); // 松开时隐藏橡皮擦圈
-  }, [dragState, drawingState, eraserState, onAddItem, onCommitUpdate]);
+  }, [dragState, drawingState, eraserState, onAddItem, onCommitUpdate, pinchState]);
   
   const cursorClass = useMemo(() => {
     if (panState) return 'cursor-grabbing';
@@ -286,17 +357,10 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
   }, [activeTool, panState]);
 
   return (
-    <div className="flex-1 bg-white grid grid-cols-[auto_1fr] grid-rows-[auto_1fr] overflow-hidden">
-        <div className="bg-gray-50 border-r border-b border-gray-200" style={{width: RULER_SIZE, height: RULER_SIZE}} />
-        <div className="overflow-hidden relative bg-gray-50 border-b border-gray-200" style={{height: RULER_SIZE}}>
-            <Ruler direction="horizontal" offset={viewBox.x} size={canvasSize.width} />
-        </div>
-        <div className="overflow-hidden relative bg-gray-50 border-r border-gray-200" style={{width: RULER_SIZE}}>
-             <Ruler direction="vertical" offset={viewBox.y} size={canvasSize.height} />
-        </div>
+    <div className="flex-1 bg-white overflow-hidden">
         <div 
             ref={svgContainerRef}
-            className={`relative col-start-2 row-start-2 overflow-hidden ${cursorClass}`}
+            className={`relative w-full h-full overflow-hidden ${cursorClass}`}
             onPointerDown={handlePointerDown} 
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -373,10 +437,8 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
               title="回到原点"
           >
             <img src={pointicon} alt="回零" className="h-5 w-5" />
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 10l-4.95-4.95z" clipRule="evenodd" />
                   <path d="M5.75 3a.75.75 0 00-1.5 0v3.5A.75.75 0 005 7.25H8.5a.75.75 0 000-1.5H5.75V3z" />
-              </svg>
           </button>
         </div>
     </div>

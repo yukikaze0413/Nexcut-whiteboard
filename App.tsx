@@ -98,6 +98,26 @@ const App: React.FC<AppProps> = () => {
       setCanvasWidth(w);
       setCanvasHeight(h);
     };
+    // 新增：主动向安卓端请求画布大小
+    if (window.Android && typeof window.Android.getPlatformSize === 'function') {
+      try {
+        const size = window.Android.getPlatformSize();
+        let obj: any = size;
+        if (typeof size === 'string') {
+          try {
+            obj = JSON.parse(size);
+          } catch (e) {
+            obj = null;
+          }
+        }
+        if (obj && typeof obj === 'object' && 'width' in obj && 'height' in obj) {
+          setCanvasWidth(Number(obj.width));
+          setCanvasHeight(Number(obj.height));
+        }
+      } catch (e) {
+        // 忽略异常，保持默认
+      }
+    }
     return () => {
       delete (window as any).setCanvasSize;
     };
@@ -674,7 +694,7 @@ const App: React.FC<AppProps> = () => {
     alert('不支持的文件类型');
   }, [addItems, parseSvgWithSvgson]);
 
-  // 分图层导出预览
+  // 分图层导出预览和传递到安卓
   const handleNext = async () => {
     // 记录当前选中项
     const prevSelected = selectedItemId;
@@ -724,6 +744,40 @@ const App: React.FC<AppProps> = () => {
     }));
     // 过滤掉不可见图层
     const filtered = layerData.filter(Boolean);
+
+    // 新增：将每个图层图片保存为临时文件，并传递文件路径和雕刻方式
+    if (typeof window !== 'undefined' && window.Android && typeof window.Android.saveTempFile === 'function' && typeof window.Android.onNextStep === 'function') {
+      const layerDataWithFiles = await Promise.all(filtered.map(async (layer, idx) => {
+        if (!layer) return null;
+        // bitmap: data:image/png;base64,xxxx
+        let filePath = '';
+        if (window.Android && typeof window.Android.saveTempFile === 'function') {
+          filePath = window.Android.saveTempFile(layer.bitmap as string, `layer_${idx}.png`);
+        }
+        return {
+          filePath,
+          printingMethod: layer.printingMethod,
+          name: layer.name,
+          id: layer.id,
+          width: layer.width,
+          height: layer.height
+        };
+      }));
+      // 过滤掉 null
+      const validLayers = layerDataWithFiles.filter(Boolean);
+      // 只传递二维数组 [[filePath, printingMethod], ...]
+      const arr2d = validLayers
+        .filter(layer => !!layer)
+        .map(layer => [(layer as any).filePath, (layer as any).printingMethod]);
+      if (window.Android && typeof window.Android.onNextStep === 'function') {
+        window.Android.onNextStep(JSON.stringify(arr2d));
+      }
+      // 恢复选中项
+      setSelectedItemId(prevSelected);
+      return;
+    }
+
+    // 兼容：如果没有Android接口，仍然弹窗预览
     // 弹窗预览
     const win = window.open('', '_blank');
     if (win) {
@@ -807,6 +861,12 @@ const App: React.FC<AppProps> = () => {
               onClick={undo}
               disabled={history.length === 0}
             >撤销</button>
+          </div>
+          {/* 新增：画布大小显示在中间 */}
+          <div className="flex-1 flex justify-center">
+            <span style={{ color: '#888', fontSize: 13 }}>
+              画布大小：{canvasWidth} × {canvasHeight}
+            </span>
           </div>
           <div className="flex flex-row gap-2">
             <button
@@ -1085,6 +1145,8 @@ declare global {
   interface Window {
     Android?: {
       onNextStep?: (data: string) => void;
+      saveTempFile?: (base64: string, fileName: string) => string; // 新增保存临时文件接口
+      getPlatformSize?: () => string | { width: number|string; height: number|string }; // 新增获取画布大小接口
     };
   }
 }
