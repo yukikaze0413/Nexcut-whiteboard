@@ -9,6 +9,8 @@ import CategoryPicker from './components/CategoryPicker';
 import LayerPanel from './components/LayerPanel';
 // @ts-ignore
 import { parseString as parseDxf } from 'dxf';
+import { Helper } from 'dxf'; // 导入 Helper 类
+
 import { parse as parseSvgson } from 'svgson';
 
 // 浏览器端简易 HPGL 解析器，仅支持 PU/PD/PA 指令
@@ -33,27 +35,27 @@ function simpleParseHPGL(content: string) {
 }
 
 // 计算包围盒工具函数
-function getGroupBoundingBox(items: CanvasItemData[]): {minX: number, minY: number, maxX: number, maxY: number} {
+function getGroupBoundingBox(items: CanvasItemData[]): { minX: number, minY: number, maxX: number, maxY: number } {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   items.forEach(item => {
     const itemPoints = 'points' in item && Array.isArray(item.points) ? item.points : [];
     if (itemPoints.length > 0) {
-        const itemMinX = (item.x ?? 0) + Math.min(...itemPoints.map((p: any) => p.x));
-        const itemMinY = (item.y ?? 0) + Math.min(...itemPoints.map((p: any) => p.y));
-        const itemMaxX = (item.x ?? 0) + Math.max(...itemPoints.map((p: any) => p.x));
-        const itemMaxY = (item.y ?? 0) + Math.max(...itemPoints.map((p: any) => p.y));
-        minX = Math.min(minX, itemMinX);
-        minY = Math.min(minY, itemMinY);
-        maxX = Math.max(maxX, itemMaxX);
-        maxY = Math.max(maxY, itemMaxY);
+      const itemMinX = (item.x ?? 0) + Math.min(...itemPoints.map((p: any) => p.x));
+      const itemMinY = (item.y ?? 0) + Math.min(...itemPoints.map((p: any) => p.y));
+      const itemMaxX = (item.x ?? 0) + Math.max(...itemPoints.map((p: any) => p.x));
+      const itemMaxY = (item.y ?? 0) + Math.max(...itemPoints.map((p: any) => p.y));
+      minX = Math.min(minX, itemMinX);
+      minY = Math.min(minY, itemMinY);
+      maxX = Math.max(maxX, itemMaxX);
+      maxY = Math.max(maxY, itemMaxY);
     } else if ('width' in item && 'height' in item) {
-        minX = Math.min(minX, (item.x ?? 0) - item.width / 2);
-        minY = Math.min(minY, (item.y ?? 0) - item.height / 2);
-        maxX = Math.max(maxX, (item.x ?? 0) + item.width / 2);
-        maxY = Math.max(maxY, (item.y ?? 0) + item.height / 2);
+      minX = Math.min(minX, (item.x ?? 0) - item.width / 2);
+      minY = Math.min(minY, (item.y ?? 0) - item.height / 2);
+      maxX = Math.max(maxX, (item.x ?? 0) + item.width / 2);
+      maxY = Math.max(maxY, (item.y ?? 0) + item.height / 2);
     }
   });
-  return {minX, minY, maxX, maxY};
+  return { minX, minY, maxX, maxY };
 }
 
 const MAX_HISTORY = 50;
@@ -71,14 +73,14 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
   const [layers, setLayers] = useState<Layer[]>([{ id: firstLayerId, name: '图层 1', isVisible: true, printingMethod: PrintingMethod.SCAN }]);
   const [items, setItems] = useState<CanvasItem[]>([]);
   const [history, setHistory] = useState<[Layer[], CanvasItem[]][]>([]);
-  
+
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(firstLayerId);
   const [activeTool, setActiveTool] = useState<ToolType>(ToolType.SELECT);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
 
   // 移除原有的const canvasWidth = 500; const canvasHeight = 500;
-  
+
   const pushHistory = useCallback((currentLayers: Layer[], currentItems: CanvasItem[]) => {
     setHistory(prev => [...prev.slice(prev.length - MAX_HISTORY + 1), [currentLayers, currentItems]]);
   }, []);
@@ -94,9 +96,9 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
   const addItems = useCallback((itemsData: CanvasItemData[]) => {
     pushHistory(layers, items);
     const newItems = itemsData.map(itemData => ({
-        ...itemData,
-        id: `item_${Date.now()}_${Math.random()}`,
-        layerId: activeLayerId,
+      ...itemData,
+      id: `item_${Date.now()}_${Math.random()}`,
+      layerId: activeLayerId,
     } as CanvasItem));
     setItems(prev => [...prev, ...newItems]);
     setSelectedItemId(newItems[newItems.length - 1]?.id || null);
@@ -116,7 +118,7 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
     } as Omit<Part, 'id' | 'layerId'>);
     setOpenCategory(null);
   }, [addItem]);
-  
+
   const addImage = useCallback((href: string, width: number, height: number) => {
     addItem({
       type: CanvasItemType.IMAGE,
@@ -134,9 +136,9 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
       prevItems.map(p => (p.id === itemId ? { ...p, ...updates } as CanvasItem : p))
     );
   }, []);
-  
+
   const commitUpdate = useCallback(() => {
-     pushHistory(layers, items);
+    pushHistory(layers, items);
   }, [items, layers, pushHistory]);
 
   const deleteItem = useCallback((itemId: string) => {
@@ -155,7 +157,7 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
     setItems(lastItems);
     // Ensure activeLayerId is still valid
     if (!lastLayers.find(l => l.id === activeLayerId)) {
-        setActiveLayerId(lastLayers[0]?.id || null);
+      setActiveLayerId(lastLayers[0]?.id || null);
     }
     setSelectedItemId(null);
   }, [history, activeLayerId]);
@@ -186,16 +188,16 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
   const moveLayer = useCallback((layerId: string, direction: 'up' | 'down') => {
     pushHistory(layers, items);
     setLayers(prevLayers => {
-        const index = prevLayers.findIndex(l => l.id === layerId);
-        if (index === -1) return prevLayers;
-        if (direction === 'down' && index === prevLayers.length - 1) return prevLayers;
-        if (direction === 'up' && index === 0) return prevLayers;
-        
-        const newLayers = [...prevLayers];
-        const [layer] = newLayers.splice(index, 1);
-        const newIndex = direction === 'up' ? index - 1 : index + 1;
-        newLayers.splice(newIndex, 0, layer);
-        return newLayers;
+      const index = prevLayers.findIndex(l => l.id === layerId);
+      if (index === -1) return prevLayers;
+      if (direction === 'down' && index === prevLayers.length - 1) return prevLayers;
+      if (direction === 'up' && index === 0) return prevLayers;
+
+      const newLayers = [...prevLayers];
+      const [layer] = newLayers.splice(index, 1);
+      const newIndex = direction === 'up' ? index - 1 : index + 1;
+      newLayers.splice(newIndex, 0, layer);
+      return newLayers;
     });
   }, [layers, items, pushHistory]);
 
@@ -203,7 +205,7 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
   const parseSvgWithSvgson = useCallback(async (svgContent: string): Promise<CanvasItemData[]> => {
     const svgJson = await parseSvgson(svgContent);
     // 获取viewBox和缩放
-    let viewBox: number[] = [0,0,0,0];
+    let viewBox: number[] = [0, 0, 0, 0];
     let scaleX = 1, scaleY = 1;
     if (svgJson.attributes.viewBox) {
       viewBox = svgJson.attributes.viewBox.split(/\s+/).map(Number);
@@ -212,11 +214,20 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
       scaleX = parseFloat(svgJson.attributes.width) / viewBox[2];
       scaleY = parseFloat(svgJson.attributes.height) / viewBox[3];
     }
-    
+
+    // /// 7.16
+    // interface RawShape {
+    //   points: { x: number; y: number }[];
+    //   fillColor?: string;
+    //   color?: string; // 用于描边色
+    //   strokeWidth?: number;
+    // }
+    // ///
+
     // 递归处理
     function walk(node: any, parentTransform: DOMMatrix, items: CanvasItemData[] = []) {
       // 跳过无关元素
-      const skipTags = ['defs','clipPath','mask','marker','symbol','use', 'style', 'title'];
+      const skipTags = ['defs', 'clipPath', 'mask', 'marker', 'symbol', 'use', 'style', 'title'];
       if (skipTags.includes(node.name)) return items;
 
       // 合并transform
@@ -228,7 +239,7 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
         tempSvg.appendChild(tempG);
         const ctm = tempG.getCTM();
         if (ctm) { // FIX: Check for null before using
-            currentTransform.multiplySelf(ctm);
+          currentTransform.multiplySelf(ctm);
         }
       }
 
@@ -236,37 +247,69 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
       if (node.name === 'path' && node.attributes.d) {
         // 只采样有填充的 path
         if (!node.attributes.fill || node.attributes.fill === 'none') return items;
-        const d = node.attributes.d;
+
+        //7.17
         try {
-          const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
           const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          tempPath.setAttribute('d', d);
-          tempSvg.appendChild(tempPath);
+          tempPath.setAttribute('d', node.attributes.d);
+          document.body.appendChild(tempPath); // Needed for getPointAtLength in some browsers
           const totalLength = tempPath.getTotalLength();
           if (totalLength > 0) {
             const sampleCount = Math.max(Math.floor(totalLength), 128);
-            const absPoints: {x:number, y:number}[] = [];
-            for (let i = 0; i <= sampleCount; i++) {
+            const absPoints = Array.from({ length: sampleCount + 1 }, (_, i) => {
               const len = (i / sampleCount) * totalLength;
               const pt = tempPath.getPointAtLength(len);
               const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
-              absPoints.push({ x: transformedPt.x * scaleX, y: transformedPt.y * scaleY });
-            }
+              return { x: transformedPt.x * scaleX, y: transformedPt.y * scaleY };
+            });
+
             if (absPoints.length >= 2) {
-              const minX = Math.min(...absPoints.map(p => p.x));
-              const minY = Math.min(...absPoints.map(p => p.y));
               items.push({
                 type: CanvasItemType.DRAWING,
-                x: minX,
-                y: minY,
-                points: absPoints.map(p => ({ x: p.x - minX, y: p.y - minY })),
+                x: 0, // 临时设置为 0
+                y: 0, // 临时设置为 0
+                points: absPoints, // **存储绝对坐标**
                 fillColor: node.attributes.fill,
                 strokeWidth: Number(node.attributes['stroke-width']) || 0,
-                color: '',
+                color: '', // Or handle stroke color properly
               });
             }
           }
-        } catch (e) {}
+          document.body.removeChild(tempPath);
+        } catch (e) { console.error("Error parsing path:", e); }
+
+        // const d = node.attributes.d;
+        // try {
+        //   const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        //   const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        //   tempPath.setAttribute('d', d);
+        //   tempSvg.appendChild(tempPath);
+        //   const totalLength = tempPath.getTotalLength();
+        //   if (totalLength > 0) {
+        //     const sampleCount = Math.max(Math.floor(totalLength), 128);
+        //     const absPoints: {x:number, y:number}[] = [];
+        //     for (let i = 0; i <= sampleCount; i++) {
+        //       const len = (i / sampleCount) * totalLength;
+        //       const pt = tempPath.getPointAtLength(len);
+        //       const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+        //       absPoints.push({ x: transformedPt.x * scaleX, y: transformedPt.y * scaleY });
+        //     }
+        //     if (absPoints.length >= 2) {
+        //       const minX = Math.min(...absPoints.map(p => p.x));
+        //       const minY = Math.min(...absPoints.map(p => p.y));
+        //       items.push({
+        //         type: CanvasItemType.DRAWING,
+        //         x: minX,
+        //         y: minY,
+        //         points: absPoints.map(p => ({ x: p.x - minX, y: p.y - minY })),
+        //         fillColor: node.attributes.fill,
+        //         strokeWidth: Number(node.attributes['stroke-width']) || 0,
+        //         color: '',
+        //       });
+        //     }
+        //   }
+        // } catch (e) {}
+
       }
       // 处理rect
       else if (node.name === 'rect') {
@@ -284,17 +327,29 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
           const tpt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
           return { x: tpt.x * scaleX, y: tpt.y * scaleY };
         });
-        const minX = Math.min(...pts.map((p: {x:number, y:number}) => p.x));
-        const minY = Math.min(...pts.map((p: {x:number, y:number}) => p.y));
+        // 7.17
         items.push({
           type: CanvasItemType.DRAWING,
-          x: minX,
-          y: minY,
-          points: pts.map((p: {x:number, y:number}) => ({ x: p.x - minX, y: p.y - minY })),
+          x: 0, // 临时设置为 0
+          y: 0, // 临时设置为 0
+          points: pts, // **存储绝对坐标**
           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
           strokeWidth: Number(node.attributes['stroke-width']) || 2,
           fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
         });
+
+
+        // const minX = Math.min(...pts.map((p: {x:number, y:number}) => p.x));
+        // const minY = Math.min(...pts.map((p: {x:number, y:number}) => p.y));
+        // items.push({
+        //   type: CanvasItemType.DRAWING,
+        //   x: minX,
+        //   y: minY,
+        //   points: pts.map((p: {x:number, y:number}) => ({ x: p.x - minX, y: p.y - minY })),
+        //   color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+        //   strokeWidth: Number(node.attributes['stroke-width']) || 2,
+        //   fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+        // });
       }
       // 处理circle
       else if (node.name === 'circle') {
@@ -307,17 +362,29 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
           const pt = new DOMPoint(cx + r * Math.cos(angle), cy + r * Math.sin(angle)).matrixTransform(currentTransform);
           return { x: pt.x * scaleX, y: pt.y * scaleY };
         });
-        const minX = Math.min(...pts.map((p: {x:number, y:number}) => p.x));
-        const minY = Math.min(...pts.map((p: {x:number, y:number}) => p.y));
+
+        // 7.17
         items.push({
           type: CanvasItemType.DRAWING,
-          x: minX,
-          y: minY,
-          points: pts.map((p: {x:number, y:number}) => ({ x: p.x - minX, y: p.y - minY })),
+          x: 0,
+          y: 0,
+          points: pts,
           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
           strokeWidth: Number(node.attributes['stroke-width']) || 2,
           fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
         });
+
+        // const minX = Math.min(...pts.map((p: { x: number, y: number }) => p.x));
+        // const minY = Math.min(...pts.map((p: { x: number, y: number }) => p.y));
+        // items.push({
+        //   type: CanvasItemType.DRAWING,
+        //   x: minX,
+        //   y: minY,
+        //   points: pts.map((p: { x: number, y: number }) => ({ x: p.x - minX, y: p.y - minY })),
+        //   color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+        //   strokeWidth: Number(node.attributes['stroke-width']) || 2,
+        //   fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+        // });
       }
       // 处理ellipse
       else if (node.name === 'ellipse') {
@@ -331,17 +398,29 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
           const pt = new DOMPoint(cx + rx * Math.cos(angle), cy + ry * Math.sin(angle)).matrixTransform(currentTransform);
           return { x: pt.x * scaleX, y: pt.y * scaleY };
         });
-        const minX = Math.min(...pts.map((p: {x:number, y:number}) => p.x));
-        const minY = Math.min(...pts.map((p: {x:number, y:number}) => p.y));
+
+        // 7.17
         items.push({
           type: CanvasItemType.DRAWING,
-          x: minX,
-          y: minY,
-          points: pts.map((p: {x:number, y:number}) => ({ x: p.x - minX, y: p.y - minY })),
+          x: 0,
+          y: 0,
+          points: pts,
           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
           strokeWidth: Number(node.attributes['stroke-width']) || 2,
           fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
         });
+
+        // const minX = Math.min(...pts.map((p: { x: number, y: number }) => p.x));
+        // const minY = Math.min(...pts.map((p: { x: number, y: number }) => p.y));
+        // items.push({
+        //   type: CanvasItemType.DRAWING,
+        //   x: minX,
+        //   y: minY,
+        //   points: pts.map((p: { x: number, y: number }) => ({ x: p.x - minX, y: p.y - minY })),
+        //   color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+        //   strokeWidth: Number(node.attributes['stroke-width']) || 2,
+        //   fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+        // });
       }
       // 处理line
       else if (node.name === 'line') {
@@ -353,16 +432,27 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
           new DOMPoint(x1, y1).matrixTransform(currentTransform),
           new DOMPoint(x2, y2).matrixTransform(currentTransform),
         ].map(pt => ({ x: pt.x * scaleX, y: pt.y * scaleY }));
-        const minX = Math.min(...pts.map((p: {x:number, y:number}) => p.x));
-        const minY = Math.min(...pts.map((p: {x:number, y:number}) => p.y));
+
+        // 7.17
         items.push({
           type: CanvasItemType.DRAWING,
-          x: minX,
-          y: minY,
-          points: pts.map((p: {x:number, y:number}) => ({ x: p.x - minX, y: p.y - minY })),
+          x: 0,
+          y: 0,
+          points: pts,
           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
           strokeWidth: Number(node.attributes['stroke-width']) || 2,
         });
+
+        // const minX = Math.min(...pts.map((p: { x: number, y: number }) => p.x));
+        // const minY = Math.min(...pts.map((p: { x: number, y: number }) => p.y));
+        // items.push({
+        //   type: CanvasItemType.DRAWING,
+        //   x: minX,
+        //   y: minY,
+        //   points: pts.map((p: { x: number, y: number }) => ({ x: p.x - minX, y: p.y - minY })),
+        //   color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+        //   strokeWidth: Number(node.attributes['stroke-width']) || 2,
+        // });
       }
       // 处理polygon
       else if (node.name === 'polygon' && node.attributes.points) {
@@ -374,20 +464,30 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
         if (pts.length >= 2) {
           // polygon自动闭合
           let points = pts;
-          if (pts.length < 2 || pts[0].x !== pts[pts.length-1].x || pts[0].y !== pts[pts.length-1].y) {
+          if (pts.length < 2 || pts[0].x !== pts[pts.length - 1].x || pts[0].y !== pts[pts.length - 1].y) {
             points = [...pts, pts[0]];
           }
-          const minX = Math.min(...points.map((p: {x:number, y:number}) => p.x));
-          const minY = Math.min(...points.map((p: {x:number, y:number}) => p.y));
+          // 7.17 tbc
           items.push({
             type: CanvasItemType.DRAWING,
-            x: minX,
-            y: minY,
-            points: points.map((p: {x:number, y:number}) => ({ x: p.x - minX, y: p.y - minY })),
+            x: 0,
+            y: 0,
+            points: pts,
             color: node.attributes.stroke || node.attributes.fill || '#2563eb',
             strokeWidth: Number(node.attributes['stroke-width']) || 2,
             fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
           });
+          // const minX = Math.min(...points.map((p: { x: number, y: number }) => p.x));
+          // const minY = Math.min(...points.map((p: { x: number, y: number }) => p.y));
+          // items.push({
+          //   type: CanvasItemType.DRAWING,
+          //   x: minX,
+          //   y: minY,
+          //   points: points.map((p: { x: number, y: number }) => ({ x: p.x - minX, y: p.y - minY })),
+          //   color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+          //   strokeWidth: Number(node.attributes['stroke-width']) || 2,
+          //   fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+          // });
         }
       }
       // 处理polyline
@@ -398,17 +498,26 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
           return { x: pt.x * scaleX, y: pt.y * scaleY };
         });
         if (pts.length >= 2) {
-          const minX = Math.min(...pts.map((p: {x:number, y:number}) => p.x));
-          const minY = Math.min(...pts.map((p: {x:number, y:number}) => p.y));
           items.push({
             type: CanvasItemType.DRAWING,
-            x: minX,
-            y: minY,
-            points: pts.map((p: {x:number, y:number}) => ({ x: p.x - minX, y: p.y - minY })),
+            x: 0,
+            y: 0,
+            points: pts,
             color: node.attributes.stroke || node.attributes.fill || '#2563eb',
             strokeWidth: Number(node.attributes['stroke-width']) || 2,
             fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
           });
+          // const minX = Math.min(...pts.map((p: { x: number, y: number }) => p.x));
+          // const minY = Math.min(...pts.map((p: { x: number, y: number }) => p.y));
+          // items.push({
+          //   type: CanvasItemType.DRAWING,
+          //   x: minX,
+          //   y: minY,
+          //   points: pts.map((p: { x: number, y: number }) => ({ x: p.x - minX, y: p.y - minY })),
+          //   color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+          //   strokeWidth: Number(node.attributes['stroke-width']) || 2,
+          //   fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+          // });
         }
       }
 
@@ -468,8 +577,15 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
       }
       return;
     }
-    // DXF 导入
+    // DXF 导入 7.22
     if (file.ext === 'dxf') {
+      //const parsedItems = await parseSvgWithSvgson(file.content);
+      var helper = new dxf.Helper(dxfContents)
+      const SCALE = 10;
+      const XOFFSET = 0;
+      const YOFFSET = 0;
+      const STROKEWIDTH = 1;
+
       try {
         const dxf = parseDxf(file.content);
         const items: CanvasItemData[] = [];
@@ -483,14 +599,14 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
             const minY = Math.min(ent.vertices[0].y, ent.vertices[1].y);
             items.push({
               type: CanvasItemType.DRAWING,
-              x: minX,
-              y: minY,
+              x: minX * SCALE,
+              y: minY * SCALE,
               points: [
-                { x: ent.vertices[0].x - minX, y: ent.vertices[0].y - minY },
-                { x: ent.vertices[1].x - minX, y: ent.vertices[1].y - minY },
+                { x: (ent.vertices[0].x - minX) * SCALE, y: (ent.vertices[0].y - minY) * SCALE },
+                { x: (ent.vertices[1].x - minX) * SCALE, y: (ent.vertices[1].y - minY) * SCALE },
               ],
               color: '#16a34a',
-              strokeWidth: 2,
+              strokeWidth: STROKEWIDTH,
             });
           } else if (ent.type === 'LWPOLYLINE' && ent.vertices) {
             const points = (ent.vertices as any[]).map((v: any) => ({ x: v.x, y: v.y }));
@@ -499,33 +615,33 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
             const minY = Math.min(...points.map(p => p.y));
             items.push({
               type: CanvasItemType.DRAWING,
-              x: minX,
-              y: minY,
-              points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
+              x: minX * SCALE,
+              y: minY * SCALE,
+              points: points.map(p => ({ x: (p.x - minX) * SCALE, y: (p.y - minY) * SCALE })),
               color: '#16a34a',
-              strokeWidth: 2,
+              strokeWidth: STROKEWIDTH,
             });
           } else if (ent.type === 'CIRCLE') {
             const cx = ent.center.x, cy = ent.center.y, r = ent.radius;
-            const points = Array.from({ length: 36 }, (_, i) => {
-              const angle = (i / 36) * 2 * Math.PI;
+            const points = Array.from({ length: 360 }, (_, i) => {
+              const angle = (i / 360) * 2 * Math.PI;
               return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
             });
             const minX = Math.min(...points.map(p => p.x));
             const minY = Math.min(...points.map(p => p.y));
             items.push({
               type: CanvasItemType.DRAWING,
-              x: minX,
-              y: minY,
-              points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
+              x: minX * SCALE,
+              y: minY * SCALE,
+              points: points.map(p => ({ x: (p.x - minX) * SCALE, y: (p.y - minY) * SCALE })),
               color: '#16a34a',
-              strokeWidth: 2,
+              strokeWidth: STROKEWIDTH,
             });
           } else if (ent.type === 'ARC') {
             const cx = ent.center.x, cy = ent.center.y, r = ent.radius;
             const start = ent.startAngle * Math.PI / 180;
             const end = ent.endAngle * Math.PI / 180;
-            const segs = 24;
+            const segs = 240;
             const points = Array.from({ length: segs + 1 }, (_, i) => {
               const angle = start + (end - start) * (i / segs);
               return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
@@ -534,16 +650,16 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
             const minY = Math.min(...points.map(p => p.y));
             items.push({
               type: CanvasItemType.DRAWING,
-              x: minX,
-              y: minY,
-              points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
+              x: minX * SCALE,
+              y: minY * SCALE,
+              points: points.map(p => ({ x: (p.x - minX) * SCALE, y: (p.y - minY) * SCALE })),
               color: '#16a34a',
-              strokeWidth: 2,
+              strokeWidth: STROKEWIDTH,
             });
           } else if (ent.type === 'SPLINE' && ent.controlPoints) {
             // 采样样条曲线
             const ctrl = ent.controlPoints;
-            const sampleCount = Math.max(ctrl.length * 8, 64);
+            const sampleCount = Math.max(ctrl.length * 80, 640);
             const points: { x: number; y: number }[] = [];
             for (let i = 0; i <= sampleCount; i++) {
               const t = i / sampleCount;
@@ -564,11 +680,11 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
             const minY = Math.min(...points.map(p => p.y));
             items.push({
               type: CanvasItemType.DRAWING,
-              x: minX,
-              y: minY,
-              points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
+              x: minX * SCALE,
+              y: minY * SCALE,
+              points: points.map(p => ({ x: (p.x - minX) * SCALE, y: (p.y - minY) * SCALE })),
               color: '#16a34a',
-              strokeWidth: 2,
+              strokeWidth: STROKEWIDTH,
             });
           }
         });
@@ -582,6 +698,122 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
       }
       return;
     }
+
+    // // DXF 导入
+    // if (file.ext === 'dxf') {
+    //   //const parsedItems = await parseSvgWithSvgson(file.content);
+    //   try {
+    //     const dxf = parseDxf(file.content);
+    //     const items: CanvasItemData[] = [];
+    //     if (!dxf || !dxf.entities) {
+    //       alert('DXF文件内容无效');
+    //       return;
+    //     }
+    //     (dxf.entities as any[]).forEach((ent: any) => {
+    //       if (ent.type === 'LINE') {
+    //         const minX = Math.min(ent.vertices[0].x, ent.vertices[1].x);
+    //         const minY = Math.min(ent.vertices[0].y, ent.vertices[1].y);
+    //         items.push({
+    //           type: CanvasItemType.DRAWING,
+    //           x: minX,
+    //           y: minY,
+    //           points: [
+    //             { x: ent.vertices[0].x - minX, y: ent.vertices[0].y - minY },
+    //             { x: ent.vertices[1].x - minX, y: ent.vertices[1].y - minY },
+    //           ],
+    //           color: '#16a34a',
+    //           strokeWidth: 2,
+    //         });
+    //       } else if (ent.type === 'LWPOLYLINE' && ent.vertices) {
+    //         const points = (ent.vertices as any[]).map((v: any) => ({ x: v.x, y: v.y }));
+    //         if (points.length < 2) return;
+    //         const minX = Math.min(...points.map(p => p.x));
+    //         const minY = Math.min(...points.map(p => p.y));
+    //         items.push({
+    //           type: CanvasItemType.DRAWING,
+    //           x: minX,
+    //           y: minY,
+    //           points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
+    //           color: '#16a34a',
+    //           strokeWidth: 2,
+    //         });
+    //       } else if (ent.type === 'CIRCLE') {
+    //         const cx = ent.center.x, cy = ent.center.y, r = ent.radius;
+    //         const points = Array.from({ length: 36 }, (_, i) => {
+    //           const angle = (i / 36) * 2 * Math.PI;
+    //           return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+    //         });
+    //         const minX = Math.min(...points.map(p => p.x));
+    //         const minY = Math.min(...points.map(p => p.y));
+    //         items.push({
+    //           type: CanvasItemType.DRAWING,
+    //           x: minX,
+    //           y: minY,
+    //           points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
+    //           color: '#16a34a',
+    //           strokeWidth: 2,
+    //         });
+    //       } else if (ent.type === 'ARC') {
+    //         const cx = ent.center.x, cy = ent.center.y, r = ent.radius;
+    //         const start = ent.startAngle * Math.PI / 180;
+    //         const end = ent.endAngle * Math.PI / 180;
+    //         const segs = 24;
+    //         const points = Array.from({ length: segs + 1 }, (_, i) => {
+    //           const angle = start + (end - start) * (i / segs);
+    //           return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+    //         });
+    //         const minX = Math.min(...points.map(p => p.x));
+    //         const minY = Math.min(...points.map(p => p.y));
+    //         items.push({
+    //           type: CanvasItemType.DRAWING,
+    //           x: minX,
+    //           y: minY,
+    //           points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
+    //           color: '#16a34a',
+    //           strokeWidth: 2,
+    //         });
+    //       } else if (ent.type === 'SPLINE' && ent.controlPoints) {
+    //         // 采样样条曲线
+    //         const ctrl = ent.controlPoints;
+    //         const sampleCount = Math.max(ctrl.length * 8, 64);
+    //         const points: { x: number; y: number }[] = [];
+    //         for (let i = 0; i <= sampleCount; i++) {
+    //           const t = i / sampleCount;
+    //           // De Casteljau算法贝塞尔插值
+    //           let temp = ctrl.map((p: any) => ({ x: p.x, y: p.y }));
+    //           for (let k = 1; k < ctrl.length; k++) {
+    //             for (let j = 0; j < ctrl.length - k; j++) {
+    //               temp[j] = {
+    //                 x: temp[j].x * (1 - t) + temp[j + 1].x * t,
+    //                 y: temp[j].y * (1 - t) + temp[j + 1].y * t,
+    //               };
+    //             }
+    //           }
+    //           points.push(temp[0]);
+    //         }
+    //         if (points.length < 2) return;
+    //         const minX = Math.min(...points.map(p => p.x));
+    //         const minY = Math.min(...points.map(p => p.y));
+    //         items.push({
+    //           type: CanvasItemType.DRAWING,
+    //           x: minX,
+    //           y: minY,
+    //           points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
+    //           color: '#16a34a',
+    //           strokeWidth: 2,
+    //         });
+    //       }
+    //     });
+    //     if (items.length === 0) {
+    //       alert('DXF未识别到可导入的线条');
+    //     } else {
+    //       addItems(items);
+    //     }
+    //   } catch (e) {
+    //     alert('DXF解析失败');
+    //   }
+    //   return;
+    // }
     // PLT(HPGL) 导入
     if (file.ext === 'plt') {
       try {
@@ -697,69 +929,69 @@ const App: React.FC<AppProps> = ({ canvasWidth = 500, canvasHeight = 500 }) => {
 
   return (
     <div className="h-screen w-screen flex flex-row font-sans text-gray-800 bg-gray-100 overflow-hidden">
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col">
-            <main className="flex-1 flex flex-col min-h-0 bg-white relative">
-            <Canvas
-                items={items}
-                layers={layers}
-                selectedItemId={selectedItemId}
-                onSelectItem={setSelectedItemId}
-                onUpdateItem={updateItem}
-                onAddItem={addItem}
-                onCommitUpdate={commitUpdate}
-                activeTool={activeTool}
-                canvasWidth={canvasWidth}
-                canvasHeight={canvasHeight}
-            />
-            </main>
-            <footer className="h-20 flex-shrink-0 bg-white border-t border-gray-200 flex items-center justify-center z-10">
-                <Toolbar
-                    onOpenCategoryPicker={setOpenCategory}
-                    onAddImage={addImage}
-                    activeTool={activeTool}
-                    onSetTool={setActiveTool}
-                    onUndo={undo}
-                    canUndo={history.length > 0}
-                    onImportFile={handleImportFile}
-                    onNext={handleNext}
-                />
-            </footer>
-        </div>
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col">
+        <main className="flex-1 flex flex-col min-h-0 bg-white relative">
+          <Canvas
+            items={items}
+            layers={layers}
+            selectedItemId={selectedItemId}
+            onSelectItem={setSelectedItemId}
+            onUpdateItem={updateItem}
+            onAddItem={addItem}
+            onCommitUpdate={commitUpdate}
+            activeTool={activeTool}
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
+          />
+        </main>
+        <footer className="h-20 flex-shrink-0 bg-white border-t border-gray-200 flex items-center justify-center z-10">
+          <Toolbar
+            onOpenCategoryPicker={setOpenCategory}
+            onAddImage={addImage}
+            activeTool={activeTool}
+            onSetTool={setActiveTool}
+            onUndo={undo}
+            canUndo={history.length > 0}
+            onImportFile={handleImportFile}
+            onNext={handleNext}
+          />
+        </footer>
+      </div>
 
-        {/* Right Sidebar */}
-        <aside className="w-72 flex-shrink-0 bg-white border-l border-gray-200 flex flex-col">
-            {selectedItem ? (
-                <ParameterEditor
-                    selectedItem={selectedItem}
-                    layers={layers}
-                    onUpdateItem={updateItem}
-                    onDeleteItem={deleteItem}
-                    onCommitUpdate={commitUpdate}
-                />
-            ) : (
-                <div className="p-4 h-full flex flex-col">
-                    <h3 className="text-lg font-semibold text-gray-800 mb-4 flex-shrink-0">图层管理</h3>
-                    <LayerPanel
-                        layers={layers}
-                        activeLayerId={activeLayerId}
-                        onAddLayer={addLayer}
-                        onDeleteLayer={deleteLayer}
-                        onUpdateLayer={updateLayer}
-                        onSetActiveLayerId={setActiveLayerId}
-                        onMoveLayer={moveLayer}
-                    />
-                </div>
-            )}
-        </aside>
-        
-        {openCategory && (
-            <CategoryPicker
-            category={openCategory}
-            onAddPart={addPart}
-            onClose={() => setOpenCategory(null)}
+      {/* Right Sidebar */}
+      <aside className="w-72 flex-shrink-0 bg-white border-l border-gray-200 flex flex-col">
+        {selectedItem ? (
+          <ParameterEditor
+            selectedItem={selectedItem}
+            layers={layers}
+            onUpdateItem={updateItem}
+            onDeleteItem={deleteItem}
+            onCommitUpdate={commitUpdate}
+          />
+        ) : (
+          <div className="p-4 h-full flex flex-col">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4 flex-shrink-0">图层管理</h3>
+            <LayerPanel
+              layers={layers}
+              activeLayerId={activeLayerId}
+              onAddLayer={addLayer}
+              onDeleteLayer={deleteLayer}
+              onUpdateLayer={updateLayer}
+              onSetActiveLayerId={setActiveLayerId}
+              onMoveLayer={moveLayer}
             />
+          </div>
         )}
+      </aside>
+
+      {openCategory && (
+        <CategoryPicker
+          category={openCategory}
+          onAddPart={addPart}
+          onClose={() => setOpenCategory(null)}
+        />
+      )}
     </div>
   );
 };

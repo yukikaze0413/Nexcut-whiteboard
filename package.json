@@ -14,6 +14,7 @@
     "dxf-parser": "^1.1.2",
     "fabric": "^5.5.2",
     "hpgl": "^0.8.7-12",
+    "makerjs": "^0.18.1",
     "paper": "^0.12.18",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -22,6 +23,7 @@
     "svgson": "^5.3.1"
   },
   "devDependencies": {
+    "@types/dxf": "^4.6.10",
     "@types/fabric": "^5.3.10",
     "@types/node": "^22.14.0",
     "@types/react": "^19.1.8",
