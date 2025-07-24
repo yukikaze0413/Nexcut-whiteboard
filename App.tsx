@@ -858,13 +858,23 @@ const App: React.FC<AppProps> = () => {
     const filtered = layerData.filter(Boolean);
 
     // 新增：将每个图层图片保存为临时文件，并传递文件路径和雕刻方式
-    if (typeof window !== 'undefined' && window.Android && typeof window.Android.saveTempFile === 'function' && typeof window.Android.onNextStep === 'function') {
+    // if (typeof window !== 'undefined' && window.Android && typeof window.Android.saveTempFile === 'function' && typeof window.Android.onNextStep === 'function') {
+    if(window.webkit && window.webkit.messageHandlers.jsBridge) {
       const layerDataWithFiles = await Promise.all(filtered.map(async (layer, idx) => {
         if (!layer) return null;
         // bitmap: data:image/png;base64,xxxx
         let filePath = '';
         if (window.Android && typeof window.Android.saveTempFile === 'function') {
           filePath = window.Android.saveTempFile(layer.bitmap as string, `layer_${idx}.png`);
+        }
+        if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+            window.webkit.messageHandlers.jsBridge.postMessage({
+                action: "saveTempFile",
+                data1: layer.bitmap as string,
+                data2: `layer_${idx}.png`
+            });
+        } else {
+            console.log("JSBridge not available");
         }
         return {
           filePath,
@@ -883,6 +893,14 @@ const App: React.FC<AppProps> = () => {
         .map(layer => [(layer as any).filePath, (layer as any).printingMethod]);
       if (window.Android && typeof window.Android.onNextStep === 'function') {
         window.Android.onNextStep(JSON.stringify(arr2d));
+      }
+      if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+          window.webkit.messageHandlers.jsBridge.postMessage({
+              action: "onNextStep",
+              data: JSON.stringify(arr2d)
+          });
+      } else {
+          console.log("JSBridge not available");
       }
       // 恢复选中项
       setSelectedItemId(prevSelected);
@@ -1381,6 +1399,13 @@ declare global {
       onNextStep?: (data: string) => void;
       saveTempFile?: (base64: string, fileName: string) => string; // 新增保存临时文件接口
       getPlatformSize?: () => string | { width: number | string; height: number | string }; // 新增获取画布大小接口
+    };
+    webkit?: {
+      messageHandlers: {
+        jsBridge: {
+          postMessage: (message: any) => void;
+        };
+      };
     };
   }
 }
