@@ -1,18 +1,23 @@
 import React, { useRef } from 'react';
 import { ToolType } from '../types';
+import { FiMousePointer } from 'react-icons/fi';
+import SelectIcon from '../assets/选择.svg';
+import EraserIcon from '../assets/橡皮擦.svg';
+import ShapeIcon from '../assets/形状.svg';
 
 interface ToolbarProps {
   onOpenCategoryPicker: (category: 'BASIC_SHAPES' | 'PART_LIBRARY') => void;
-  onAddImage: (href: string, width: number, height: number) => void;
+  onAddImage: () => void;
   activeTool: ToolType;
   onSetTool: (tool: ToolType) => void;
   onUndo: () => void;
   canUndo: boolean;
   onImportFile?: (file: { name: string; ext: string; content: string }) => void;
+  onNext: () => void;
 }
 
 const tools = [
-  { type: ToolType.SELECT, name: '选择', icon: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M5.381 4.333a1.5 1.5 0 0 1 2.455-1.117l11.43 6.531a1.5 1.5 0 0 1 0 2.468l-11.43 6.531a1.5 1.5 0 0 1-2.455-1.117V4.333Z"/></svg> },
+  { type: ToolType.SELECT, name: '选择', icon: <img src={SelectIcon} alt="选择" className="w-6 h-6" /> },
   { type: ToolType.PEN, name: '画笔', icon: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path fillRule="evenodd" d="M16.273 4.25a2.531 2.531 0 0 1 3.58 3.579l-9.351 9.352a.75.75 0 0 1-.363.203l-3.536.884a.75.75 0 0 1-.876-.876l.884-3.535a.75.75 0 0 1 .203-.363l9.35-9.351Zm-3.486 9.493 7.838-7.838a1.031 1.031 0 0 0-1.458-1.457l-7.839 7.838L12.787 13.743Z" clipRule="evenodd"/></svg> },
   { type: ToolType.TEXT, name: '文本', icon: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M6 4h12v2H6V4zm4 4h4v12h-2V10H8v10H6V8h4z"/></svg> },
 ];
@@ -21,28 +26,14 @@ const imageTool = { name: '图片', icon: <svg xmlns="http://www.w3.org/2000/svg
 const undoTool = { name: '撤销', icon: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path fillRule="evenodd" d="M9.53 2.47a.75.75 0 0 1 0 1.06L4.81 8.25H15a6.75 6.75 0 0 1 0 13.5h-3a.75.75 0 0 1 0-1.5h3a5.25 5.25 0 1 0 0-10.5H4.81l4.72 4.72a.75.75 0 1 1-1.06 1.06l-6-6a.75.75 0 0 1 0-1.06l6-6a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" /></svg> };
 
 const categoryTools = [
-    { type: 'BASIC_SHAPES' as const, name: '基础图形', icon: <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M3 3h8v8H3z"/><circle cx="16" cy="8" r="5"/></svg> },
+    { type: 'BASIC_SHAPES' as const, name: '基础图形', icon: <img src={ShapeIcon} alt="形状" className="w-6 h-6" /> },
     { type: 'PART_LIBRARY' as const, name: '零件库', icon: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M11 3H3v8h8V3zm10 0h-8v8h8V3zM3 21h8v-8H3v8zm10 0h8v-8h-8v8z" /></svg> },
 ];
 
-const Toolbar: React.FC<ToolbarProps> = ({ onOpenCategoryPicker, onAddImage, activeTool, onSetTool, onUndo, canUndo, onImportFile }) => {
-  const imageInputRef = useRef<HTMLInputElement>(null);
+const Toolbar: React.FC<ToolbarProps> = ({ onOpenCategoryPicker, onAddImage, activeTool, onSetTool, onUndo, canUndo, onImportFile, onNext }) => {
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-           onAddImage(e.target?.result as string, img.width, img.height);
-        }
-        img.src = e.target?.result as string;
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+  
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -62,6 +53,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ onOpenCategoryPicker, onAddImage, act
       }
     };
     reader.readAsText(file);
+    event.currentTarget.value = ''; 
   };
 
   const ToolButton: React.FC<{
@@ -109,7 +101,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ onOpenCategoryPicker, onAddImage, act
         
         {/* Action Tools */}
         <div className="flex items-center gap-2">
-            <ToolButton onClick={() => imageInputRef.current?.click()} isActive={false} name={imageTool.name}>
+            <ToolButton onClick={onAddImage} isActive={false} name={imageTool.name}>
                 {imageTool.icon}
             </ToolButton>
             <ToolButton onClick={() => importInputRef.current?.click()} isActive={false} name="导入">
@@ -121,13 +113,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ onOpenCategoryPicker, onAddImage, act
             </ToolButton>
         </div>
         
-        <input
-            type="file"
-            ref={imageInputRef}
-            className="hidden"
-            accept="image/*"
-            onChange={handleImageUpload}
-        />
+        
         <input
           type="file"
           ref={importInputRef}
@@ -135,6 +121,13 @@ const Toolbar: React.FC<ToolbarProps> = ({ onOpenCategoryPicker, onAddImage, act
           accept=".dxf,.svg,.plt"
           onChange={handleImport}
         />
+        {/* 新增“下一步”按钮 */}
+        <button
+          onClick={onNext}
+          className="ml-6 px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-md text-base transition-colors"
+        >
+          下一步
+        </button>
     </div>
   );
 };

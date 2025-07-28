@@ -1,4 +1,4 @@
-import React from 'react';
+
 import type { PartDefinition } from './types';
 import { CanvasItemType } from './types';
 

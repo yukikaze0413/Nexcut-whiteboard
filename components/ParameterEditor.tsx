@@ -132,86 +132,96 @@ const EditableParameterInput: React.FC<{
   );
 };
 
-const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers, onUpdateItem, onDeleteItem, onCommitUpdate }) => {
-    if (selectedItem && selectedItem.type === 'GROUP') {
-      // 取第一个线条的颜色和缩放为参考
-      const firstDrawing = selectedItem.children.find(child => child.type === 'DRAWING');
-      const defaultColor = firstDrawing && 'color' in firstDrawing ? firstDrawing.color : '#2563eb';
-      const [color, setColor] = React.useState(defaultColor);
-      const [width, setWidth] = React.useState(selectedItem.width);
-      const [height, setHeight] = React.useState(selectedItem.height);
-      const [rotation, setRotation] = React.useState(selectedItem.rotation);
+// 拆分组合对象参数编辑为独立组件
+const GroupParameterEditor: React.FC<{
+  selectedItem: any;
+  onUpdateItem: (itemId: string, updates: Partial<CanvasItem>) => void;
+  onCommitUpdate: () => void;
+}> = ({ selectedItem, onUpdateItem, onCommitUpdate }) => {
+  // 取第一个线条的颜色和缩放为参考
+  const firstDrawing = selectedItem.children.find((child: any) => child.type === 'DRAWING');
+  const defaultColor = firstDrawing && 'color' in firstDrawing ? firstDrawing.color : '#2563eb';
+  const [color, setColor] = React.useState(defaultColor);
+  const [width, setWidth] = React.useState(selectedItem.width);
+  const [height, setHeight] = React.useState(selectedItem.height);
+  const [rotation, setRotation] = React.useState(selectedItem.rotation);
 
-      // 颜色变更
-      const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const newColor = e.target.value;
-        setColor(newColor);
-        // 批量更新所有子线条颜色
-        selectedItem.children.forEach(child => {
-          if (child.type === 'DRAWING') {
-            onUpdateItem(child.id, { color: newColor });
-          }
-        });
-        onCommitUpdate();
-      };
+  // 颜色变更
+  const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newColor = e.target.value;
+    setColor(newColor);
+    // 批量更新所有子线条颜色
+    selectedItem.children.forEach((child: any) => {
+      if (child.type === 'DRAWING') {
+        onUpdateItem(child.id, { color: newColor });
+      }
+    });
+    onCommitUpdate();
+  };
 
-      // 宽高变更
-      const handleSizeChange = (key: 'width' | 'height', value: number) => {
-        if (value <= 0) return;
-        const oldW = selectedItem.width;
-        const oldH = selectedItem.height;
-        let scaleX = 1, scaleY = 1;
-        if (key === 'width') {
-          scaleX = value / oldW;
-          scaleY = 1;
-        } else {
-          scaleX = 1;
-          scaleY = value / oldH;
-        }
-        // 批量缩放所有子元素
-        selectedItem.children.forEach(child => {
-          if ('points' in child && Array.isArray(child.points)) {
-            const newPoints = (child.points as any[]).map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
-            onUpdateItem(child.id, { points: newPoints });
-          }
-        });
-        if (key === 'width') setWidth(value);
-        if (key === 'height') setHeight(value);
-        onUpdateItem(selectedItem.id, { width: key === 'width' ? value : selectedItem.width, height: key === 'height' ? value : selectedItem.height });
-        onCommitUpdate();
-      };
+  // 宽高变更
+  const handleSizeChange = (key: 'width' | 'height', value: number) => {
+    if (value <= 0) return;
+    const oldW = selectedItem.width;
+    const oldH = selectedItem.height;
+    let scaleX = 1, scaleY = 1;
+    if (key === 'width') {
+      scaleX = value / oldW;
+      scaleY = 1;
+    } else {
+      scaleX = 1;
+      scaleY = value / oldH;
+    }
+    // 批量缩放所有子元素
+    selectedItem.children.forEach((child: any) => {
+      if ('points' in child && Array.isArray(child.points)) {
+        const newPoints = (child.points as any[]).map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
+        onUpdateItem(child.id, { points: newPoints });
+      }
+    });
+    if (key === 'width') setWidth(value);
+    if (key === 'height') setHeight(value);
+    onUpdateItem(selectedItem.id, { width: key === 'width' ? value : selectedItem.width, height: key === 'height' ? value : selectedItem.height });
+    onCommitUpdate();
+  };
 
-      // 旋转变更
-      const handleRotationChange = (value: number) => {
-        setRotation(value);
-        onUpdateItem(selectedItem.id, { rotation: value });
-        onCommitUpdate();
-      };
+  // 旋转变更
+  const handleRotationChange = (value: number) => {
+    setRotation(value);
+    onUpdateItem(selectedItem.id, { rotation: value });
+    onCommitUpdate();
+  };
 
-      return (
-        <div className="p-4 h-full flex flex-col">
-          <h3 className="text-lg font-semibold text-gray-800">组合对象</h3>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-600 mb-1">颜色</label>
-            <input type="color" value={color} onChange={handleColorChange} className="w-12 h-8 p-1 bg-white border border-gray-300 rounded-md cursor-pointer" />
-          </div>
-          <div className="mb-4 flex gap-2">
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">宽度</label>
-              <input type="number" min="1" value={width} onChange={e => handleSizeChange('width', parseFloat(e.target.value))} className="w-20 p-1 bg-white border border-gray-300 rounded-md" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-1">高度</label>
-              <input type="number" min="1" value={height} onChange={e => handleSizeChange('height', parseFloat(e.target.value))} className="w-20 p-1 bg-white border border-gray-300 rounded-md" />
-            </div>
-          </div>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-600 mb-1">旋转</label>
-            <input type="number" value={rotation} onChange={e => handleRotationChange(parseFloat(e.target.value))} className="w-20 p-1 bg-white border border-gray-300 rounded-md" />
-          </div>
-          <p className="text-gray-500 text-xs">可整体调整组合对象的颜色、宽高和旋转。</p>
+  return (
+    <div className="p-4 h-full flex flex-col">
+      <h3 className="text-lg font-semibold text-gray-800">组合对象</h3>
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-600 mb-1">颜色</label>
+        <input type="color" value={color} onChange={handleColorChange} className="w-12 h-8 p-1 bg-white border border-gray-300 rounded-md cursor-pointer" />
+      </div>
+      <div className="mb-4 flex gap-2">
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">宽度</label>
+          <input type="number" min="1" value={width} onChange={e => handleSizeChange('width', parseFloat(e.target.value))} className="w-20 p-1 bg-white border border-gray-300 rounded-md" />
         </div>
-      );
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">高度</label>
+          <input type="number" min="1" value={height} onChange={e => handleSizeChange('height', parseFloat(e.target.value))} className="w-20 p-1 bg-white border border-gray-300 rounded-md" />
+        </div>
+      </div>
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-600 mb-1">旋转</label>
+        <input type="number" value={rotation} onChange={e => handleRotationChange(parseFloat(e.target.value))} className="w-20 p-1 bg-white border border-gray-300 rounded-md" />
+      </div>
+      <p className="text-gray-500 text-xs">可整体调整组合对象的颜色、宽高和旋转。</p>
+    </div>
+  );
+};
+
+const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers, onUpdateItem, onDeleteItem, onCommitUpdate }) => {
+    // GROUP类型单独渲染
+    if (selectedItem && selectedItem.type === 'GROUP') {
+      return <GroupParameterEditor selectedItem={selectedItem} onUpdateItem={onUpdateItem} onCommitUpdate={onCommitUpdate} />;
     }
 
     const handleUpdate = useCallback((key: string, value: string | number) => {

@@ -47,7 +47,7 @@ const CanvasItemRenderer: React.FC<CanvasItemRendererProps> = ({ item, isSelecte
     case CanvasItemType.TEXT:
       return <TextRenderer textObject={item} isSelected={isSelected} />;
     case CanvasItemType.IMAGE:
-      return <ImageRenderer imageObject={item} isSelected={isSelected} />;
+      return <ImageRenderer imageObject={item} isSelected={isSelected} x={item.x} y={item.y} />;;
     default:
       return null;
   }

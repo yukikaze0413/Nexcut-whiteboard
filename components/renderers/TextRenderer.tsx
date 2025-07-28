@@ -17,10 +17,12 @@ const TextRenderer: React.FC<TextRendererProps> = ({ textObject, isSelected }) =
     }
   }, [text, fontSize]);
   
-  const transform = `rotate(${rotation})`;
+  const ENLARGE = 8;
+  
+  console.log('TextRenderer rotation value:', rotation);
 
   return (
-    <g transform={transform}>
+    <g transform={`translate(0,0) rotate(${rotation})`}>
       <text
         ref={textRef}
         x="0"
@@ -33,14 +35,15 @@ const TextRenderer: React.FC<TextRendererProps> = ({ textObject, isSelected }) =
       </text>
       {isSelected && bbox && (
         <rect
-          x={bbox.x - 4}
-          y={bbox.y - 4}
-          width={bbox.width + 8}
-          height={bbox.height + 8}
+          x={bbox.x - 4 - ENLARGE / 2}
+          y={bbox.y - 4 - ENLARGE / 2}
+          width={bbox.width + 8 + ENLARGE}
+          height={bbox.height + 8 + ENLARGE}
           fill="none"
-          stroke="#34d399"
+          stroke="#2563eb"
           strokeWidth="2"
-          strokeDasharray="5,5"
+          strokeDasharray="6,4"
+          pointerEvents="none"
         />
       )}
     </g>
