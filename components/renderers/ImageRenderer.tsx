@@ -4,34 +4,39 @@ import type { ImageObject } from '../../types';
 interface ImageRendererProps {
   imageObject: ImageObject;
   isSelected: boolean;
+  x: number;
+  y: number;
 }
 
-const ImageRenderer: React.FC<ImageRendererProps> = ({ imageObject, isSelected }) => {
+const ENLARGE = 8;
+
+const ImageRenderer: React.FC<ImageRendererProps> = ({ imageObject, isSelected, x, y }) => {
   const { width, height, href, rotation } = imageObject;
 
-  const transform = `rotate(${rotation})`;
+  const transform = `translate(${x}, ${y}) rotate(${rotation})`;
 
   return (
     <g transform={transform}>
+      {isSelected && (
+        <rect
+          x={-ENLARGE / 2}
+          y={-ENLARGE / 2}
+          width={width + ENLARGE}
+          height={height + ENLARGE}
+          fill="none"
+          stroke="#2563eb"
+          strokeWidth={2}
+          strokeDasharray="6,4"
+          pointerEvents="none"
+        />
+      )}
       <image
         href={href}
-        x={-width / 2}
-        y={-height / 2}
+        x={0}
+        y={0}
         width={width}
         height={height}
       />
-      {isSelected && (
-        <rect
-          x={-width / 2}
-          y={-height / 2}
-          width={width}
-          height={height}
-          fill="none"
-          stroke="#34d399"
-          strokeWidth="2"
-          strokeDasharray="5,5"
-        />
-      )}
     </g>
   );
 };

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 export enum ToolType {
   SELECT = 'SELECT',
   PEN = 'PEN',
+  ERASER = 'ERASER',
   TEXT = 'TEXT',
 }
 
@@ -28,10 +29,16 @@ export enum CanvasItemType {
   IMAGE = 'IMAGE',
 }
 
+export enum PrintingMethod {
+  SCAN = 'scan',
+  ENGRAVE = 'engrave',
+}
+
 export interface Layer {
   id: string;
   name: string;
   isVisible: boolean;
+  printingMethod: PrintingMethod;
 }
 
 export interface PartParameters {
