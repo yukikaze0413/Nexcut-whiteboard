@@ -1407,6 +1407,9 @@ declare global {
         };
       };
     };
+    iOS?: {
+        getPlatformSize(): Promise<string>;
+      };
   }
 }
 
