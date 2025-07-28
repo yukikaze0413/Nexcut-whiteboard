@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const ImagePage = ()=> {
+    var saveImage = ()=>{
+        onSaveImage();
+    };
+    var onSaveImage: ()=>void;
+    useEffect(() => {
+    },[])
     return (
         <>
             <div style={{
@@ -11,12 +17,16 @@ const ImagePage = ()=> {
                 <div style={{
                     height: "50px", width: "100%"
                 }}>
-                    <TopBar />
+                    <TopBar saveEditImage={()=>{saveImage()}}/>
                 </div>
                 <div style={{
                     flex: 1, width: "100%"
                 }}>
-                    <Content />
+                    <Content onSaveImage={
+                        (callback: ()=>void)=>{
+                            onSaveImage = callback
+                        }
+                        }/>
                 </div>
                 <div style={{
                     height: "50px", width: "100%"
@@ -28,27 +38,47 @@ const ImagePage = ()=> {
     )
 };
 
-const Content = ()=>{
+
+interface ChildProps2 {
+    onSaveImage: (callback: ()=>void) => void;
+}
+const Content:React.FC<ChildProps2> = ({onSaveImage})=>{
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [loaded, setLoaded] = useState(0);
     const MAX_WIDTH = 200;
-    
-    useEffect(() => {
 
+    function saveFile(){
+        const canvas = canvasRef.current!;
+        const ctx = canvas.getContext('2d')!;
+
+        (async () => {
+        try {
+            console.log("to save File")
+            const filename = await saveEditedImage(canvas.toDataURL("image/png"));
+            console.log(filename)
+        } catch (e) {
+            console.error(e);
+        }
+        })();
+    }
+    onSaveImage(saveFile);
+
+    useEffect(() => {
         if (window.cv) {
             console.log("opencv.js is ready")
         } else {
             console.log('OpenCV.js 尚未加载');
         }
 
-        // img.src = "./assets/banner.png";
         const img = new Image();
         img.onload = () => {
             const canvas = canvasRef.current!;
             const ctx = canvas.getContext('2d')!;
             
-            canvas.width = MAX_WIDTH;
-            canvas.height = (img.height / img.width) * MAX_WIDTH;
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            // canvas.style.width = MAX_WIDTH;
+            // canvas.style.height = (img.height / img.width) * MAX_WIDTH;
 
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
             console.log("draw");
@@ -64,6 +94,7 @@ const Content = ()=>{
             console.error(e);
         }
         })();
+        img.src = "./assets/banner.png";
     },[loaded]);
 
     const onOpenCV = (type: String)=> {
@@ -123,7 +154,10 @@ const Content = ()=>{
                     alignItems: 'center',     // 垂直居中
                     height: '100%', width: "100%"
                 }}>
-                    <canvas ref={canvasRef} />
+                    <canvas ref={canvasRef} style={{
+                        width: "200px",
+                        height: "auto"
+                    }}/>
                     
                     {/* <img src={"./assets/大象2.jpg"} alt="logo" style={{ width: '200px', height: 'auto' }} /> */}
                 </div>
@@ -133,23 +167,58 @@ const Content = ()=>{
             }}>
                 <div style={{
                     display: 'flex', flexDirection: "row",
-                    justifyContent: 'space-around', // 水平居中
+                    // justifyContent: 'space-around', // 水平居中
                     alignItems: 'center',     // 垂直居中
-                    height: '100%', width: "100%"
+                    height: '100%', width: "100%",
+                    gap: "50px",
+                    overflowX: "auto",
+                    whiteSpace: "nowrap",
                 }}>
-                    <button onClick={()=>onOpenCV("gray")}>灰度</button> 
-                    <button onClick={()=>onOpenCV("canny")}>线框</button>
-                    <button onClick={()=>onOpenCV("blur")}>模糊</button> 
-                    <button onClick={()=>{setLoaded(loaded + 1)}} >撤销</button> 
+                    <div style={{
+                        width: "100px"
+                    }}>
+                        <button onClick={()=>onOpenCV("gray")}>灰度</button> 
+                    </div><div style={{
+                        width: "100px"
+                    }}>
+                        <button onClick={()=>onOpenCV("canny")}>线框</button>
+                    </div>
+                    <div style={{
+                        width: "100px"
+                    }}>
+                        <button onClick={()=>onOpenCV("blur")}>模糊</button> 
+                    </div>
+                    <div style={{
+                        width: "100px"
+                    }}>
+                        <button onClick={()=>{setLoaded(loaded + 1)}} >撤销</button> 
+                    </div><div style={{
+                        width: "100px"
+                    }}>
+                        <button >灰度</button> 
+                    </div><div style={{
+                        width: "100px"
+                    }}>
+                        <button >灰度</button> 
+                    </div><div style={{
+                        width: "100px"
+                    }}>
+                        <button >灰度</button> 
+                    </div>
                 </div>
             </div>
         </div>
     )
 }
 
-const TopBar = () => {
+
+interface ChildProps {
+    saveEditImage: () => void;
+}
+const TopBar: React.FC<ChildProps> = ({saveEditImage}) => {
     const navigate = useNavigate();
     const handleLogin = () => {
+        saveEditImage()
         navigate('/App', { replace: false }); 
     };
     return(
@@ -164,6 +233,7 @@ const TopBar = () => {
 }
 export default ImagePage;
 
+//js请求原生的图片数据，输入无，输出图片ImageData
 function getOriginImage(): Promise<string>{
   return new Promise<string>((resolve) => {
     // 临时挂一个一次性回调
@@ -172,6 +242,20 @@ function getOriginImage(): Promise<string>{
     window.webkit?.messageHandlers.jsBridge.postMessage({
         action: "getOriginImage",
         id: id
+        });
+  });
+}
+
+//js向原生保存图片， 输入ImageData， 输出URL
+function saveEditedImage(imageData: String): Promise<String>{
+  return new Promise<String>((resolve) => {
+    const id = Math.random().toString(36).slice(2);
+    window[`__cb_${id}`] = resolve; // Swift 回传时调用
+
+    window.webkit?.messageHandlers.jsBridge.postMessage({
+        action: "saveEditedImage",
+        id: id,
+        imageData: imageData
         });
   });
 }
