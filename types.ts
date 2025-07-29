@@ -39,6 +39,10 @@ export interface Layer {
   name: string;
   isVisible: boolean;
   printingMethod: PrintingMethod;
+  // 新增属性
+  lineDensity?: number; // 仅扫描图层
+  halftone?: boolean;   // 仅扫描图层
+  power?: number;       // 仅雕刻图层
 }
 
 export interface PartParameters {
