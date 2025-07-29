@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import type { CanvasItem, CanvasItemData, PartType, Layer, Part, ImageObject } from './types';
 import { CanvasItemType, ToolType, PrintingMethod } from './types';
 import { PART_LIBRARY, BASIC_SHAPES } from './constants';
-import Toolbar from './components/Toolbar';
+
 import Canvas from './components/Canvas';
 import ParameterEditor from './components/ParameterEditor';
 import CategoryPicker from './components/CategoryPicker';
@@ -999,21 +999,7 @@ const App: React.FC<AppProps> = () => {
 
   const selectedItem = items.find(p => p.id === selectedItemId) || null;
 
-  useEffect(() => {
-    // 提供给外部调用的图片注入接口
-    (window as any).setWhiteboardImage = (base64ata: string) => {
-      const img = new Image();
-      img.onload = () => {
-        addImage(base64ata, img.width, img.height);
-      };
-      img.src = base64ata;
-    };
-    // 可选：卸载时清理
-    return () => {
-      delete (window as any).setWhiteboardImage;
-    };
-  }, [addImage]);
-
+  // 文件处理相关的refs和函数
   const imageInputRef = React.useRef<HTMLInputElement>(null);
   const importInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -1033,36 +1019,23 @@ const App: React.FC<AppProps> = () => {
     event.currentTarget.value = '';
   };
 
-  // 7.22
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
 
-    // === 核心逻辑：根据文件类型选择不同的读取方式 ===
     if (ext === 'svg') {
-      // --- 针对 SVG 文件的特殊处理流程 ---
-
-      // a. 设置 onload 回调，它会接收到一个文本字符串
       reader.onload = (e) => {
-        // 步骤 1: 获取 SVG 文件内容的字符串，这就是你想要的【中间变量】
         const svgString = e.target?.result as string;
         if (!svgString) return;
-
-        console.log("成功读取SVG为字符串:", svgString.substring(0, 100) + '...'); // 你可以在这里操作 svgString
-
-        // 步骤 2: 手动将 SVG 字符串转换为 Data URL
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(svgString);
-
-        // 步骤 3: 后续流程与原来完全相同，使用 Data URL 获取尺寸
         const img = new Image();
         img.onload = () => {
           addImage(dataUrl, img.width, img.height);
         };
         img.src = dataUrl;
       };
-      // b. 启动读取过程，读取为【纯文本】
       reader.readAsText(file);
     }
     else if (ext === 'dxf') {
@@ -1071,11 +1044,7 @@ const App: React.FC<AppProps> = () => {
           const dxfContents = e.target?.result as string;
           const helper = new Helper(dxfContents);
           const generatedSvg = helper.toSVG();
-
-          // 核心：在这里调用我们的新函数！
-          // 它会处理 SVG 字符串，并最终调用 onAddImage
           processSvgString(generatedSvg, addImage);
-
         } catch (err) {
           alert("解析 DXF 文件时发生错误。");
         }
@@ -1114,38 +1083,46 @@ const App: React.FC<AppProps> = () => {
     img.src = dataUrl;
   };
 
-  // const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
-  //   const file = event.target.files?.[0];
-  //   if (!file) return;
-  //   const ext = file.name.split('.').pop()?.toLowerCase() || '';
-  //   const reader = new FileReader();
-  //   reader.onload = (e) => {
-  //     if (typeof e.target?.result === 'string') {
-  //       handleImportFile({
-  //         name: file.name,
-  //         ext,
-  //         content: e.target.result
-  //       });
-  //     }
-  //   };
-  //   reader.readAsText(file);
-  //   event.currentTarget.value = '';
-  // };
-
   useEffect(() => {
+    // 移动端性能优化配置
+    const optimizeMobilePerformance = () => {
+      // 禁用移动端双击缩放
+      document.addEventListener('touchstart', function(e) {
+        if (e.touches.length > 1) {
+          e.preventDefault();
+        }
+      }, { passive: false });
+
+      // 优化移动端滚动性能
+      document.body.style.overscrollBehavior = 'none';
+      document.body.style.touchAction = 'none';
+      
+      // 禁用文本选择（画布操作时）
+      document.body.style.userSelect = 'none';
+      document.body.style.webkitUserSelect = 'none';
+    };
+
+    optimizeMobilePerformance();
+
+    // 提供给外部调用的图片注入接口
+    (window as any).setWhiteboardImage = (base64ata: string) => {
+      const img = new Image();
+      img.onload = () => {
+        addImage(base64ata, img.width, img.height);
+      };
+      img.src = base64ata;
+    };
+
     (window as any).setCanvasSize = (w: number, h: number) => {
       setCanvasWidth(w);
       setCanvasHeight(h);
     };
 
-    // --- 【新增】添加图片的桥 ---
-    // 我们将 addImage 函数也挂载到 window 对象上
     (window as any).addImageToCanvas = (href: string, width: number, height: number) => {
-      // 这里直接调用你已经写好的 addImage 函数
       addImage(href, width, height);
     };
 
-    // 新增：主动向安卓端请求画布大小
+    // 主动向安卓端请求画布大小
     if (window.Android && typeof window.Android.getPlatformSize === 'function') {
       try {
         const size = window.Android.getPlatformSize();
@@ -1165,17 +1142,19 @@ const App: React.FC<AppProps> = () => {
         // 忽略异常，保持默认
       }
     }
+    
     return () => {
+      delete (window as any).setWhiteboardImage;
       delete (window as any).setCanvasSize;
       delete (window as any).addImageToCanvas;
     };
   }, [addImage]);
   
   return (
-    <div className="h-screen w-screen flex flex-row font-sans text-gray-800 bg-gray-100 overflow-hidden" style={{ width: '100vw', height: '100vh', minHeight: '100vh', minWidth: '100vw' }}>
+    <div className="h-screen w-screen flex flex-col font-sans text-gray-800 bg-gray-100 overflow-hidden" style={{ width: '100vw', height: '100vh', minHeight: '100vh', minWidth: '100vw' }}>
       {/* 页面顶部：下一步、撤销按钮 */}
       {step === 1 && (
-        <div className="w-full flex flex-row items-center justify-between px-4 py-2 bg-white border-b border-gray-200 fixed top-0 left-0 z-40 md:static md:justify-end md:py-0 md:px-0">
+        <div className="w-full flex flex-row items-center justify-between px-4 py-2 bg-white border-b border-gray-200 fixed top-0 left-0 z-40">
           <div className="flex flex-row gap-2">
             <button
               className="px-4 py-2 rounded bg-gray-200 text-gray-800 text-sm font-medium shadow-sm hover:bg-gray-300"
@@ -1183,7 +1162,7 @@ const App: React.FC<AppProps> = () => {
               disabled={history.length === 0}
             >撤销</button>
           </div>
-          {/* 新增：画布大小显示在中间 */}
+          {/* 画布大小显示在中间 */}
           <div className="flex-1 flex justify-center">
             <span style={{ color: '#888', fontSize: 13 }}>
               画布大小：{canvasWidth} × {canvasHeight}
@@ -1197,72 +1176,35 @@ const App: React.FC<AppProps> = () => {
           </div>
         </div>
       )}
+      
       {/* Main Content Area */}
       {step === 1 ? (
-        <>
-          <div className="flex-1 flex flex-col min-h-0 min-w-0 pt-14 md:pt-0">
-            {/* PC端工具栏 */}
-            <div className="hidden md:block h-16 bg-white border-b border-gray-200">
-              <Toolbar
-                onOpenCategoryPicker={setOpenCategory}
-                onAddImage={() => { imageInputRef.current?.click(); }}
-                activeTool={activeTool}
-                onSetTool={setActiveTool}
-                onUndo={undo}
-                canUndo={history.length > 0}
-                onImportFile={handleImportFile}
-                onNext={handleNext}
-              />
-            </div>
-            <main className="flex-1 flex flex-col min-h-0 min-w-0 bg-white relative">
-              <Canvas
-                items={items}
-                layers={layers}
-                selectedItemId={selectedItemId}
-                onSelectItem={setSelectedItemId}
-                onUpdateItem={updateItem}
-                onAddItem={addItem}
-                onCommitUpdate={commitUpdate}
-                activeTool={activeTool}
-                canvasWidth={canvasWidth}
-                canvasHeight={canvasHeight}
-                setItems={setItems}
-                eraserRadius={eraserRadius}
-              />
-            </main>
-            {/* 底部工具栏抽屉触发按钮，仅移动端显示 */}
-            <button
-              className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 px-6 py-2 rounded-full bg-gray-800 text-white text-base shadow-lg md:hidden"
-              style={{ paddingBottom: 'env(safe-area-inset-bottom,16px)' }}
-              onClick={() => setDrawer('toolbar')}
-            >工具栏</button>
-          </div>
-          {/* 右侧面板：仅PC端显示 */}
-          <aside className="w-72 flex-shrink-0 bg-white border-l border-gray-200 flex flex-col min-h-0 min-w-0 hidden md:flex">
-            {selectedItem ? (
-              <ParameterEditor
-                selectedItem={selectedItem}
-                layers={layers}
-                onUpdateItem={updateItem}
-                onDeleteItem={deleteItem}
-                onCommitUpdate={commitUpdate}
-              />
-            ) : (
-              <div className="p-4 h-full flex flex-col">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex-shrink-0">图层管理</h3>
-                <LayerPanel
-                  layers={layers}
-                  activeLayerId={activeLayerId}
-                  onAddLayer={addLayer}
-                  onDeleteLayer={deleteLayer}
-                  onUpdateLayer={updateLayer}
-                  onSetActiveLayerId={setActiveLayerId}
-                  onMoveLayer={moveLayer}
-                />
-              </div>
-            )}
-          </aside>
-        </>
+        <div className="flex-1 flex flex-col min-h-0 min-w-0 pt-14">
+          {/* 主画布区域 */}
+          <main className="flex-1 flex flex-col min-h-0 min-w-0 bg-white relative">
+            <Canvas
+              items={items}
+              layers={layers}
+              selectedItemId={selectedItemId}
+              onSelectItem={setSelectedItemId}
+              onUpdateItem={updateItem}
+              onAddItem={addItem}
+              onCommitUpdate={commitUpdate}
+              activeTool={activeTool}
+              canvasWidth={canvasWidth}
+              canvasHeight={canvasHeight}
+              setItems={setItems}
+              eraserRadius={eraserRadius}
+            />
+          </main>
+          
+          {/* 底部工具栏触发按钮 */}
+          <button
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 px-6 py-2 rounded-full bg-gray-800 text-white text-base shadow-lg"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom,16px)' }}
+            onClick={() => setDrawer('toolbar')}
+          >工具栏</button>
+        </div>
       ) : (
         // step === 2: 图层设置界面
         <div className="w-full h-full flex flex-col">
@@ -1300,6 +1242,7 @@ const App: React.FC<AppProps> = () => {
           </div>
         </div>
       )}
+      
       {openCategory && (
         <CategoryPicker
           category={openCategory}
@@ -1316,12 +1259,12 @@ const App: React.FC<AppProps> = () => {
               <span className="font-semibold">工具栏</span>
               <button className="text-gray-500 text-lg" onClick={() => setDrawer(null)}>×</button>
             </div>
-            <div className="grid grid-cols-3 grid-rows-3 md:grid-cols-3 md:grid-rows-3 gap-3 w-full">
+            <div className="grid grid-cols-3 gap-4 w-full">
               {/* 第一行：选择、涂鸦、橡皮擦 */}
               <button
-                className={`flex flex-col items-center justify-center w-full h-14 rounded-lg transition-colors ${activeTool === ToolType.SELECT
-                  ? 'bg-teal-500 text-white'
-                  : 'bg-gray-100 text-gray-800'
+                className={`flex flex-col items-center justify-center w-full h-16 rounded-xl transition-all duration-200 active:scale-95 ${activeTool === ToolType.SELECT
+                  ? 'bg-blue-500 text-white shadow-lg'
+                  : 'bg-gray-100 text-gray-800 active:bg-gray-200'
                   }`}
                 onClick={() => setActiveTool(ToolType.SELECT)}
               >
@@ -1329,9 +1272,9 @@ const App: React.FC<AppProps> = () => {
                 <span className="text-xs">选择</span>
               </button>
               <button
-                className={`flex flex-col items-center justify-center w-full h-14 rounded-lg transition-colors ${activeTool === ToolType.PEN
-                  ? 'bg-teal-500 text-white'
-                  : 'bg-gray-100 text-gray-800'
+                className={`flex flex-col items-center justify-center w-full h-16 rounded-xl transition-all duration-200 active:scale-95 ${activeTool === ToolType.PEN
+                  ? 'bg-blue-500 text-white shadow-lg'
+                  : 'bg-gray-100 text-gray-800 active:bg-gray-200'
                   }`}
                 onClick={() => setActiveTool(ToolType.PEN)}
               >
@@ -1339,9 +1282,9 @@ const App: React.FC<AppProps> = () => {
                 <span className="text-xs">涂鸦</span>
               </button>
               <button
-                className={`flex flex-col items-center justify-center w-full h-14 rounded-lg transition-colors ${activeTool === ToolType.ERASER
-                  ? 'bg-teal-500 text-white'
-                  : 'bg-gray-100 text-gray-800'
+                className={`flex flex-col items-center justify-center w-full h-16 rounded-xl transition-all duration-200 active:scale-95 ${activeTool === ToolType.ERASER
+                  ? 'bg-blue-500 text-white shadow-lg'
+                  : 'bg-gray-100 text-gray-800 active:bg-gray-200'
                   }`}
                 onClick={() => {
                   setActiveTool(ToolType.ERASER);
@@ -1354,9 +1297,9 @@ const App: React.FC<AppProps> = () => {
               {/* 第二行、第三行保持原有按钮顺序即可 */}
               {/* 属性按钮 */}
               <button
-                className={`flex flex-col items-center justify-center w-full h-14 rounded-lg transition-colors ${!selectedItem
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                className={`flex flex-col items-center justify-center w-full h-16 rounded-xl transition-all duration-200 ${!selectedItem
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
+                  : 'bg-gray-100 text-gray-800 active:bg-gray-200 active:scale-95'
                   }`}
                 onClick={() => setDrawer('property')}
                 disabled={!selectedItem}
@@ -1365,14 +1308,14 @@ const App: React.FC<AppProps> = () => {
                 <span className="text-xs">属性</span>
               </button>
               <button
-                className="flex flex-col items-center justify-center w-full h-14 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-gray-800"
+                className="flex flex-col items-center justify-center w-full h-16 bg-gray-100 rounded-xl active:bg-gray-200 active:scale-95 transition-all duration-200 text-gray-800"
                 onClick={() => setDrawer('layer')}
               >
                 <img src={LayerIcon} alt="图层" className="w-6 h-6 mb-1" />
                 <span className="text-xs">图层</span>
               </button>
               {/* 基础形状按钮 */}
-              <div className="flex flex-col items-center justify-center w-full h-14 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-gray-800" onClick={() => {
+              <div className="flex flex-col items-center justify-center w-full h-16 bg-gray-100 rounded-xl active:bg-gray-200 active:scale-95 transition-all duration-200 text-gray-800" onClick={() => {
                 setOpenCategory('BASIC_SHAPES');
                 setDrawer(null); // 关闭工具栏抽屉
               }} style={{ cursor: 'pointer' }}>
@@ -1380,7 +1323,7 @@ const App: React.FC<AppProps> = () => {
                 <span className="text-xs">形状</span>
               </div>
               {/* 零件库按钮 */}
-              <div className="flex flex-col items-center justify-center w-full h-14 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-gray-800" onClick={() => {
+              <div className="flex flex-col items-center justify-center w-full h-16 bg-gray-100 rounded-xl active:bg-gray-200 active:scale-95 transition-all duration-200 text-gray-800" onClick={() => {
                 setOpenCategory('PART_LIBRARY');
                 setDrawer(null); // 关闭工具栏抽屉
               }} style={{ cursor: 'pointer' }}>
@@ -1389,7 +1332,7 @@ const App: React.FC<AppProps> = () => {
               </div>
               {/* 图片按钮（新版：按钮和input合并，input只覆盖按钮区域） */}
               <div style={{ position: 'relative', width: '100%' }}>
-                <button className="flex flex-col items-center justify-center w-full h-14 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-gray-800">
+                <button className="flex flex-col items-center justify-center w-full h-16 bg-gray-100 rounded-xl active:bg-gray-200 active:scale-95 transition-all duration-200 text-gray-800">
                   <img src={ImageIcon} alt="图片" className="w-6 h-6 mb-1" />
                   <span className="text-xs">图片</span>
                 </button>
@@ -1402,7 +1345,7 @@ const App: React.FC<AppProps> = () => {
               </div>
               {/* 导入按钮（新版：按钮和input合并，input只覆盖按钮区域） */}
               <div style={{ position: 'relative', width: '100%' }}>
-                <button className="flex flex-col items-center justify-center w-full h-14 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-gray-800">
+                <button className="flex flex-col items-center justify-center w-full h-16 bg-gray-100 rounded-xl active:bg-gray-200 active:scale-95 transition-all duration-200 text-gray-800">
                   <img src={ImportIcon} alt="导入" className="w-6 h-6 mb-1" />
                   <span className="text-xs">导入</span>
                 </button>

@@ -86,15 +86,9 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
   const [viewBox, setViewBox] = useState({ x: 0, y: 0 });
   const [canvasSize, setCanvasSize] = useState({ width: canvasWidth, height: canvasHeight });
 
-   useEffect(() => {
-    const resizeObserver = new ResizeObserver(() => {
-        // 保持画布尺寸不变，只更新容器尺寸用于缩放计算
-        setCanvasSize({ width: canvasWidth, height: canvasHeight });
-    });
-    if (svgContainerRef.current) {
-        resizeObserver.observe(svgContainerRef.current);
-    }
-    return () => resizeObserver.disconnect();
+  // 移动端优化：直接使用props中的画布尺寸，无需ResizeObserver
+  useEffect(() => {
+    setCanvasSize({ width: canvasWidth, height: canvasHeight });
   }, [canvasWidth, canvasHeight]);
 
   useEffect(() => {
@@ -118,7 +112,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
 
     function handleTouchStart(e: TouchEvent) {
       if (e.touches.length === 2) {
-        // 记录初始距离和viewBox
+        // 双指缩放：记录初始状态
         const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
         const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
         
@@ -126,10 +120,10 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
           startDistance: getTouchDistance(e.touches),
           startViewBox: { x: viewBox.x, y: viewBox.y, width: canvasSize.width, height: canvasSize.height },
           isPinching: true,
-          centerPoint: { x: centerX, y: centerY }, // 记录缩放中心点
+          centerPoint: { x: centerX, y: centerY },
         });
       } else if (e.touches.length === 1) {
-        // 单指触摸时清除缩放状态，确保不会意外触发缩放
+        // 单指触摸：清除缩放状态
         setPinchState(null);
       }
     }
@@ -139,16 +133,16 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
         e.preventDefault(); // 禁止页面滚动
         const newDistance = getTouchDistance(e.touches);
         
-        // 添加缩放阻尼，降低灵敏度
+        // 移动端优化：更平滑的缩放体验
         const distanceRatio = newDistance / pinchState.startDistance;
-        const dampedScale = 1 + (distanceRatio - 1) * 0.2; // 进一步降低缩放灵敏度到20%
+        const dampedScale = 1 + (distanceRatio - 1) * 0.3; // 提升缩放灵敏度到30%
         
-        // 添加防抖：只有当缩放变化足够大时才更新
+        // 移动端防抖：降低阈值提升响应性
         const scaleChange = Math.abs(dampedScale - 1);
-        if (scaleChange < 0.05) return; // 忽略小于5%的缩放变化
+        if (scaleChange < 0.02) return; // 降低到2%的变化阈值
         
-        // 限制缩放比例
-        const scale = Math.max(0.2, Math.min(5, dampedScale));
+        // 移动端适配的缩放范围
+        const scale = Math.max(0.1, Math.min(8, dampedScale)); // 扩大缩放范围
         
         // 计算新的viewBox尺寸
         const newWidth = pinchState.startViewBox.width / scale;
@@ -181,10 +175,12 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
       }
     }
 
+    // 移动端优化：使用passive: false确保preventDefault生效
     container.addEventListener('touchstart', handleTouchStart, { passive: false });
     container.addEventListener('touchmove', handleTouchMove, { passive: false });
     container.addEventListener('touchend', handleTouchEnd, { passive: false });
     container.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+    
     return () => {
       container.removeEventListener('touchstart', handleTouchStart);
       container.removeEventListener('touchmove', handleTouchMove);
@@ -256,6 +252,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
         break;
 
       case ToolType.ERASER:
+        event.stopPropagation();
         setEraserState({ lastPos: pos });
         setEraserPos(pos); // 记录橡皮擦位置
         break;
