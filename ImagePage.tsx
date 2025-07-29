@@ -38,7 +38,7 @@ const ImagePage = ()=> {
     )
 };
 
-
+// content
 interface ChildProps2 {
     onSaveImage: (callback: ()=>void) => void;
 }
@@ -84,17 +84,17 @@ const Content:React.FC<ChildProps2> = ({onSaveImage})=>{
             console.log("draw");
         }
     
-        (async () => {
-        try {
-            const result = await getOriginImage();
-            console.log('原生返回：', result);
-            alert(result);
-            img.src = `data:image/jpeg;base64,${result}`
-        } catch (e) {
-            console.error(e);
-        }
-        })();
-        img.src = "./assets/banner.png";
+        // (async () => {
+        // try {
+        //     const result = await getOriginImage();
+        //     console.log('原生返回：', result);
+        //     alert(result);
+        //     img.src = `data:image/jpeg;base64,${result}`
+        // } catch (e) {
+        //     console.error(e);
+        // }
+        // })();
+        img.src = "./banner.png";
     },[loaded]);
 
     const onOpenCV = (type: String)=> {
