@@ -271,25 +271,26 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
             {selectedLayer.printingMethod === PrintingMethod.SCAN ? (
               <>
                 <div className="mb-4">
-                  <label className="block text-sm font-medium mb-1">线密度</label>
+                  <label className="block text-sm font-medium mb-1">线密度 (线/毫米)</label>
                   <input
                     type="number"
                     min={1}
+                    max={100}
+                    step={1}
                     value={selectedLayer.lineDensity ?? 10}
                     onChange={e => handleInputChange('lineDensity', Number(e.target.value))}
-                    className="w-32 p-2 border rounded"
+                    className="w-full p-2 border rounded"
                   />
-                  <span className="ml-2 text-xs text-gray-500">（单位：线/毫米）</span>
                 </div>
                 <div className="mb-4 flex items-center">
                   <input
                     type="checkbox"
-                    checked={!!selectedLayer.halftone}
-                    onChange={e => handleCheckboxChange('halftone', e.target.checked)}
+                    checked={!!selectedLayer.isHalftone}
+                    onChange={e => handleCheckboxChange('isHalftone', e.target.checked)}
                     id="halftone-checkbox"
-                    className="mr-2"
+                    className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-gray-300 rounded"
                   />
-                  <label htmlFor="halftone-checkbox" className="text-sm">使用半调网屏</label>
+                  <label htmlFor="halftone-checkbox" className="ml-2 block text-sm text-gray-900">半调网屏</label>
                 </div>
               </>
             ) : (

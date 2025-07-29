@@ -22,51 +22,36 @@ const getCentroid = (points: { x: number; y: number }[]) => {
 };
 
 const DrawingRenderer: React.FC<DrawingRendererProps> = ({ drawing, isSelected }) => {
-  const { points, color, strokeWidth, fillColor } = drawing;
+  const { points, color, strokeWidth, fillColor, rotation = 0, x = 0, y = 0 } = drawing;
   const ENLARGE = 8;
   const HITBOX_STROKE_WIDTH = 20; // 点击区域宽度
   if (!points || points.length < 2) return null;
 
-  // 计算 OBB
-  const polygon = points.map(p => [p.x, p.y] as [number, number]);
-  let obb: [number, number][] = [];
-  try {
-    // @ts-ignore
-    obb = findMinBoundingRect(polygon);
-  } catch (e) {
-    // 兜底：如果计算失败，obb为空
-    obb = [];
-  }
+  const minX = Math.min(...points.map(p => p.x));
+  const minY = Math.min(...points.map(p => p.y));
+  const maxX = Math.max(...points.map(p => p.x));
+  const maxY = Math.max(...points.map(p => p.y));
 
-  // 计算 OBB 的中心、宽高、旋转角度
-  let obbRect = null;
-  if (obb.length >= 4) {
-    const [p1, p2, p3] = obb;
-    const centerX = (p1[0] + obb[2][0]) / 2;
-    const centerY = (p1[1] + obb[2][1]) / 2;
-    const width = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
-    const height = Math.hypot(p3[0] - p2[0], p3[1] - p2[1]);
-    const angle = Math.atan2(p2[1] - p1[1], p2[0] - p1[0]) * 180 / Math.PI;
-    obbRect = { centerX, centerY, width, height, angle };
-  }
+  const width = maxX - minX;
+  const height = maxY - minY;
 
   // 原始路径
-  const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x - minX} ${p.y - minY}`).join(' ');
+  const transform = `translate(${x + minX}, ${y + minY}) rotate(${rotation})`;
 
   return (
-    <g>
-      {isSelected && obbRect && (
+    <g transform={transform}>
+      {isSelected && (
         <rect
-          x={obbRect.centerX - obbRect.width / 2 - ENLARGE / 2}
-          y={obbRect.centerY - obbRect.height / 2 - ENLARGE / 2}
-          width={obbRect.width + ENLARGE}
-          height={obbRect.height + ENLARGE}
+          x={-ENLARGE / 2}
+          y={-ENLARGE / 2}
+          width={width + ENLARGE}
+          height={height + ENLARGE}
           fill="none"
           stroke="#2563eb"
           strokeWidth={2}
           strokeDasharray="6,4"
           pointerEvents="none"
-          transform={`rotate(${obbRect.angle}, ${obbRect.centerX}, ${obbRect.centerY})`}
         />
       )}
       {/* 透明的点击区域 */}

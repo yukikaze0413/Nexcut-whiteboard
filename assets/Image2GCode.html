@@ -1,0 +1,759 @@
+﻿<!--
+	Copyright (c) 2021 Damir Sagidullin
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+	documentation files (the "Software"), to deal in the Software without restriction, including without limitation
+	the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,
+	and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in all copies or substantial portions
+	of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+	TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+	THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+	CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+	DEALINGS IN THE SOFTWARE.
+
+	(The above is MIT License: http://en.wikipedia.origin/wiki/MIT_License)
+-->
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<title>Image to GCode</title>
+	<style>
+		#settings {
+			border: 1px solid #888;
+			width: 400px;
+			padding: 10px;
+			clear: both;
+			line-height: 30px;
+		}
+
+		#viewport {
+			position: absolute;
+			left: 440px;
+			top: 10px;
+		}
+
+		#previewCanvas {
+			position: absolute;
+			top: 50%;
+			left: 50%;
+			transform: translate(-50%, -50%);
+		}
+
+		#imageFile {
+			width: 270px;
+		}
+
+		#gradientButton {
+			float: right;
+		}
+
+		#profilesDiv {
+			margin-bottom: 10px;
+		}
+
+		#profiles {
+			width: 330px;
+			height: 30px;
+			float: left;
+		}
+
+		.toolButton {
+			float: right;
+			width: 30px;
+			height: 30px;
+			margin-left: 4px;
+		}
+
+		#generateButton {
+			width: 200px;
+			height: 40px;
+			position: relative;
+			left: 50%;
+			transform: translateX(-50%);
+		}
+
+		label {
+			font-family: Arial, Helvetica, sans-serif;
+			float: left;
+			height: 20px;
+			line-height: 20px;
+			padding: 0;
+			margin: 0;
+		}
+
+		input[type=file] {
+			float: right;
+		}
+
+		input[type=number],
+		input[type=text],
+		input[type=checkbox] {
+			font-family: "Lucida Console", "Courier New", monospace;
+			width: 100px;
+			height: 20px;
+			float: right;
+			margin: 0;
+			margin-left: 5px;
+			padding: 0;
+		}
+	</style>
+</head>
+
+<body lang="en-US">
+	<div id="settings">
+
+		<label>Image:</label>
+		<button id="gradientButton" onclick="generateGradientImage()">Gradient</button>
+		<input id="imageFile" type="file" accept="image/*" onchange="loadImage()" />
+		<button id="rotateCCW90" onclick="rotate90(false)">Rotate 90° CCW &#11153</button>
+		<button id="rotateCW90" onclick="rotate90(true)">Rotate 90° CW &#11152</button>
+		<br />
+		<label>Gamma:</label><input id="gamma" type="number" min="0.05" max="10" value="1" step="0.05" onchange="updatePreviewImage()" /><br />
+		<label>Horizontal Cropping (%):</label>
+		<input id="cropRight" title="Right" type="number" min="0" max="100" value="100" step="1" onchange="updatePreview(event)" />
+		<input id="cropLeft" title="Left" type="number" min="0" max="100" value="0" step="1" onchange="updatePreview(event)" /><br />
+		<label>Vertical Cropping (%):</label>
+		<input id="cropBottom" title="Bottom" type="number" min="0" max="100" value="100" step="1" onchange="updatePreview(event)" />
+		<input id="cropTop" title="Top" type="number" min="0" max="100" value="0" step="1" onchange="updatePreview(event)" /><br />
+		<label>Preview Scale:</label><input id="previewScale" type="number" min="0.25" max="10" value="1" step="0.25" onchange="updatePreview(event)" /><br />
+		<br />
+		<br>
+		<div id="profilesDiv">
+			<button id="deleteProfile" title="Delete this profile" onclick="onDeleteProfile()" class="toolButton">&#10005;</button>
+			<button id="saveProfile" title="Save current settings" onclick="onSaveProfile()" class="toolButton">&#128190;</button>
+			<select id="profiles" title="Select profile" onchange="onChangeProfile()"></select>
+		</div><br />
+
+		<label>Halftone Mode:</label><input id="halftoneMode" type="checkbox" checked onchange="updatePreview(event)" /><br />
+		<label>Negative Image:</label><input id="negativeImage" type="checkbox" onchange="updatePreviewImage()" /><br />
+		<label>Horizontally flipped</label><input id="hFlipped" type="checkbox" onchange="updatePreviewImage()" /><br />
+		<label>Vertically flipped</label><input id="vFlipped" type="checkbox" onchange="updatePreviewImage()" /><br />
+		<label>Burn Min Power:</label><input id="minPower" type="number" min="0" value="0" /><br />
+		<label>Burn Max Power:</label><input id="maxPower" type="number" min="0" value="255" /><br />
+		<label>Burn Speed (mm/min):</label><input id="burnSpeed" type="number" min="1" value="1000" /><br />
+		<label>Travel Speed (mm/min):</label><input id="travelSpeed" type="number" min="1" value="6000" /><br />
+		<label>Image Width (mm):</label><input id="width" type="number" value="100" min="1" max="10000" onchange="updatePreview(event)" /><br />
+		<label>Image Height (mm):</label><input id="height" type="number" value="100" min="1" max="10000" onchange="updatePreview(event)" /><br />
+		<label>Keep proportions:</label><input id="keepProportions" type="checkbox" checked onchange="updatePreview(event)" /><br />
+		<label>Horizontal Resolution (mm/pixel):</label><input id="xRes" type="number" min="0.01" max="10" value="0.1" step="0.01" onchange="updatePreview(event)" /><br />
+		<label>Vertical Resolution (mm/pixel):</label><input id="yRes" type="number" min="0.01" max="10" value="0.1" step="0.01" onchange="updatePreview(event)" /><br />
+		<label>Pulse width (mm):</label>
+		<input id="usePulseWidth" type="checkbox" onchange="onUsePulseWidthChanged()" style="float: left;" />
+		<input id="pulseWidth" type="number" min="0.01" max="10" value="0.1" step="0.01" /><br />
+		<label>Overscan / Acceleration Distance (mm):</label><input id="overscanDist" type="number" min="0" max="100" value="3" step="0.1" /><br />
+		<label>Border X (mm):</label><input id="borderX" type="number" value="5" min="0" onchange="updatePreview(event)" /><br />
+		<label>Border Y (mm):</label><input id="borderY" type="number" value="5" min="0" onchange="updatePreview(event)" /><br />
+		<!-- <label>Z Position (mm):</label><input id="zPos" type="number" value="0" min="0" /><br /> -->
+		<label>Zig-Zag Path:</label><input id="zigZagPath" type="checkbox" onchange="updateZigZag()" /><br />
+		<div id="zigZagSettings" hidden>
+			<label>Reverse Movement Offset (mm):</label><input id="reverseMovementOffset" type="number" min="0" max="1" value="0.25" step="0.01" /><br />
+			<button onclick="calibrateReverseMovement()">Calibrate Reverse Movement Offset</button><br />
+		</div>
+		<label>Cut Image:</label><input id="cutImage" type="checkbox" onchange="updateCut()" /><br />
+		<div id="cuttingSettings" hidden>
+			<label>Cutting Power:</label><input id="cutPower" type="number" min="0" value="255" /><br />
+			<label>Cutting Speed (mm/min):</label><input id="cutSpeed" type="number" min="1" value="200" /><br />
+			<label>Cutting Passes:</label><input id="numCutPasses" type="number" min="1" value="1" step="1" /><br />
+		</div>
+		<br />
+		<button id="generateButton" onclick="generateGCode()" disabled>Generate G-Code</button><br />
+	</div>
+	<div id="viewport" hidden="true">
+		<canvas id="previewCanvas" />
+	</div>
+</body>
+
+<script type="text/javascript">
+	let fileName;
+	let sourceImage = new Image();
+	const elements = {};
+	let profiles = {};
+	const settings = {};
+
+	["viewport", "previewCanvas", "imageFile", "profiles", "generateButton",
+		"gamma", "cropLeft", "cropRight", "cropTop", "cropBottom", "previewScale"
+	].forEach(function(name) {
+		elements[name] = document.getElementById(name);
+	});
+
+	["halftoneMode", "negativeImage", "hFlipped", "vFlipped", "minPower", "maxPower", "burnSpeed", "travelSpeed",
+		"width", "height", "keepProportions", "xRes", "yRes", "usePulseWidth", "pulseWidth", "overscanDist", "borderX", "borderY",
+		"zigZagPath", "reverseMovementOffset", "cutImage", "cutPower", "cutSpeed", "numCutPasses"
+	].forEach(function(name) {
+		settings[name] = document.getElementById(name);
+	});
+
+	function onUsePulseWidthChanged() {
+		settings.pulseWidth.disabled = settings.usePulseWidth.disabled || !settings.usePulseWidth.checked;
+	}
+
+	function onHalftoneModeChanged() {
+		settings.minPower.disabled = settings.halftoneMode.checked;
+		settings.usePulseWidth.disabled = !settings.halftoneMode.checked;
+		onUsePulseWidthChanged()
+	}
+
+	function updateCut() {
+		document.getElementById("cuttingSettings").hidden = !settings.cutImage.checked;
+		elements.viewport.style.border = settings.cutImage.checked ? "1px solid red" : "1px dashed #ccc";
+	}
+
+	function updateZigZag() {
+		document.getElementById("zigZagSettings").hidden = !settings.zigZagPath.checked;
+	}
+
+	function onChangeProfile() {
+		const profile = profiles[elements.profiles.value];
+		if (profile !== undefined) {
+			localStorage.setItem("activeProfile", elements.profiles.value);
+			for (let propName in settings) {
+				const value = profile[propName];
+				if (value !== undefined) {
+					const element = settings[propName];
+					element[element.type === "checkbox" ? "checked" : "value"] = value;
+				}
+			}
+
+			onHalftoneModeChanged();
+			updateCut();
+			updateZigZag();
+			updatePreview({ target: settings.width });
+		}
+	}
+
+	function settingsToProfile() {
+		const json = {};
+		for (let propName in settings) {
+			const element = settings[propName];
+			json[element.id] = element.type === "checkbox" ? element.checked : element.value;
+		}
+		return json;
+	}
+
+	function loadProfiles() {
+		const profilesData = localStorage.getItem("profiles");
+		if (profilesData) {
+			profiles = JSON.parse(profilesData);
+		}
+
+		if (Object.getPrototypeOf(profiles) !== Object.prototype || Object.keys(profiles).length === 0) {
+			profiles = { Default: settingsToProfile() };
+			saveProfiles();
+		}
+
+		for (let profileName in profiles) {
+			const option = document.createElement("option");
+			option.value = option.text = profileName;
+			elements.profiles.add(option);
+		}
+		elements.profiles.value = localStorage.getItem("activeProfile") || "Default";
+		onChangeProfile();
+	}
+
+	loadProfiles();
+	updateCut();
+	updateZigZag();
+	onHalftoneModeChanged();
+
+	function saveProfiles() {
+		localStorage.setItem("profiles", JSON.stringify(profiles));
+		localStorage.setItem("activeProfile", elements.profiles.value);
+	}
+
+	function onSaveProfile() {
+		const profileName = prompt("Save Profile as", elements.profiles.value || "Default");
+		if (profileName) {
+			let option = Array.from(elements.profiles.options).find(function(option) { return option.value === profileName; });
+			if (!option) {
+				option = document.createElement("option");
+				option.value = option.text = profileName;
+				elements.profiles.add(option);
+			}
+			elements.profiles.value = profileName;
+			profiles[profileName] = settingsToProfile();
+			saveProfiles();
+		}
+		console.log(profileName);
+	}
+
+	function onDeleteProfile() {
+		const option = Array.from(elements.profiles.options).find(function(option) { return option.value === elements.profiles.value; });
+		if (option && confirm("Delete " + option.text + " Profile?")) {
+			delete profiles[option.value];
+			elements.profiles.remove(option);
+			elements.profiles.value = null;
+			saveProfiles();
+		}
+	}
+
+	function sRGB2Linear(c) {
+		c /= 255.0;
+		return c < 0.04045 ? (c / 12.92) : Math.pow((c + 0.055) / 1.055, 2.4);
+	}
+
+	function linear2sRGB(l) {
+		return Math.round((l > 0.0031308 ? 1.055 * (Math.pow(l, (1.0 / 2.4))) - 0.055 : 12.92 * l) * 255);
+	}
+
+	function roundCoord(x) {
+		return Math.round(x * 100) / 100;
+	}
+
+	function clamp(v, a, b) {
+		return Math.min(Math.max(v, a), b);
+	}
+
+	function getCropRect(image) {
+		const left = clamp(Math.round(image.width * elements.cropLeft.value * 0.01), 0, image.width - 1);
+		const right = clamp(Math.round(image.width * elements.cropRight.value * 0.01), left + 1, image.width);
+		const top = clamp(Math.round(image.height * elements.cropTop.value * 0.01), 0, image.height - 1);
+		const bottom = clamp(Math.round(image.height * elements.cropBottom.value * 0.01), top + 1, image.height);
+		return new Float32Array([left, top, right - left, bottom - top]);
+	}
+
+	function createEngravingImage(disableHalftone) {
+		const width = Math.round(settings.width.value / settings.xRes.value);
+		const height = Math.round(settings.height.value / settings.yRes.value);
+
+		let image = sourceImage;
+		let canvas, ctx;
+		const rect = getCropRect(image);
+
+		do {// scale image
+			canvas = document.createElement("canvas");
+			canvas.width = Math.max(rect[2] >> 1, width);
+			canvas.height = Math.max(rect[3] >> 1, height);
+			ctx = canvas.getContext("2d");
+			ctx.drawImage(image, rect[0], rect[1], rect[2], rect[3], 0, 0, canvas.width, canvas.height);
+			image = canvas;
+			rect[0] = rect[1] = 0;
+			rect[2] = image.width;
+			rect[3] = image.height;
+		} while (image.width > width || image.height > height);
+
+		// prepare greyscale data
+		const negativeImage = settings.negativeImage.checked;
+		const gamma = parseFloat(elements.gamma.value);
+		const srcData = ctx.getImageData(0, 0, width, height).data;
+		const destData = new Int16Array(width * height);
+		for (let y = 0, i = 0; y < height; y++) {
+			for (let x = 0; x < width; x++, i++) {
+				const si = i << 2;
+				const l = 0.2126 * sRGB2Linear(srcData[si]) + 0.7152 * sRGB2Linear(srcData[si + 1]) + 0.0722 * sRGB2Linear(srcData[si + 2]);
+				destData[i] = linear2sRGB(Math.pow(negativeImage ? 1 - l : l, gamma));
+			}
+		}
+
+		if (settings.hFlipped.checked) {
+			for (let y = 0, i = 0; y < height; y++, i += width) {
+				let x = width >> 1;
+				let i1 = i + width - 1;
+				while (x-- > 0) {
+					const c = destData[i + x]
+					destData[i + x] = destData[i1 - x];
+					destData[i1 - x] = c;
+				}
+			}
+		}
+
+		if (settings.vFlipped.checked) {
+			let y = height >> 1;
+			while (y-- > 0) {
+				const i0 = y * width;
+				const i1 = (height - 1 - y) * width;
+				for (let x = 0; x < width; x++) {
+					const c = destData[i0 + x]
+					destData[i0 + x] = destData[i1 + x];
+					destData[i1 + x] = c;
+				}
+			}
+		}
+
+		if (settings.halftoneMode.checked && !disableHalftone) {
+			// Jarvis-Judice-Ninke Dithering
+			const matrix = [[0, 0, 0, 7, 5], [3, 5, 7, 5, 3], [1, 3, 5, 3, 1]];
+			for (let y = 0, i = 0; y < height; y++) {
+				for (let x = 0; x < width; x++, i++) {
+					const c = destData[i];
+					destData[i] = c < 128 ? 0 : 255;
+					const quantError = c - destData[i];
+					if (quantError === 0) continue;
+					for (let iy = 0; iy < 3; iy++) {
+						const my = y + iy;
+						if (my >= height) continue;
+						for (let ix = 0; ix < 5; ix++) {
+							const m = matrix[iy][ix];
+							if (m === 0) continue;
+							const mx = x + ix - 2;
+							if (mx < 0 || mx >= width) continue;
+							destData[mx + my * width] += quantError * m / 48;
+						}
+					}
+				}
+			}
+		}
+
+		return {
+			width: width,
+			height: height,
+			data: destData,
+		};
+	}
+
+	function updatePreviewImage() {
+		if (!sourceImage.width || !sourceImage.height) return;
+
+		const image = createEngravingImage();
+		const width = elements.previewCanvas.width = image.width;
+		const height = elements.previewCanvas.height = image.height;
+
+		// copy image data to canvas
+		const ctx = elements.previewCanvas.getContext("2d");
+		const imgData = ctx.createImageData(width, height);
+		const src = image.data;
+		const dest = imgData.data;
+		for (let y = 0, i = 0; y < height; y++) {
+			for (let x = 0; x < width; x++, i++) {
+				const di = i << 2;
+				dest[di] = dest[di + 1] = dest[di + 2] = src[i];
+				dest[di + 3] = 255;
+			}
+		}
+		ctx.putImageData(imgData, 0, 0);
+	}
+
+	function updatePreview(event) {
+		const rect = getCropRect(sourceImage);
+		const keepProportions = settings.keepProportions.checked;
+		if (keepProportions && sourceImage.width && sourceImage.height) {
+			switch (event.target) {
+				case settings.width:
+				case settings.keepProportions:
+				case elements.cropTop:
+				case elements.cropBottom:
+					settings.height.value = roundCoord(settings.width.value * rect[3] / rect[2]);
+					break;
+				case elements.cropLeft:
+				case elements.cropRight:
+				case settings.height:
+					settings.width.value = roundCoord(settings.height.value * rect[2] / rect[3]);
+					break;
+			}
+		}
+
+		if (event.target === settings.halftoneMode) {
+			onHalftoneModeChanged();
+		}
+
+		const mm2px = elements.previewScale.value * 128 / 25.4;
+		const previewWidth = settings.width.value * mm2px;
+		const previewHeight = settings.height.value * mm2px;
+		const borderX = settings.borderX.value * mm2px;
+		const borderY = settings.borderY.value * mm2px;
+		elements.previewCanvas.style.width = previewWidth + "px";
+		elements.previewCanvas.style.height = previewHeight + "px";
+		elements.viewport.style.width = (previewWidth + borderX * 2) + "px";
+		elements.viewport.style.height = (previewHeight + borderY * 2) + "px";
+
+		if ([elements.gamma, elements.cropLeft, elements.cropRight, elements.cropTop, elements.cropBottom,
+		settings.halftoneMode, settings.vFlipped, settings.hFlipped, settings.width, settings.height,
+		settings.keepProportions, settings.xRes, settings.yRes].indexOf(event.target) >= 0) {
+			updatePreviewImage();
+		}
+	}
+
+	function resetImageSettings() {
+		elements.gamma.value = 1;
+		elements.cropLeft.value = elements.cropTop.value = 0;
+		elements.cropRight.value = elements.cropBottom.value = 100;
+	}
+
+	function generateGradientImage() {
+		const width = 256;
+		const height = 16;
+		sourceImage = document.createElement("canvas");
+		sourceImage.width = width;
+		sourceImage.height = height;
+		const ctx = sourceImage.getContext("2d");
+		const imgData = ctx.createImageData(width, height);
+		const dest = imgData.data;
+
+		for (let y = 0, i = 0, h2 = height >> 1; y < height; y++) {
+			for (let x = 0; x < width; x++) {
+				dest[i++] = x;
+				dest[i++] = x;
+				dest[i++] = x;
+				dest[i++] = 255;
+			}
+		}
+		// const width = 16;
+		// const height = 16;
+		// sourceImage = document.createElement("canvas");
+		// sourceImage.width = width;
+		// sourceImage.height = height;
+		// const ctx = sourceImage.getContext("2d");
+		// const imgData = ctx.createImageData(width, height);
+		// const dest = imgData.data;
+
+		// for (let y = 0, i = 0, h2 = height >> 1; y < height; y++) {
+		// 	for (let x = 0; x < width; x++, i += 4) {
+		// 		dest[i] = dest[i + 1] = dest[i + 2] = x * 16;
+		// 		// dest[i] = dest[i + 1] = dest[i + 2] = (x + y) & 1 ? 255 : 0;
+		// 		dest[i + 3] = 255;
+		// 	}
+		// }
+		// const width = 100;
+		// const height = 100;
+		// sourceImage = document.createElement("canvas");
+		// sourceImage.width = width;
+		// sourceImage.height = height;
+		// const ctx = sourceImage.getContext("2d");
+		// const imgData = ctx.createImageData(width, height);
+		// const dest = imgData.data;
+
+		// for (let y = 0, i = 0, h2 = height >> 1; y < height; y++) {
+		// 	for (let x = 0; x < width; x++, i += 4) {
+		// 		// dest[i] = dest[i + 1] = dest[i + 2] = x * 16;
+		// 		dest[i] = dest[i + 1] = dest[i + 2] = (Math.floor(x/25) + Math.floor(y/25)) & 1 ? 255 : 0;
+		// 		dest[i + 3] = 255;
+		// 	}
+		// }
+
+		ctx.putImageData(imgData, 0, 0);
+
+		elements.imageFile.value = "";
+		resetImageSettings();
+		// gamma.disabled = true;
+		updatePreview({ target: settings.width });
+
+		elements.viewport.hidden = false;
+		elements.generateButton.disabled = false;
+		fileName = "gradient";
+	}
+
+	function rotate90(clockwise) {
+		if (!sourceImage) {
+			return;
+		}
+
+		const width = sourceImage.height;
+		const height = sourceImage.width;
+		newImage = document.createElement("canvas");
+		newImage.width = width;
+		newImage.height = height;
+		const ctx = newImage.getContext("2d");
+
+		if (clockwise) {
+			ctx.setTransform(0, 1, -1, 0, width, 0);
+		} else {
+			ctx.setTransform(0, -1, 1, 0, 0, height);
+		}
+		// console.log(ctx.currentTransform)
+		ctx.drawImage(sourceImage, 0, 0);
+		sourceImage = newImage;
+		const h = settings.height.value
+		settings.height.value = settings.width.value;
+		settings.width.value = h;
+
+		resetImageSettings();
+		updatePreview({ target: settings.width });
+	}
+
+	function calibrateReverseMovement() {
+		const width = 50;
+		const height = 100;
+		settings.width.value = 5;
+		settings.height.value = 10;
+		sourceImage = document.createElement("canvas");
+		sourceImage.width = width;
+		sourceImage.height = height;
+		const ctx = sourceImage.getContext("2d");
+		const imgData = ctx.createImageData(width, height);
+		const dest = imgData.data;
+
+		for (let y = 0, i = 0, h2 = height >> 1; y < height; y++) {
+			for (let x = 0; x < width; x++, i += 4) {
+				dest[i] = dest[i + 1] = dest[i + 2] = ((x >> 1) & 1) ? 255 : 0;
+				dest[i + 3] = 255;
+			}
+		}
+
+		ctx.putImageData(imgData, 0, 0);
+
+		elements.imageFile.value = "";
+		resetImageSettings();
+		// gamma.disabled = true;
+		updatePreview({ target: settings.width });
+
+		elements.viewport.hidden = false;
+		elements.generateButton.disabled = false;
+		fileName = "zigzag-calibration";
+
+		generateGCode(true);
+	}
+
+	function loadImage() {
+		fileName = elements.imageFile.value.split(/(\\|\/)/g).pop().replace(/\.[^/.]+$/, "");
+		sourceImage = new Image();
+		sourceImage.onload = function(event) {
+			resetImageSettings();
+			// gamma.disabled = false;
+			updatePreview({ target: settings.width });
+
+			elements.viewport.hidden = false;
+			elements.generateButton.disabled = false;
+		};
+
+		elements.viewport.hidden = true;
+		elements.generateButton.disabled = true;
+		sourceImage.src = elements.imageFile.files.length > 0 ? window.URL.createObjectURL(elements.imageFile.files[0]) : "";
+	}
+
+	function generateGCode(zigZagCalibration) {
+		if (!sourceImage.width || !sourceImage.height) return;
+
+		const image = createEngravingImage(zigZagCalibration);
+		const width = image.width;
+		const height = image.height;
+		const data = image.data;
+
+		const dx = parseFloat(settings.xRes.value);
+		const dy = parseFloat(settings.yRes.value);
+		const pulseDelta = settings.halftoneMode.checked && settings.usePulseWidth.checked ? Math.max(dx - parseFloat(settings.pulseWidth.value), 0) : 0;
+		const overscanDist = Math.floor(settings.overscanDist.value / dx);
+		const borderX = parseFloat(settings.borderX.value);
+		const borderY = parseFloat(settings.borderY.value);
+		const minPower = settings.halftoneMode.checked ? 0 : parseFloat(settings.minPower.value);
+		const maxPower = parseFloat(settings.maxPower.value);
+		const cutPower = parseFloat(settings.cutPower.value);
+		const travelSpeed = parseFloat(settings.travelSpeed.value);
+		const burnSpeed = parseFloat(settings.burnSpeed.value);
+		// const travelSpeedCmd = " S0 F" + settings.travelSpeed.value;
+		// const laserSpeedCmd = " F" + settings.burnSpeed.value;
+		const cuttingSpeed = parseFloat(settings.cutSpeed.value);
+
+		const zigZag = settings.zigZagPath.checked || zigZagCalibration;
+		const reverseOffset = zigZag ? (zigZagCalibration ? height * dy * 0.1 : parseFloat(settings.reverseMovementOffset.value)) : 0;
+
+		const offsetX = Math.max(borderX, reverseOffset);
+
+		const gcode = [];
+
+		let x0, y0, z0, speed0;
+		let x1, y1, z1, speed1, power1 = 0;
+		function flush(ignoreTravel) {
+			let cmd = "G1 ";
+			if (x0 !== x1 && x1 != null) {
+				cmd += `X${roundCoord(x1)}`;
+				x0 = x1;
+			}
+			if (y0 !== y1 && y1 != null) {
+				cmd += `Y${roundCoord(y1)}`;
+				y0 = y1;
+			}
+			if (z0 !== z1 && z1 != null) {
+				cmd += `Z${roundCoord(z1)}`;
+				z0 = z1;
+			}
+			if (cmd.length === 3 || (power1 === 0 && ignoreTravel)) {
+				return;
+			}
+			cmd += `S${power1}`;
+			if (speed0 !== speed1) {
+				cmd += `F${speed1}`;
+				speed0 = speed1;
+			}
+			gcode.push(cmd);
+		}
+		function goTo(x, y, z, power, speed, forseFlush) {
+			if (power1 !== power || speed1 !== speed) {
+				flush();
+				power1 = power;
+				speed1 = speed;
+			}
+
+			x1 = x ?? x1;
+			y1 = y ?? y1;
+			z1 = z ?? z1;
+
+			if (forseFlush) {
+				flush();
+			}
+		}
+		gcode.push("; Created using Image2GCode v1.1.0 https://github.com/damir3/Image2GCode");
+		gcode.push("; Image Size: " + (width * dx) + "x" + (height * dy) + " mm");
+		gcode.push("; Gamma: " + elements.gamma.value);
+		gcode.push("; Mode: " + (settings.halftoneMode.checked ? "halftone" : "greyscale"));
+		gcode.push("; Resolution: " + width + "x" + height + " px, " + dx + "x" + dy + " mm/px");
+		gcode.push("; Burn Speed: " + settings.burnSpeed.value + " mm/sec");
+		gcode.push("; Travel Speed: " + settings.travelSpeed.value + " mm/sec");
+		gcode.push("; Power: [" + minPower + ", " + maxPower + "]");
+		gcode.push("; Path: " + (zigZag ? "Zig-Zag" : "Raster"));
+		gcode.push(";");
+
+		gcode.push("; Image engraving");
+		gcode.push("G90");
+		gcode.push("G0 X0 Y0 F" + travelSpeed);
+		gcode.push("M4");
+		gcode.push("M8");
+		gcode.push("")
+
+		for (let y = 0; y < height; y++) {
+			if (zigZagCalibration) {
+				reverseOffset = y * dy * 0.1;
+			}
+
+			const reverseDir = zigZag && (y & 1)
+			goTo((reverseDir ? width + overscanDist - reverseOffset : -overscanDist) * dx + offsetX, y * dy + borderY, undefined, 0, travelSpeed, true);
+			goTo((reverseDir ? (width - reverseOffset)* dx : 0) + offsetX, undefined, undefined, 0, travelSpeed);
+
+			for (let sx = 0; sx < width; sx++) {
+				const ix = reverseDir ? (width - 1 - sx) : sx;
+				const c = data[ix + (height - 1 - y) * width];
+				const power = Math.round((minPower + (1.0 - c / 255.0) * (maxPower - minPower)) * 10) / 10;
+				const xpos = ix * dx + offsetX + (reverseDir ? -reverseOffset : dx);
+				goTo(power > 0 ? xpos - pulseDelta : xpos, undefined, undefined, power, burnSpeed);
+			}
+
+			flush(true)
+			gcode.push("");
+		}
+
+		if (settings.cutImage.checked) {
+			const x1 = roundCoord(offsetX - borderX);
+			const x2 = roundCoord(x1 + width * dx + borderX * 2);
+			const y1 = 0;
+			const y2 = roundCoord(y1 + height * dy + borderY * 2);
+			gcode.push("");
+			gcode.push("; Image cutting");
+			goTo(x1, y2, undefined, 0, travelSpeed, true);
+			for (let i = parseInt(settings.numCutPasses.value); i > 0; i--) {
+				goTo(x2, y2, undefined, cutPower, cuttingSpeed, true);
+				goTo(x2, y1, undefined, cutPower, cuttingSpeed, true);
+				goTo(x1, y1, undefined, cutPower, cuttingSpeed, true);
+				goTo(x1, y2, undefined, cutPower, cuttingSpeed, true);
+			}
+		}
+
+		gcode.push("M9");
+		gcode.push("G1 S0")
+		gcode.push("M5")
+		gcode.push("G1 X0 Y0 S0 F" + travelSpeed);
+		gcode.push("M2")
+		gcode.push("");
+
+		const blob = new Blob([gcode.join("\n")], { type: "text/plain" });
+		const a = document.createElement("a");
+		a.download = fileName + ".gcode";
+		a.href = window.URL.createObjectURL(blob);
+		a.click();
+	}
+</script>
+
+</html>

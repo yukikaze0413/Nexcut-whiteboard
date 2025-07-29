@@ -17,7 +17,7 @@ const CanvasItemRenderer: React.FC<CanvasItemRendererProps> = ({ item, isSelecte
     // 以中心为基准缩放和旋转
     const scaleX = item.width > 0 ? item.width / (item.width || 1) : 1;
     const scaleY = item.height > 0 ? item.height / (item.height || 1) : 1;
-    const transform = `rotate(${item.rotation || 0}) scale(${scaleX},${scaleY})`;
+    const transform = `translate(${item.x}, ${item.y}) rotate(${item.rotation || 0}, ${item.width / 2}, ${item.height / 2}) scale(${scaleX},${scaleY})`;
     return (
       <g transform={transform}>
         {item.children.map((child, idx) => (

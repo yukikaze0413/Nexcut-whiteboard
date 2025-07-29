@@ -13,7 +13,7 @@ const ENLARGE = 8;
 const ImageRenderer: React.FC<ImageRendererProps> = ({ imageObject, isSelected, x, y }) => {
   const { width, height, href, rotation } = imageObject;
 
-  const transform = `translate(${x}, ${y}) rotate(${rotation})`;
+  const transform = `translate(${x}, ${y}) rotate(${rotation}, ${width / 2}, ${height / 2})`;
 
   return (
     <g transform={transform}>

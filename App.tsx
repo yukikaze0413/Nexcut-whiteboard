@@ -7,6 +7,7 @@ import Canvas from './components/Canvas';
 import ParameterEditor from './components/ParameterEditor';
 import CategoryPicker from './components/CategoryPicker';
 import LayerPanel from './components/LayerPanel';
+import { generateScanGCode, GCodeScanSettings } from './lib/gcode';
 import LayerSettingsPanel from './components/LayerSettingsPanel';
 // @ts-ignore
 import { Helper, parseString as parseDxf } from 'dxf';
@@ -99,6 +100,7 @@ const App: React.FC<AppProps> = () => {
 
   const [step, setStep] = useState(1); // 新增步骤状态
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null); // 图层设置界面选中
+  const [scanPreviewImage, setScanPreviewImage] = useState<string | null>(null);
 
   // 初始化activeLayerId
   useEffect(() => {
@@ -1277,9 +1279,58 @@ const App: React.FC<AppProps> = () => {
             </div>
             <button
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm font-medium"
-              onClick={() => {
-                // TODO: 具体的业务逻辑后续会补充
-                console.log('生成G代码', { layers, items });
+              onClick={async () => {
+                const layerToExport = layers.find(l => l.id === selectedLayerId);
+                if (!layerToExport) {
+                  alert('请先选择一个图层');
+                  return;
+                }
+
+                if (layerToExport.printingMethod === PrintingMethod.SCAN) {
+                  const imageItems = items.filter(item => 
+                    item.layerId === layerToExport.id && item.type === CanvasItemType.IMAGE
+                  ) as ImageObject[];
+
+                  if (imageItems.length === 0) {
+                    alert('扫描图层上没有需要处理的图片。');
+                    return;
+                  }
+
+                  // 假设我们一次只处理一个图片
+                  const imageItem = imageItems[0];
+                  
+                  const settings: GCodeScanSettings = {
+                    lineDensity: 1 / (layerToExport.lineDensity || 10), // 转换单位
+                    isHalftone: !!layerToExport.isHalftone,
+                    // 其他设置可以从UI或默认值获取
+                    maxPower: 255,
+                  };
+
+                  try {
+                    console.log("正在生成G代码...");
+                    const gcode = await generateScanGCode(imageItem, settings);
+                    
+                    const blob = new Blob([gcode], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${layerToExport.name.replace(/\s+/g, '_') || 'scan'}.gcode`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+
+                    alert('G代码已生成并开始下载。');
+                  } catch (error) {
+                    console.error("G代码生成失败:", error);
+                    alert(`G代码生成失败: ${error instanceof Error ? error.message : String(error)}`);
+                  }
+
+                } else {
+                  // 雕刻图层的逻辑暂空
+                  console.log('生成G代码（雕刻）', { layers, items });
+                  alert('雕刻图层的G代码生成功能尚未实现。');
+                }
               }}
             >
               生成G代码
