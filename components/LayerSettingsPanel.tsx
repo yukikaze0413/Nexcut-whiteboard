@@ -158,7 +158,13 @@ const renderLayerPreview = (layer: Layer, items: CanvasItem[], canvasWidth: numb
   }
   // 扫描图层：保持原有整体预览
   return (
-    <svg width={200} height={200} viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} className="border rounded bg-white">
+    <svg 
+      width={200} 
+      height={200} 
+      viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} 
+      className="border rounded bg-white"
+      preserveAspectRatio="xMidYMid meet"
+    >
       {layerItems.map(item => {
         const type = String(item.type);
         if (type === CanvasItemType.DRAWING && 'points' in item && Array.isArray(item.points)) {

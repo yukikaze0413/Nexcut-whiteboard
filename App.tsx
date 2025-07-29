@@ -1163,10 +1163,33 @@ const App: React.FC<AppProps> = () => {
             >撤销</button>
           </div>
           {/* 画布大小显示在中间 */}
-          <div className="flex-1 flex justify-center">
+          <div className="flex-1 flex justify-center items-center gap-2">
             <span style={{ color: '#888', fontSize: 13 }}>
               画布大小：{canvasWidth} × {canvasHeight}
             </span>
+            <button 
+              onClick={() => {
+                const debugInfo = {
+                  画布状态: {
+                    设置宽度: canvasWidth,
+                    设置高度: canvasHeight,
+                  },
+                  当前数据: {
+                    图层数量: layers.length,
+                    元素总数: items.length,
+                    选中元素: selectedItemId,
+                  },
+                  viewBox状态: '需要在Canvas组件中检查',
+                  说明: 'SVG预览可能显示200x200但实际坐标系是400x400'
+                };
+                console.log('🔍 画布调试信息:', debugInfo);
+                alert(`调试信息已输出到控制台\n\n当前画布: ${canvasWidth}×${canvasHeight}\n图层: ${layers.length}个\n元素: ${items.length}个\n\n请检查控制台获取详细信息`);
+              }}
+              className="text-xs px-2 py-1 bg-blue-100 text-blue-600 rounded"
+              style={{ fontSize: 10 }}
+            >
+              调试
+            </button>
           </div>
           <div className="flex flex-row gap-2">
             <button
@@ -1220,8 +1243,35 @@ const App: React.FC<AppProps> = () => {
             <button
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm font-medium"
               onClick={() => {
-                // TODO: 具体的业务逻辑后续会补充
-                console.log('生成G代码', { layers, items });
+                // G代码生成：确保传递正确的画布尺寸
+                const gCodeData = {
+                  layers,
+                  items,
+                  canvasWidth,
+                  canvasHeight,
+                  // 添加画布信息用于调试
+                  canvasInfo: {
+                    width: canvasWidth,
+                    height: canvasHeight,
+                    totalItems: items.length,
+                    timestamp: new Date().toISOString()
+                  }
+                };
+                
+                console.log('生成G代码 - 画布尺寸确认:', {
+                  设置的画布尺寸: `${canvasWidth}x${canvasHeight}`,
+                  实际传递的宽度: canvasWidth,
+                  实际传递的高度: canvasHeight,
+                  完整数据: gCodeData
+                });
+                
+                // 如果有安卓接口，也传递画布尺寸
+                if (window.Android && typeof window.Android.onNextStep === 'function') {
+                  window.Android.onNextStep(JSON.stringify(gCodeData));
+                } else {
+                  // 开发环境提示
+                  alert(`准备生成G代码\n画布尺寸: ${canvasWidth}×${canvasHeight}\n图层数: ${layers.length}\n元素数: ${items.length}`);
+                }
               }}
             >
               生成G代码
