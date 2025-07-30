@@ -60,8 +60,8 @@ const Content:React.FC<ChildProps2> = ({onSaveImage})=>{
                 const filename = await saveEditedImage(canvas.toDataURL("image/png"));
                 console.log(filename)
             
-                localStorage.setItem('from', 'l/o/g/i/n');
-                navigate('/App', {replace: false}); 
+                // localStorage.setItem('filename', filename);
+                navigate('/App', {state: {filename: "/l/o/g/i/n"}}); 
 
                 //  { state: { from: 'login', age: 18 } }
             } catch (e) {
@@ -71,7 +71,7 @@ const Content:React.FC<ChildProps2> = ({onSaveImage})=>{
         } else {
             // localStorage.setItem('from', 'l/o/g/i/n');
             // console.log(localStorage.getItem("from"))
-            navigate('/App', {state: {from: "/l/o/g/i/n"}}); 
+            navigate('/App', {state: {filename: "/l/o/g/i/n"}}); 
         }
     }
     onSaveImage(saveFile);
@@ -97,7 +97,7 @@ const Content:React.FC<ChildProps2> = ({onSaveImage})=>{
             console.log("draw");
         }
     
-        if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+        // if (window.webkit && window.webkit.messageHandlers.jsBridge) {
             (async () => {
             try {
                 const result = await getOriginImage();
@@ -109,9 +109,9 @@ const Content:React.FC<ChildProps2> = ({onSaveImage})=>{
             }
             })();
             img.src = "/banner.png";
-        } else {
-            img.src = Banner;
-        }
+        // } else {
+        //     img.src = Banner;
+        // }
     },[loaded]);
 
     const onOpenCV = (type: String)=> {
@@ -262,8 +262,8 @@ function getOriginImage(): Promise<string>{
 }
 
 //js向原生保存图片， 输入ImageData， 输出URL
-function saveEditedImage(imageData: String): Promise<String>{
-  return new Promise<String>((resolve) => {
+function saveEditedImage(imageData: string): Promise<string>{
+  return new Promise<string>((resolve) => {
     const id = Math.random().toString(36).slice(2);
     window[`__cb_${id}`] = resolve; // Swift 回传时调用
 

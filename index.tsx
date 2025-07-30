@@ -12,12 +12,12 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
         <Route path="/App" element={<App />} />
         <Route path="/" element={<ImagePage />} />
       </Routes>
       {/* <App /> */}
-    </BrowserRouter>
+    </HashRouter>
   </React.StrictMode>
 );

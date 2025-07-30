@@ -1119,12 +1119,12 @@ const App: React.FC<AppProps> = () => {
 
   const { state } = useLocation()
   useEffect(() => {
-    console.log("state" + state?.from)
+    console.log("state" + state?.filename)
     if (window.webkit && window.webkit.messageHandlers.jsBridge) {
       (async () => {
       try {
         const img = new Image();
-        const result = await getOriginImage();
+        const result = await getSecondImage(state?.filename);
         img.src = `data:image/jpeg;base64,${result}`
         img.onload = () => {
           addImage(img.src, img.width, img.height);
@@ -1136,7 +1136,7 @@ const App: React.FC<AppProps> = () => {
     } else {
       
     }
-  },);
+  },[]);
 
 
   useEffect(() => {
@@ -1660,14 +1660,15 @@ declare global {
 export default App;
 
 //js请求原生的图片数据，输入无，输出图片ImageData
-function getOriginImage(): Promise<string>{
+function getSecondImage(fileName: string): Promise<string>{
   return new Promise<string>((resolve) => {
     // 临时挂一个一次性回调
     const id = Math.random().toString(36).slice(2);
     window[`__cb_${id}`] = resolve; // Swift 回传时调用
     window.webkit?.messageHandlers.jsBridge.postMessage({
-        action: "getOriginImage",
-        id: id
+        action: "getSecondImage",
+        id: id,
+        fileName: fileName
         });
   });
 }
