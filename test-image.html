@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片显示测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .test-container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .image-display {
+            width: 100%;
+            height: 300px;
+            background-color: #f0f0f0;
+            border: 2px dashed #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        .image-display img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        .control-group {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+        }
+        .control-group label {
+            width: 80px;
+            font-weight: bold;
+        }
+        .control-group input {
+            flex: 1;
+            margin: 0 10px;
+        }
+        .control-group span {
+            width: 50px;
+            text-align: right;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>图片显示测试</h1>
+        
+        <div class="image-display" id="imageDisplay">
+            <p>请选择图片</p>
+        </div>
+        
+        <input type="file" id="fileInput" accept="image/*" style="display: none;">
+        <button onclick="document.getElementById('fileInput').click()">选择图片</button>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label>亮度:</label>
+                <input type="range" id="brightness" min="-100" max="100" value="0">
+                <span id="brightnessValue">0</span>
+            </div>
+            <div class="control-group">
+                <label>对比度:</label>
+                <input type="range" id="contrast" min="-100" max="100" value="0">
+                <span id="contrastValue">0</span>
+            </div>
+        </div>
+        
+        <div>
+            <button onclick="applyFilter('grayscale')">灰度</button>
+            <button onclick="applyFilter('binary')">二值化</button>
+            <button onclick="applyFilter('invert')">反色</button>
+            <button onclick="resetImage()">重置</button>
+        </div>
+    </div>
+
+    <script>
+        let currentImage = null;
+        let originalImage = null;
+        
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const imageUrl = e.target.result;
+                    currentImage = imageUrl;
+                    originalImage = imageUrl;
+                    displayImage(imageUrl);
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        function displayImage(imageUrl) {
+            const display = document.getElementById('imageDisplay');
+            display.innerHTML = `<img src="${imageUrl}" alt="测试图片">`;
+        }
+        
+        function updateFilters() {
+            const brightness = document.getElementById('brightness').value;
+            const contrast = document.getElementById('contrast').value;
+            const img = document.querySelector('#imageDisplay img');
+            
+            if (img) {
+                img.style.filter = `brightness(${1 + brightness / 100}) contrast(${1 + contrast / 100})`;
+            }
+            
+            document.getElementById('brightnessValue').textContent = brightness;
+            document.getElementById('contrastValue').textContent = contrast;
+        }
+        
+        function applyFilter(filterType) {
+            if (!currentImage) return;
+            
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            
+            img.onload = function() {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                
+                ctx.drawImage(img, 0, 0);
+                
+                switch (filterType) {
+                    case 'grayscale':
+                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        const data = imageData.data;
+                        for (let i = 0; i < data.length; i += 4) {
+                            const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+                            data[i] = gray;
+                            data[i + 1] = gray;
+                            data[i + 2] = gray;
+                        }
+                        ctx.putImageData(imageData, 0, 0);
+                        break;
+                        
+                    case 'binary':
+                        const binaryData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        const binaryArray = binaryData.data;
+                        for (let i = 0; i < binaryArray.length; i += 4) {
+                            const gray = binaryArray[i] * 0.299 + binaryArray[i + 1] * 0.587 + binaryArray[i + 2] * 0.114;
+                            const binary = gray > 128 ? 255 : 0;
+                            binaryArray[i] = binary;
+                            binaryArray[i + 1] = binary;
+                            binaryArray[i + 2] = binary;
+                        }
+                        ctx.putImageData(binaryData, 0, 0);
+                        break;
+                        
+                    case 'invert':
+                        const invertData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        const invertArray = invertData.data;
+                        for (let i = 0; i < invertArray.length; i += 4) {
+                            invertArray[i] = 255 - invertArray[i];
+                            invertArray[i + 1] = 255 - invertArray[i + 1];
+                            invertArray[i + 2] = 255 - invertArray[i + 2];
+                        }
+                        ctx.putImageData(invertData, 0, 0);
+                        break;
+                }
+                
+                currentImage = canvas.toDataURL();
+                displayImage(currentImage);
+            };
+            
+            img.src = currentImage;
+        }
+        
+        function resetImage() {
+            if (originalImage) {
+                currentImage = originalImage;
+                displayImage(originalImage);
+                document.getElementById('brightness').value = 0;
+                document.getElementById('contrast').value = 0;
+                updateFilters();
+            }
+        }
+        
+        document.getElementById('brightness').addEventListener('input', updateFilters);
+        document.getElementById('contrast').addEventListener('input', updateFilters);
+    </script>
+</body>
+</html> 
