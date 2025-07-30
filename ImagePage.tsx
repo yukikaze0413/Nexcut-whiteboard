@@ -46,20 +46,33 @@ const Content:React.FC<ChildProps2> = ({onSaveImage})=>{
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [loaded, setLoaded] = useState(0);
     const MAX_WIDTH = 200;
+    const navigate = useNavigate();
+
 
     function saveFile(){
         const canvas = canvasRef.current!;
         const ctx = canvas.getContext('2d')!;
 
-        (async () => {
-        try {
-            console.log("to save File")
-            const filename = await saveEditedImage(canvas.toDataURL("image/png"));
-            console.log(filename)
-        } catch (e) {
-            console.error(e);
+        if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+            (async () => {
+            try {
+                console.log("to save File")
+                const filename = await saveEditedImage(canvas.toDataURL("image/png"));
+                console.log(filename)
+            
+                localStorage.setItem('from', 'l/o/g/i/n');
+                navigate('/App', {replace: false}); 
+
+                //  { state: { from: 'login', age: 18 } }
+            } catch (e) {
+                console.error(e);
+            }
+            })();
+        } else {
+            // localStorage.setItem('from', 'l/o/g/i/n');
+            // console.log(localStorage.getItem("from"))
+            navigate('/App', {state: {from: "/l/o/g/i/n"}}); 
         }
-        })();
     }
     onSaveImage(saveFile);
 
@@ -84,18 +97,21 @@ const Content:React.FC<ChildProps2> = ({onSaveImage})=>{
             console.log("draw");
         }
     
-        // (async () => {
-        // try {
-        //     const result = await getOriginImage();
-        //     console.log('原生返回：', result);
-        //     alert(result);
-        //     img.src = `data:image/jpeg;base64,${result}`
-        // } catch (e) {
-        //     console.error(e);
-        // }
-        // })();
-        // img.src = "/banner.png";
-        img.src = Banner
+        if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+            (async () => {
+            try {
+                const result = await getOriginImage();
+                console.log('原生返回：', result);
+                alert(result);
+                img.src = `data:image/jpeg;base64,${result}`
+            } catch (e) {
+                console.error(e);
+            }
+            })();
+            img.src = "/banner.png";
+        } else {
+            img.src = Banner;
+        }
     },[loaded]);
 
     const onOpenCV = (type: String)=> {
@@ -217,10 +233,8 @@ interface ChildProps {
     saveEditImage: () => void;
 }
 const TopBar: React.FC<ChildProps> = ({saveEditImage}) => {
-    const navigate = useNavigate();
     const handleLogin = () => {
         saveEditImage()
-        navigate('/App', { replace: false }); 
     };
     return(
         <div style={{

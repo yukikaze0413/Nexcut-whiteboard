@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import ImagePage from './ImagePage';
-import { HashRouter, Router } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Router } from 'react-router-dom';
 import { Routes, Route } from 'react-router-dom';
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -12,12 +12,12 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <HashRouter>
+    <BrowserRouter>
       <Routes>
         <Route path="/App" element={<App />} />
         <Route path="/" element={<ImagePage />} />
       </Routes>
       {/* <App /> */}
-    </HashRouter>
+    </BrowserRouter>
   </React.StrictMode>
 );

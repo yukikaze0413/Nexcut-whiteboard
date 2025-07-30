@@ -21,6 +21,7 @@ import ImportIcon from './assets/导入.svg';
 import PartLibraryIcon from './assets/零件库.svg';
 import PropertyIcon from './assets/属性.svg';
 import HomeIcon from './assets/回零.svg';
+import { useLocation, useSearchParams } from 'react-router-dom';
 
 // 浏览器端简易 HPGL 解析器，仅支持 PU/PD/PA 指令
 function simpleParseHPGL(content: string) {
@@ -1116,6 +1117,28 @@ const App: React.FC<AppProps> = () => {
 
   const selectedItem = items.find(p => p.id === selectedItemId) || null;
 
+  const { state } = useLocation()
+  useEffect(() => {
+    console.log("state" + state?.from)
+    if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+      (async () => {
+      try {
+        const img = new Image();
+        const result = await getOriginImage();
+        img.src = `data:image/jpeg;base64,${result}`
+        img.onload = () => {
+          addImage(img.src, img.width, img.height);
+        };
+        }catch (e){
+          console.error(e)
+        }
+      })()
+    } else {
+      
+    }
+  },);
+
+
   useEffect(() => {
     // 提供给外部调用的图片注入接口
     (window as any).setWhiteboardImage = (base64ata: string) => {
@@ -1635,3 +1658,16 @@ declare global {
 }
 
 export default App;
+
+//js请求原生的图片数据，输入无，输出图片ImageData
+function getOriginImage(): Promise<string>{
+  return new Promise<string>((resolve) => {
+    // 临时挂一个一次性回调
+    const id = Math.random().toString(36).slice(2);
+    window[`__cb_${id}`] = resolve; // Swift 回传时调用
+    window.webkit?.messageHandlers.jsBridge.postMessage({
+        action: "getOriginImage",
+        id: id
+        });
+  });
+}
