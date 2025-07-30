@@ -7,7 +7,7 @@ import Canvas from './components/Canvas';
 import ParameterEditor from './components/ParameterEditor';
 import CategoryPicker from './components/CategoryPicker';
 import LayerPanel from './components/LayerPanel';
-import { generateScanGCode, GCodeScanSettings } from './lib/gcode';
+import { generatePlatformScanGCode, GCodeScanSettings } from './lib/gcode';
 import LayerSettingsPanel from './components/LayerSettingsPanel';
 // @ts-ignore
 import { Helper, parseString as parseDxf } from 'dxf';
@@ -227,25 +227,38 @@ const App: React.FC<AppProps> = () => {
   }, [addItem]);
 
   const addImage = useCallback((href: string, width: number, height: number) => {
-    const MAX_IMAGE_WIDTH = 400;
-    const MAX_IMAGE_HEIGHT = 400;
+    // 根据画布大小动态设定图片最大尺寸（占画布的70%）
+    const MAX_IMAGE_WIDTH = canvasWidth * 0.4;
+    const MAX_IMAGE_HEIGHT = canvasHeight * 0.4;
+    
     let newWidth = width;
     let newHeight = height;
+    
+    // 计算缩放比例，保持原图宽高比
     const scale = Math.min(MAX_IMAGE_WIDTH / width, MAX_IMAGE_HEIGHT / height, 1);
     if (scale < 1) {
       newWidth = width * scale;
       newHeight = height * scale;
     }
+    
+    // 如果图片太小，设定一个最小尺寸（至少占画布的20%）
+    const MIN_SIZE = Math.min(canvasWidth, canvasHeight) * 0.05;
+    if (Math.max(newWidth, newHeight) < MIN_SIZE) {
+      const minScale = MIN_SIZE / Math.max(newWidth, newHeight);
+      newWidth *= minScale;
+      newHeight *= minScale;
+    }
+    
     addItem({
       type: CanvasItemType.IMAGE,
-      x: 0, // 设置为原点位置
-      y: 0, // 设置为原点位置
+      x: canvasWidth / 2 - newWidth / 2, // 图片左上角，使图片中心在画布中心
+      y: canvasHeight / 2 - newHeight / 2,
       href,
       width: newWidth,
       height: newHeight,
       rotation: 0,
     } as Omit<ImageObject, 'id' | 'layerId'>);
-  }, [addItem]);
+  }, [addItem, canvasWidth, canvasHeight]);
 
   const updateItem = useCallback((itemId: string, updates: Partial<CanvasItem>) => {
     // 如果尝试修改图层，需要验证图层类型是否匹配
@@ -1285,47 +1298,61 @@ const App: React.FC<AppProps> = () => {
                   alert('请先选择一个图层');
                   return;
                 }
-
+              
                 if (layerToExport.printingMethod === PrintingMethod.SCAN) {
-                  const imageItems = items.filter(item => 
+                  // 检查图层中是否有图像
+                  const layerImageItems = items.filter(item => 
                     item.layerId === layerToExport.id && item.type === CanvasItemType.IMAGE
-                  ) as ImageObject[];
-
-                  if (imageItems.length === 0) {
+                  );
+                  
+                  if (layerImageItems.length === 0) {
                     alert('扫描图层上没有需要处理的图片。');
                     return;
                   }
-
-                  // 假设我们一次只处理一个图片
-                  const imageItem = imageItems[0];
-                  
+              
                   const settings: GCodeScanSettings = {
                     lineDensity: 1 / (layerToExport.lineDensity || 10), // 转换单位
-                    isHalftone: !!layerToExport.isHalftone,
-                    // 其他设置可以从UI或默认值获取
+                    isHalftone: !!layerToExport.halftone,
+                    negativeImage: false,
+                    hFlipped: false,
+                    vFlipped: false,
+                    minPower: 0,
                     maxPower: 255,
+                    burnSpeed: 1000,
+                    travelSpeed: 6000,
+                    overscanDist: 3,
                   };
-
+              
                   try {
-                    console.log("正在生成G代码...");
-                    const gcode = await generateScanGCode(imageItem, settings);
+                    console.log("正在生成整个平台的G代码...");
+                    
+                    // 使用平台尺寸生成G代码
+                    const gcode = await generatePlatformScanGCode(
+                      layerToExport,
+                      items,
+                      canvasWidth,  // 使用画布宽度作为平台宽度
+                      canvasHeight, // 使用画布高度作为平台高度
+                      settings,
+                      canvasWidth,  // canvasWidth
+                      canvasHeight  // canvasHeight
+                    );
                     
                     const blob = new Blob([gcode], { type: 'text/plain' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `${layerToExport.name.replace(/\s+/g, '_') || 'scan'}.gcode`;
+                    a.download = `${layerToExport.name.replace(/\s+/g, '_') || 'platform_scan'}.gcode`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
-
-                    alert('G代码已生成并开始下载。');
+              
+                    alert('平台扫描G代码已生成并开始下载。');
                   } catch (error) {
                     console.error("G代码生成失败:", error);
                     alert(`G代码生成失败: ${error instanceof Error ? error.message : String(error)}`);
                   }
-
+              
                 } else {
                   // 雕刻图层的逻辑暂空
                   console.log('生成G代码（雕刻）', { layers, items });

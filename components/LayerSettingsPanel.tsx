@@ -285,8 +285,8 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
                 <div className="mb-4 flex items-center">
                   <input
                     type="checkbox"
-                    checked={!!selectedLayer.isHalftone}
-                    onChange={e => handleCheckboxChange('isHalftone', e.target.checked)}
+                    checked={!!selectedLayer.halftone}
+                    onChange={e => handleCheckboxChange('halftone', e.target.checked)}
                     id="halftone-checkbox"
                     className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-gray-300 rounded"
                   />

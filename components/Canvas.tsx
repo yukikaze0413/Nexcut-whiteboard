@@ -445,7 +445,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
                             <g 
                                 key={item.id} 
                                 // gxx: avoid two times <g>  the other <g> is in components/renders/imageRender.tsx
-                                // transform={`translate(${'x' in item ? item.x : 0}, ${'y' in item ? item.y : 0})`}
+                                transform={`translate(${'x' in item ? item.x : 0}, ${'y' in item ? item.y : 0})`}
                                 data-item-id={item.id}
                                 className={activeTool === ToolType.SELECT ? 'cursor-pointer' : ''}
                             >

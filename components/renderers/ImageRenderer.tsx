@@ -16,7 +16,8 @@ const ImageRenderer: React.FC<ImageRendererProps> = ({ imageObject, isSelected, 
   const transform = `translate(${x}, ${y}) rotate(${rotation}, ${width / 2}, ${height / 2})`;
 
   return (
-    <g transform={transform}>
+    // <g transform={transform}>
+      <g >
       {isSelected && (
         <rect
           x={-ENLARGE / 2}
