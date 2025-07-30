@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-
+import Banner from './assets/banner.png'
 const ImagePage = ()=> {
     var saveImage = ()=>{
         onSaveImage();
@@ -94,7 +94,8 @@ const Content:React.FC<ChildProps2> = ({onSaveImage})=>{
         //     console.error(e);
         // }
         // })();
-        img.src = "./banner.png";
+        // img.src = "/banner.png";
+        img.src = Banner
     },[loaded]);
 
     const onOpenCV = (type: String)=> {

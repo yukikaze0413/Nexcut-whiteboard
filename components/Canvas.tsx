@@ -444,7 +444,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
                         {items.filter(item => item.layerId === layer.id).map(item => (
                             <g 
                                 key={item.id} 
-                                transform={`translate(${'x' in item ? item.x : 0}, ${'y' in item ? item.y : 0})`}
+                                // transform={`translate(${'x' in item ? item.x : 0}, ${'y' in item ? item.y : 0})`}
                                 data-item-id={item.id}
                                 className={activeTool === ToolType.SELECT ? 'cursor-pointer' : ''}
                             >
