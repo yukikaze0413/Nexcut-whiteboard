@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import type { CanvasItem, CanvasItemData, PartType, Layer, Part, ImageObject } from './types';
 import { CanvasItemType, ToolType, PrintingMethod } from './types';
 import { PART_LIBRARY, BASIC_SHAPES } from './constants';
@@ -72,14 +73,31 @@ function getGroupBoundingBox(items: CanvasItemData[]): { minX: number, minY: num
 const MAX_HISTORY = 50;
 const ALL_PARTS = [...BASIC_SHAPES, ...PART_LIBRARY];
 
-// 1. 定义AppProps接口，支持canvasWidth和canvasHeight
-interface AppProps {
+// 1. 定义WhiteboardPageProps接口，支持canvasWidth和canvasHeight
+interface WhiteboardPageProps {
   canvasWidth?: number;
   canvasHeight?: number;
 }
 
-// 2. App组件支持props传入宽高，默认500
-const App: React.FC<AppProps> = () => {
+// 2. WhiteboardPage组件支持props传入宽高，默认500
+const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
+  const location = useLocation();
+  
+  // 处理从路由传递的图片数据
+  useEffect(() => {
+    if (location.state?.image) {
+      const img = new Image();
+      img.onload = () => {
+        // 延迟处理，等 addImage 函数定义后再调用
+        setTimeout(() => {
+          if (typeof addImage === 'function') {
+            addImage(location.state.image, img.width, img.height);
+          }
+        }, 100);
+      };
+      img.src = location.state.image;
+    }
+  }, [location.state]);
   const firstLayerId = `layer_${Date.now()}`;
   const [layers, setLayers] = useState<Layer[]>([
     { id: `scan_layer_${Date.now()}`, name: '扫描图层', isVisible: true, printingMethod: PrintingMethod.SCAN },
@@ -1585,4 +1603,4 @@ declare global {
   }
 }
 
-export default App;
+export default WhiteboardPage;

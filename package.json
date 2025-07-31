@@ -12,8 +12,9 @@
   },
   "dependencies": {
     "@svgdotjs/svg.js": "^3.2.4",
-    "dom-to-image": "^2.6.0",
+    "@types/react-router-dom": "^5.3.3",
     "cropperjs": "^1.6.2",
+    "dom-to-image": "^2.6.0",
     "dxf": "^5.2.0",
     "dxf-parser": "^1.1.2",
     "fabric": "^5.5.2",
