@@ -10,6 +10,37 @@ declare global {
   }
 }
 
+declare global {
+  interface Window {
+    webkit?: {
+      messageHandlers: {
+        jsBridge: {
+          postMessage: (message: any) => void;
+        };
+      };
+    };
+  }
+}
+
+//js请求原生的图片数据，输入无，输出图片ImageData
+function getOriginImage(): Promise<string>{
+  return new Promise<string>((resolve) => {
+    // 临时挂一个一次性回调
+    const id = Math.random().toString(36).slice(2);
+    window[`__cb_${id}`] = resolve; // Swift 回传时调用
+    window.webkit?.messageHandlers.jsBridge.postMessage({
+        action: "getOriginImage",
+        id: id
+        });
+  });
+}
+declare global {
+  interface Window {
+    // 允许任意以 __cb_ 开头的属性，值是接收 string 的函数
+    [key: `__cb_${string}`]: (result: string) => void;
+  }
+}
+
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -60,6 +91,22 @@ const HomePage: React.FC = () => {
       (window as any).setHomePageImage((window as any).__pendingHomePageImage);
       (window as any).__pendingHomePageImage = null;
     }
+
+    if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+      (async () => {
+        try {
+            console.log("before");
+            const result = await getOriginImage();
+            // console.log('原生返回：', result);
+            (window as any).setHomePageImage(result);
+            console.log("after");
+        } catch (e) {
+            console.error(e);
+        }
+      })();
+    }
+
+
     // 清理函数
     return () => {
       (window as any).setHomePageImage = (base64Data: string) => {
