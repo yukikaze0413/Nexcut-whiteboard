@@ -233,7 +233,7 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
     </div>
   );
 
-  const handleInputChange = (key: 'lineDensity' | 'power', value: number) => {
+  const handleInputChange = (key: 'lineDensity' | 'power' | 'reverseMovementOffset', value: number) => {
     if (!selectedLayer) return;
     onUpdateLayer(selectedLayer.id, { [key]: value });
   };
@@ -245,7 +245,7 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
   return (
     <div className="flex h-full">
       {/* 左侧边栏 */}
-      <div className="w-56 border-r bg-gray-50 p-2 overflow-y-auto">
+      <div className="w-48 border-r bg-gray-50 p-2 overflow-y-auto">
         <h3 className="text-base font-semibold mb-2">图层列表</h3>
         <ul>
           {layers.map(layer => (
@@ -281,6 +281,19 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
                     onChange={e => handleInputChange('lineDensity', Number(e.target.value))}
                     className="w-full p-2 border rounded"
                   />
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-1">空移距离 (mm)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={50}
+                    step={0.1}
+                    value={selectedLayer.reverseMovementOffset ?? 3}
+                    onChange={e => handleInputChange('reverseMovementOffset', Number(e.target.value))}
+                    className="w-full p-2 border rounded"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">每行扫描时在两端额外移动的距离</p>
                 </div>
                 <div className="mb-4 flex items-center">
                   <input

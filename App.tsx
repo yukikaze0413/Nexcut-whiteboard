@@ -1320,7 +1320,7 @@ const App: React.FC<AppProps> = () => {
                     maxPower: 255,
                     burnSpeed: 1000,
                     travelSpeed: 6000,
-                    overscanDist: 3,
+                    overscanDist: layerToExport.reverseMovementOffset ?? 3, // 使用图层设置的空移距离
                   };
               
                   try {

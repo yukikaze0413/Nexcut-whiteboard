@@ -42,6 +42,7 @@ export interface Layer {
   // 新增属性
   lineDensity?: number; // 仅扫描图层
   halftone?: boolean;   // 仅扫描图层
+  reverseMovementOffset?: number; // 仅扫描图层，空移距离 (mm)
   power?: number;       // 仅雕刻图层
 }
 
