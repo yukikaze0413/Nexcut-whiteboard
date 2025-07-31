@@ -11,6 +11,11 @@ import android.webkit.ValueCallback;
 import android.content.Intent;
 import android.net.Uri;
 import android.app.Activity;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.widget.Toast;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
@@ -33,6 +38,7 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
     private WebView webView;
     private ValueCallback<Uri[]> uploadMessage;
     private final static int FILE_CHOOSER_RESULT_CODE = 10000;
+    private final static int CAMERA_PERMISSION_REQUEST_CODE = 10001;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -76,6 +82,10 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
         webSettings.setAllowUniversalAccessFromFileURLs(true);
         webSettings.setDomStorageEnabled(true);
         webSettings.setAllowContentAccess(true);
+        
+        // 启用摄像头和麦克风权限
+        webSettings.setMediaPlaybackRequiresUserGesture(false);
+        webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
         // 支持input type=file文件选择
         webView.setWebChromeClient(new WebChromeClient() {
@@ -91,6 +101,30 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
                 intent.setType("image/*"); // 只允许选择图片
                 startActivityForResult(Intent.createChooser(intent, "选择图片"), FILE_CHOOSER_RESULT_CODE);
                 return true;
+            }
+            
+            // 处理摄像头权限请求
+            @Override
+            public void onPermissionRequest(android.webkit.PermissionRequest request) {
+                String[] resources = request.getResources();
+                for (String resource : resources) {
+                    if (resource.equals(android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
+                        // 检查摄像头权限
+                        if (ContextCompat.checkSelfPermission(WebWhiteBoardActivity.this, 
+                                Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                            // 请求摄像头权限
+                            ActivityCompat.requestPermissions(WebWhiteBoardActivity.this, 
+                                    new String[]{Manifest.permission.CAMERA}, 
+                                    CAMERA_PERMISSION_REQUEST_CODE);
+                        } else {
+                            // 权限已授予，允许访问
+                            request.grant(request.getResources());
+                        }
+                        return;
+                    }
+                }
+                // 其他权限请求
+                request.grant(request.getResources());
             }
         });
 
@@ -186,6 +220,10 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
                         e.printStackTrace();
                     }
                 } else {
+                    // 当imagePath为空或不存在时，直接跳转到白板界面
+                    String jsCode = "window.setWhiteboardImage();";
+                    webView.evaluateJavascript(jsCode, null);
+                    
                     // 旧方案：通过base64参数传递（已注释，保留作为备份）
                     /*
                     String imageBase64 = getIntent().getStringExtra("imageBase64");
@@ -215,6 +253,23 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
             }
             uploadMessage.onReceiveValue(results);
             uploadMessage = null;
+        }
+    }
+    
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        
+        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // 摄像头权限已授予
+                Toast.makeText(this, "摄像头权限已授予", Toast.LENGTH_SHORT).show();
+                // 重新加载页面以启用摄像头功能
+                webView.reload();
+            } else {
+                // 摄像头权限被拒绝
+                Toast.makeText(this, "摄像头权限被拒绝，拍照功能将无法使用", Toast.LENGTH_LONG).show();
+            }
         }
     }
 }

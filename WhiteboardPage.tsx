@@ -917,21 +917,6 @@ const WhiteboardPage: React.FC<AppProps> = () => {
 
   const selectedItem = items.find(p => p.id === selectedItemId) || null;
 
-  // useEffect(() => {
-  //   // 提供给外部调用的图片注入接口
-  //   (window as any).setWhiteboardImage = (base64ata: string) => {
-  //     const img = new Image();
-  //     img.onload = () => {
-  //       addImage(base64ata, img.width, img.height);
-  //     };
-  //     img.src = base64ata;
-  //   };
-  //   // 可选：卸载时清理
-  //   return () => {
-  //     delete (window as any).setWhiteboardImage;
-  //   };
-  // }, [addImage]);
-
   const hasInsertedImage = useRef(false);
 
   useEffect(() => {
