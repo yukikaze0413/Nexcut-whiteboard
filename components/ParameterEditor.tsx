@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, ChangeEvent, KeyboardEvent } from 'react';
 import type { CanvasItem, Layer } from '../types';
 import { CanvasItemType } from '../types';
+import { PrintingMethod } from '../types'; // Added this import for PrintingMethod
 
 interface ParameterEditorProps {
   selectedItem: CanvasItem | null;
@@ -58,6 +59,9 @@ const translations: Record<string, string> = {
     'horizontalMargin': '水平边距',
     'verticalMargin': '垂直边距',
 
+    // Position properties
+    'x': 'X坐标',
+    'y': 'Y坐标',
 
     // Generic properties
     'text': '文本内容',
@@ -71,7 +75,8 @@ const translations: Record<string, string> = {
     'Properties': '属性',
     'ID': 'ID',
     'Delete Item': '删除项目',
-    'Select an item to edit its properties.': '选择一个项目以编辑其属性。'
+    'Select an item to edit its properties.': '选择一个项目以编辑其属性。',
+    'Position': '位置'
 };
 
 const t = (key: string): string => translations[key] || key;
@@ -87,8 +92,13 @@ const EditableParameterInput: React.FC<{
   const [value, setValue] = useState(String(initialValue));
 
   useEffect(() => {
-    setValue(String(initialValue));
-  }, [initialValue]);
+    // 如果是数字类型，格式化为两位小数
+    if (type === 'number' && typeof initialValue === 'number') {
+      setValue(initialValue.toFixed(2));
+    } else {
+      setValue(String(initialValue));
+    }
+  }, [initialValue, type]);
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     setValue(e.target.value);
@@ -145,6 +155,8 @@ const GroupParameterEditor: React.FC<{
   const [width, setWidth] = React.useState(selectedItem.width);
   const [height, setHeight] = React.useState(selectedItem.height);
   const [rotation, setRotation] = React.useState(selectedItem.rotation);
+  const [x, setX] = React.useState(selectedItem.x);
+  const [y, setY] = React.useState(selectedItem.y);
 
   // 颜色变更
   const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -192,9 +204,47 @@ const GroupParameterEditor: React.FC<{
     onCommitUpdate();
   };
 
+  // 位置变更
+  const handlePositionChange = (key: 'x' | 'y', value: number) => {
+    if (key === 'x') {
+      setX(value);
+      onUpdateItem(selectedItem.id, { x: value });
+    } else {
+      setY(value);
+      onUpdateItem(selectedItem.id, { y: value });
+    }
+    onCommitUpdate();
+  };
+
   return (
     <div className="p-4 h-full flex flex-col">
       <h3 className="text-lg font-semibold text-gray-800">组合对象</h3>
+      
+      {/* 位置编辑 */}
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-600 mb-2">{t('Position')}</label>
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <label className="block text-xs text-gray-500 mb-1">{t('x')}</label>
+            <input 
+              type="number" 
+              value={Number(x).toFixed(2)} 
+              onChange={e => handlePositionChange('x', parseFloat(e.target.value))} 
+              className="w-full p-1 bg-white border border-gray-300 rounded-md text-sm" 
+            />
+          </div>
+          <div className="flex-1">
+            <label className="block text-xs text-gray-500 mb-1">{t('y')}</label>
+            <input 
+              type="number" 
+              value={Number(y).toFixed(2)} 
+              onChange={e => handlePositionChange('y', parseFloat(e.target.value))} 
+              className="w-full p-1 bg-white border border-gray-300 rounded-md text-sm" 
+            />
+          </div>
+        </div>
+      </div>
+
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-600 mb-1">颜色</label>
         <input type="color" value={color} onChange={handleColorChange} className="w-12 h-8 p-1 bg-white border border-gray-300 rounded-md cursor-pointer" />
@@ -226,6 +276,18 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
 
     const handleUpdate = useCallback((key: string, value: string | number) => {
         if (!selectedItem) return;
+        
+        // 添加调试信息
+        if (key === 'x' || key === 'y') {
+          console.log('位置属性更新:', {
+            itemId: selectedItem.id,
+            property: key,
+            oldValue: selectedItem[key as keyof typeof selectedItem],
+            newValue: value,
+            itemType: selectedItem.type
+          });
+        }
+        
         onUpdateItem(selectedItem.id, { [key]: value });
         onCommitUpdate();
     }, [selectedItem, onUpdateItem, onCommitUpdate]);
@@ -242,12 +304,60 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
         onUpdateItem(selectedItem.id, { [key]: value });
     }, [selectedItem, onUpdateItem]);
 
-
     const renderContent = () => {
       if (!selectedItem) return null;
+      
+      // 所有元素都显示位置编辑
+      const positionSection = (
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-600 mb-2">{t('Position')}</label>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="block text-xs text-gray-500 mb-1">{t('x')}</label>
+              <EditableParameterInput 
+                label="" 
+                initialValue={(selectedItem.x || 0).toFixed(2)} 
+                onCommit={(val) => {
+                  console.log('X坐标更新:', {
+                    itemId: selectedItem.id,
+                    oldValue: selectedItem.x,
+                    newValue: val,
+                    itemType: selectedItem.type
+                  });
+                  handleUpdate('x', val as number);
+                }} 
+              />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs text-gray-500 mb-1">{t('y')}</label>
+              <EditableParameterInput 
+                label="" 
+                initialValue={(selectedItem.y || 0).toFixed(2)} 
+                onCommit={(val) => {
+                  console.log('Y坐标更新:', {
+                    itemId: selectedItem.id,
+                    oldValue: selectedItem.y,
+                    newValue: val,
+                    itemType: selectedItem.type
+                  });
+                  handleUpdate('y', val as number);
+                }} 
+              />
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">
+            坐标系统：SVG坐标 (左上角为原点，X向右，Y向下)
+          </p>
+          <p className="text-xs text-gray-400">
+            注意：拖拽时坐标会实时更新，修改坐标时元素会立即移动
+          </p>
+        </div>
+      );
+
       switch(selectedItem.type) {
           case CanvasItemType.TEXT:
               return <>
+                  {positionSection}
                   <EditableParameterInput label={t('text')} type="text" initialValue={selectedItem.text} onCommit={(val) => handleUpdate('text', val as string)} />
                   <EditableParameterInput label={t('fontSize')} initialValue={selectedItem.fontSize} onCommit={(val) => handleUpdate('fontSize', val as number)} min={1}/>
                   <div>
@@ -258,12 +368,14 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
               </>;
           case CanvasItemType.IMAGE:
                return <>
+                  {positionSection}
                   <EditableParameterInput label={t('width')} initialValue={selectedItem.width} onCommit={(val) => handleUpdate('width', val as number)} min={1}/>
                   <EditableParameterInput label={t('height')} initialValue={selectedItem.height} onCommit={(val) => handleUpdate('height', val as number)} min={1}/>
                   <EditableParameterInput label={t('rotation')} initialValue={selectedItem.rotation} onCommit={(val) => handleUpdate('rotation', val as number)} />
               </>;
           case CanvasItemType.DRAWING:
                return <>
+                  {positionSection}
                   <EditableParameterInput label={t('strokeWidth')} initialValue={selectedItem.strokeWidth} onCommit={(val) => handleUpdate('strokeWidth', val as number)} min={1}/>
                   <div>
                     <label className="block text-sm font-medium text-gray-600 capitalize mb-1">{t('color')}</label>
@@ -273,6 +385,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
           default: // Part types
               const showRotation = selectedItem.type !== CanvasItemType.ARC && selectedItem.type !== CanvasItemType.SECTOR;
               return <>
+                  {positionSection}
                   {showRotation && <EditableParameterInput label={t('rotation')} initialValue={selectedItem.rotation} onCommit={(val) => handleUpdate('rotation', val as number)} />}
                   {Object.entries(selectedItem.parameters).map(([key, value]) => (
                       <EditableParameterInput key={key} label={t(key)} initialValue={value} onCommit={(val) => handleParameterUpdate(key, val as number)} />
@@ -283,6 +396,33 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
 
     const handleLayerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
       if (!selectedItem) return;
+      
+      // 检查目标图层类型是否匹配
+      const targetLayer = layers.find(l => l.id === e.target.value);
+      if (targetLayer) {
+        // 根据对象类型确定应该的图层类型
+        const isVectorType = [
+          'RECTANGLE', 'CIRCLE', 'LINE', 'POLYLINE', 'ARC', 'SECTOR',
+          'EQUILATERAL_TRIANGLE', 'ISOSCELES_RIGHT_TRIANGLE',
+          'L_BRACKET', 'U_CHANNEL', 'FLANGE', 'TORUS',
+          'CIRCLE_WITH_HOLES', 'RECTANGLE_WITH_HOLES',
+          'DRAWING', 'TEXT', 'GROUP'
+        ].includes(selectedItem.type);
+        
+        const isBitmapType = ['IMAGE'].includes(selectedItem.type);
+        
+        // 位图只能使用扫描图层
+        if (isBitmapType && targetLayer.printingMethod === PrintingMethod.ENGRAVE) {
+          alert('位图对象只能使用扫描图层');
+          return;
+        }
+        
+        // 矢量对象可以使用雕刻或扫描图层
+        if (isVectorType && targetLayer.printingMethod === PrintingMethod.SCAN) {
+          // 允许矢量对象使用扫描图层（用于特殊需求）
+        }
+      }
+      
       onUpdateItem(selectedItem.id, { layerId: e.target.value });
       onCommitUpdate();
     };
@@ -305,12 +445,44 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
                     onChange={handleLayerChange}
                     className="w-full bg-white text-gray-900 rounded-md p-2 border border-gray-300 focus:ring-teal-500 focus:border-teal-500"
                   >
-                    {layers.map(layer => (
-                      <option key={layer.id} value={layer.id}>
-                        {layer.name}
-                      </option>
-                    ))}
+                    {layers
+                      .filter(layer => {
+                        // 位图对象只显示扫描图层
+                        if (selectedItem.type === CanvasItemType.IMAGE) {
+                          return layer.printingMethod === PrintingMethod.SCAN;
+                        }
+                        // 其他对象显示所有图层
+                        return true;
+                      })
+                      .map(layer => (
+                        <option key={layer.id} value={layer.id}>
+                          {layer.name} ({layer.printingMethod === 'scan' ? '扫描' : '雕刻'})
+                        </option>
+                      ))}
                   </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {(() => {
+                      const isVectorType = [
+                        'RECTANGLE', 'CIRCLE', 'LINE', 'POLYLINE', 'ARC', 'SECTOR',
+                        'EQUILATERAL_TRIANGLE', 'ISOSCELES_RIGHT_TRIANGLE',
+                        'L_BRACKET', 'U_CHANNEL', 'FLANGE', 'TORUS',
+                        'CIRCLE_WITH_HOLES', 'RECTANGLE_WITH_HOLES',
+                        'DRAWING', 'TEXT', 'GROUP'
+                      ].includes(selectedItem.type);
+                      
+                      const isBitmapType = ['IMAGE'].includes(selectedItem.type);
+                      
+                      if (isVectorType) {
+                        return '矢量对象可以使用雕刻或扫描图层';
+                      } else if (isBitmapType) {
+                        return '位图对象只能使用扫描图层';
+                      }
+                      return '';
+                    })()}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    图层属性在创建后不可修改
+                  </p>
                 </div>
                 {renderContent()}
               </div>

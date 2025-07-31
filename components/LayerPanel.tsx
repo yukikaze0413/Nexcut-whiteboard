@@ -86,21 +86,27 @@ const LayerItem: React.FC<{
             {layer.name}
           </span>
         )}
-        {/* 新增打印方式下拉框 */}
-        <select
-          value={layer.printingMethod || 'scan'}
-          onChange={e => { e.stopPropagation(); onUpdate({ printingMethod: e.target.value as PrintingMethod }); }}
-          className="ml-2 bg-white border border-gray-300 rounded px-1 text-xs"
-          title="打印方式"
-        >
-          <option value="scan">扫描</option>
-          <option value="engrave">雕刻</option>
-        </select>
+        {/* 打印方式显示（只读） */}
+        <span className="ml-2 text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+          {layer.printingMethod === 'scan' ? '扫描' : '雕刻'}
+        </span>
       </div>
       <div className={`flex items-center gap-1 transition-opacity opacity-0 ${isEditing ? '' : 'group-hover:opacity-100'}`}>
-          <button onClick={(e) => { e.stopPropagation(); onMove('up'); }} disabled={isTop} className="p-1 rounded hover:bg-gray-200 disabled:opacity-25" title="上移"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg></button>
-          <button onClick={(e) => { e.stopPropagation(); onMove('down'); }} disabled={isBottom} className="p-1 rounded hover:bg-gray-200 disabled:opacity-25" title="下移"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg></button>
-          {canDelete && <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-1 rounded hover:bg-red-100 text-red-500" title="删除"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}
+          <button onClick={(e) => { e.stopPropagation(); onMove('up'); }} disabled={isTop} className="p-1 rounded hover:bg-gray-200 disabled:opacity-25" title="上移">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+            </svg>
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); onMove('down'); }} disabled={isBottom} className="p-1 rounded hover:bg-gray-200 disabled:opacity-25" title="下移">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {canDelete && <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-1 rounded hover:bg-red-100 text-red-500" title="删除">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>}
       </div>
     </li>
   );
