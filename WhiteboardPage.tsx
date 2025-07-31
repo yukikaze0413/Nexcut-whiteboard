@@ -83,21 +83,6 @@ interface WhiteboardPageProps {
 const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   const location = useLocation();
   
-  // 处理从路由传递的图片数据
-  useEffect(() => {
-    if (location.state?.image) {
-      const img = new Image();
-      img.onload = () => {
-        // 延迟处理，等 addImage 函数定义后再调用
-        setTimeout(() => {
-          if (typeof addImage === 'function') {
-            addImage(location.state.image, img.width, img.height);
-          }
-        }, 100);
-      };
-      img.src = location.state.image;
-    }
-  }, [location.state]);
   const firstLayerId = `layer_${Date.now()}`;
   const [layers, setLayers] = useState<Layer[]>([
     { id: `scan_layer_${Date.now()}`, name: '扫描图层', isVisible: true, printingMethod: PrintingMethod.SCAN },
@@ -277,6 +262,17 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       rotation: 0,
     } as Omit<ImageObject, 'id' | 'layerId'>);
   }, [addItem, canvasWidth, canvasHeight]);
+
+  // 处理从路由传递的图片数据
+  useEffect(() => {
+    if (location.state?.image) {
+      const img = new Image();
+      img.onload = () => {
+        addImage(location.state.image, img.width, img.height);
+      };
+      img.src = location.state.image;
+    }
+  }, [location.state, addImage]);
 
   const updateItem = useCallback((itemId: string, updates: Partial<CanvasItem>) => {
     // 如果尝试修改图层，需要验证图层类型是否匹配
