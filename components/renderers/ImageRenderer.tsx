@@ -17,7 +17,11 @@ const ImageRenderer: React.FC<ImageRendererProps> = ({ imageObject, isSelected, 
 
   return (
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     <g transform={transform}>
+=======
+    <g >
+>>>>>>> Stashed changes
 =======
     <g >
 >>>>>>> Stashed changes

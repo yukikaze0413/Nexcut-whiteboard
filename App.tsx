@@ -1,4 +1,5 @@
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 import React, { useState, useCallback, useEffect } from 'react';
 import type { CanvasItem, CanvasItemData, PartType, Layer, Part, ImageObject } from './types';
 import { CanvasItemType, ToolType, PrintingMethod } from './types';
@@ -1374,6 +1375,8 @@ const App: React.FC<AppProps> = () => {
 
   
 =======
+=======
+>>>>>>> Stashed changes
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import HomePage from './HomePage';
@@ -1384,6 +1387,9 @@ import CropPage from './CropPage';
 (window as any).setHomePageImage = (base64Data: string) => {
   console.log('[全局] setHomePageImage 被调用，但当前页面未处理', base64Data?.length);
   (window as any).__pendingHomePageImage = base64Data;
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 };
 
