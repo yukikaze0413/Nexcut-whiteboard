@@ -1,5 +1,5 @@
 import React, { useState, useEffect, KeyboardEvent } from 'react';
-import type { Layer, PrintingMethod } from '../types';
+import type { Layer } from '../types';
 
 interface LayerPanelProps {
   layers: Layer[];

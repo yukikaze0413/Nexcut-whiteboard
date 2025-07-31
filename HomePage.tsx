@@ -22,7 +22,7 @@ const HomePage: React.FC = () => {
   const [brightness, setBrightness] = useState(0); // 亮度调节值
   const [contrast, setContrast] = useState(0); // 对比度调节值
   const [originalImage, setOriginalImage] = useState<string | null>(null); // 原始图片（用于撤销操作）
-  const [hasAndroidImage, setHasAndroidImage] = useState(false); // 标记是否有Android传递的图片
+
   const fileInputRef = useRef<HTMLInputElement>(null); // 文件输入框引用
 
   // 提供给Android调用的图片设置接口
@@ -32,7 +32,7 @@ const HomePage: React.FC = () => {
       console.log('[首页] base64Data前100:', base64Data.substring(0, 100));
       setImage(base64Data);
       setOriginalImage(base64Data);
-      setHasAndroidImage(true); // 标记有Android传递的图片
+
     };
 
     // 提供给Android调用的白板跳转接口
@@ -499,15 +499,7 @@ const HomePage: React.FC = () => {
     }
   };
 
-  // 处理主页按钮点击：返回首页
-  const handleMainPage = () => {
-    navigate('/');
-  };
 
-  // 处理设置按钮点击：显示设置功能
-  const handleSetting = () => {
-    alert('设置功能');
-  };
 
   // 页面加载时根据路由state显示裁剪结果
   useEffect(() => {

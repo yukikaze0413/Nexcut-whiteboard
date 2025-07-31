@@ -8,18 +8,7 @@ interface DrawingRendererProps {
   isSelected: boolean;
 }
 
-const pointsToString = (points: { x: number; y: number }[]) => {
-  return points.map(p => `${p.x},${p.y}`).join(' ');
-};
 
-const getCentroid = (points: { x: number; y: number }[]) => {
-  const n = points.length;
-  const sum = points.reduce(
-    (acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }),
-    { x: 0, y: 0 }
-  );
-  return { x: sum.x / n, y: sum.y / n };
-};
 
 const DrawingRenderer: React.FC<DrawingRendererProps> = ({ drawing, isSelected }) => {
   const { points, color, strokeWidth, fillColor } = drawing;

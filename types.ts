@@ -39,6 +39,10 @@ export interface Layer {
   name: string;
   isVisible: boolean;
   printingMethod: PrintingMethod;
+  lineDensity?: number;
+  halftone?: boolean;
+  reverseMovementOffset?: number;
+  power?: number;
 }
 
 export interface PartParameters {

@@ -2,7 +2,6 @@ import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import type { CanvasItem, CanvasItemData, Layer, Drawing, TextObject } from '../types';
 import { ToolType, CanvasItemType } from '../types';
 import CanvasItemRenderer from './renderers/CanvasItemRenderer';
-import Ruler from './Ruler';
 import pointicon from '../assets/回零.svg'
 
 interface CanvasProps {
@@ -20,7 +19,7 @@ interface CanvasProps {
   eraserRadius: number;
 }
 
-const RULER_SIZE = 30; // in pixels
+
 
 // 辅助函数：计算点到线段的最小距离
 function pointToSegmentDistance(px: number, py: number, x1: number, y1: number, x2: number, y2: number) {
@@ -44,8 +43,7 @@ function findCircleSegmentIntersection(
   let t0 = 0, t1 = 1;
   let found = false;
   let mid = 0.5;
-  let pA = { x: x1, y: y1 };
-  let pB = { x: x2, y: y2 };
+
   // 只在距离小于r的区间内细分
   for (let i = 0; i < 20; i++) {
     mid = (t0 + t1) / 2;

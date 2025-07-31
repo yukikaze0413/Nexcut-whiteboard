@@ -49,7 +49,7 @@ const renderPartSVG = (item: CanvasItem, parentTransform: string = ''): React.Re
     const segs = [item.parameters.seg1, item.parameters.seg2, item.parameters.seg3].filter(Boolean);
     let points = [[0,0]];
     let x = 0;
-    segs.forEach((len, i) => {
+    segs.forEach((len) => {
       x += len;
       points.push([x, 0]);
     });
@@ -98,18 +98,7 @@ const renderPartSVG = (item: CanvasItem, parentTransform: string = ''): React.Re
   return null;
 };
 
-const renderVectorElementPreview = (item: CanvasItem) => {
-  const size = 60;
-  if (item.type === CanvasItemType.IMAGE) return null;
-  return (
-    <div key={item.id} className="flex flex-col items-center mx-2 my-2">
-      <svg width={size} height={size} viewBox={`-30 -30 60 60`} className="border rounded bg-white">
-        {renderPartSVG(item)}
-      </svg>
-      <div className="text-xs text-gray-500 mt-1">x: {item.x}, y: {item.y}</div>
-    </div>
-  );
-};
+
 
 const renderLayerPreview = (layer: Layer, items: CanvasItem[], canvasWidth: number, canvasHeight: number) => {
   const layerItems = items.filter(item => item.layerId === layer.id);
@@ -226,20 +215,19 @@ const renderLayerPreview = (layer: Layer, items: CanvasItem[], canvasWidth: numb
 const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selectedLayerId, onSelectLayer, onUpdateLayer, items, canvasWidth, canvasHeight }) => {
   const selectedLayer = layers.find(l => l.id === selectedLayerId) || layers[0];
 
-  // 预览占位
-  const renderPreview = () => (
-    <div className="w-40 h-24 bg-gray-100 flex items-center justify-center rounded mb-4 border border-gray-200">
-      <span className="text-gray-400 text-sm">图层预览</span>
-    </div>
-  );
+
 
   const handleInputChange = (key: 'lineDensity' | 'power' | 'reverseMovementOffset', value: number) => {
     if (!selectedLayer) return;
-    onUpdateLayer(selectedLayer.id, { [key]: value });
+    const updates: Partial<Layer> = {};
+    updates[key] = value;
+    onUpdateLayer(selectedLayer.id, updates);
   };
   const handleCheckboxChange = (key: 'halftone', value: boolean) => {
     if (!selectedLayer) return;
-    onUpdateLayer(selectedLayer.id, { [key]: value });
+    const updates: Partial<Layer> = {};
+    updates[key] = value;
+    onUpdateLayer(selectedLayer.id, updates);
   };
 
   return (

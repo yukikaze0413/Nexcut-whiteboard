@@ -10,10 +10,10 @@ interface ImageRendererProps {
 
 const ENLARGE = 8;
 
-const ImageRenderer: React.FC<ImageRendererProps> = ({ imageObject, isSelected, x, y }) => {
-  const { width, height, href, rotation } = imageObject;
+const ImageRenderer: React.FC<ImageRendererProps> = ({ imageObject, isSelected }) => {
+  const { width, height, href } = imageObject;
 
-  const transform = `translate(${x}, ${y}) rotate(${rotation})`;
+
 
   return (
     <g >

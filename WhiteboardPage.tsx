@@ -22,7 +22,7 @@ import ImageIcon from './assets/图片.svg';
 import ImportIcon from './assets/导入.svg';
 import PartLibraryIcon from './assets/零件库.svg';
 import PropertyIcon from './assets/属性.svg';
-import HomeIcon from './assets/回零.svg';
+
 
 // 浏览器端简易 HPGL 解析器，仅支持 PU/PD/PA 指令
 function simpleParseHPGL(content: string) {
@@ -83,7 +83,7 @@ interface WhiteboardPageProps {
 const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   const location = useLocation();
   
-  const firstLayerId = `layer_${Date.now()}`;
+
   const [layers, setLayers] = useState<Layer[]>([
     { id: `scan_layer_${Date.now()}`, name: '扫描图层', isVisible: true, printingMethod: PrintingMethod.SCAN },
     { id: `engrave_layer_${Date.now()}`, name: '雕刻图层', isVisible: true, printingMethod: PrintingMethod.ENGRAVE }
@@ -103,7 +103,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
   const [step, setStep] = useState(1); // 新增步骤状态
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null); // 图层设置界面选中
-  const [scanPreviewImage, setScanPreviewImage] = useState<string | null>(null);
+
 
   // 初始化activeLayerId
   useEffect(() => {
@@ -1382,7 +1382,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               layers={layers}
               selectedLayerId={selectedLayerId}
               onSelectLayer={setSelectedLayerId}
-              onUpdateLayer={(layerId, updates) => {
+              onUpdateLayer={(layerId: string, updates: Partial<Layer>) => {
                 setLayers(prev => prev.map(l => l.id === layerId ? { ...l, ...updates } : l));
               }}
               items={items}

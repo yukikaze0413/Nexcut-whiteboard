@@ -1,8 +1,6 @@
 import React, { useRef } from 'react';
 import { ToolType } from '../types';
-import { FiMousePointer } from 'react-icons/fi';
 import SelectIcon from '../assets/选择.svg';
-import EraserIcon from '../assets/橡皮擦.svg';
 import ShapeIcon from '../assets/形状.svg';
 
 interface ToolbarProps {
