@@ -1,9 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import ImagePage from './ImagePage';
-import { BrowserRouter, HashRouter, Router } from 'react-router-dom';
-import { Routes, Route } from 'react-router-dom';
 
 // 在应用启动时设置全局的setWhiteboardImage函数
 // 确保在HomePage组件加载前就能处理Android的调用
@@ -21,12 +18,6 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <HashRouter>
-      <Routes>
-        <Route path="/App" element={<App />} />
-        <Route path="/" element={<ImagePage />} />
-      </Routes>
-      {/* <App /> */}
-    </HashRouter>
+      <App />
   </React.StrictMode>
 );

@@ -589,6 +589,14 @@ const HomePage: React.FC = () => {
 
   // 页面加载时根据路由state显示裁剪结果
   useEffect(() => {
+
+    console.log('HomePage useEffect: 检查图片');
+    console.log('location.state:', location.state);
+    console.log('location.state.image:', (location.state as any)?.image);
+    
+    let img = (location.state as any)?.image;
+    console.log('从location.state获取的图片:', img ? '有图片' : '无图片');
+
     if (location.state && (location.state as any).croppedImg) {
       setImage((location.state as any).croppedImg);
       setOriginalImage((location.state as any).croppedImg);
@@ -599,29 +607,22 @@ const HomePage: React.FC = () => {
         action: "addEdgePan",
         });
       }
-    } else {
-      if (window.webkit && window.webkit.messageHandlers.jsBridge) {
-      (async () => {
-        try {
-            const result = await getOriginImage();
-            if (result !== ''){
-              (window as any).setHomePageImage(result);
-            } else {
-              (window as any).setWhiteboardImage();
-            }
-        } catch (e) {
-            console.error(e);
-        }
-      })();
-     }
     }
-    console.log('HomePage useEffect: 检查图片');
-    console.log('location.state:', location.state);
-    console.log('location.state.image:', (location.state as any)?.image);
     
-    let img = (location.state as any)?.image;
-    console.log('从location.state获取的图片:', img ? '有图片' : '无图片');
-    
+    if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+    (async () => {
+      try {
+          const result = await getOriginImage();
+          if (result !== ''){
+            (window as any).setHomePageImage(result);
+          } 
+      } catch (e) {
+          console.error(e);
+      }
+    })();
+    }
+
+
     if (!img) {
       // 如果location.state中没有图片，尝试从localStorage获取
       const localStorageImg = localStorage.getItem('croppedImage');
