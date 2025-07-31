@@ -379,13 +379,6 @@ const CropPage: React.FC = () => {
       const cropWidth = cropBox.width * scaleX;
       const cropHeight = cropBox.height * scaleY;
 
-      console.log('裁剪参数:', {
-        cropX, cropY, cropWidth, cropHeight,
-        imageRect: imageRect,
-        cropBox: cropBox,
-        scaleX, scaleY
-      });
-
       // 设置临时canvas尺寸
       tempCanvas.width = cropWidth;
       tempCanvas.height = cropHeight;
@@ -399,8 +392,10 @@ const CropPage: React.FC = () => {
 
       // 转换为base64
       const croppedImg = tempCanvas.toDataURL('image/jpeg', 0.9);
-      console.log('裁剪成功，返回首页');
-      navigate('/', { state: { croppedImg } });
+      console.log('[裁剪结果] base64前100:', croppedImg.slice(0, 100), '长度:', croppedImg.length);
+      // 返回上一页并传递裁剪后图片
+      localStorage.setItem('croppedImage', croppedImg); // 兜底方案
+      navigate(-1);
 
     } catch (err) {
       console.error('裁剪出错:', err);
@@ -409,8 +404,11 @@ const CropPage: React.FC = () => {
   };
 
   const handleCancel = () => {
-    console.log('取消按钮点击，返回首页');
-    navigate('/', { state: { croppedImg: original } });
+    // 返回上一页并传递原图
+    if (original) {
+      localStorage.setItem('croppedImage', original); // 兜底方案
+    }
+    navigate(-1);
   };
 
   if (!image) {
