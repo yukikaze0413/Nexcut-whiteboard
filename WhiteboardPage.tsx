@@ -949,6 +949,12 @@ const WhiteboardPage: React.FC<AppProps> = () => {
       };
       img.src = base64;
     }
+
+    if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+      window.webkit?.messageHandlers.jsBridge.postMessage({
+        action: "removeEdgePan",
+        });
+    }
     // eslint-disable-next-line
   }, []);
 

@@ -74,6 +74,7 @@ const HomePage: React.FC = () => {
   
   // 提供给Android调用的图片设置接口
   useEffect(() => {
+    console.log("---------/被加载----------");
     (window as any).setHomePageImage = (base64Data: string) => {
       console.log('[首页] Android调用setHomePageImage，base64长度:', base64Data.length);
       console.log('[首页] base64Data前100:', base64Data.slice(0, 100));
@@ -92,20 +93,18 @@ const HomePage: React.FC = () => {
       (window as any).__pendingHomePageImage = null;
     }
 
-    if (window.webkit && window.webkit.messageHandlers.jsBridge) {
-      (async () => {
-        try {
-            console.log("before");
-            const result = await getOriginImage();
-            // console.log('原生返回：', result);
-            (window as any).setHomePageImage(result);
-            console.log("after");
-        } catch (e) {
-            console.error(e);
-        }
-      })();
-    }
-
+      // if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+      // (async () => {
+      //   try {
+      //       const result = await getOriginImage();
+      //       if (result !== ''){
+      //         (window as any).setHomePageImage(result);
+      //       }
+      //   } catch (e) {
+      //       console.error(e);
+      //   }
+      // })();
+      // }
 
     // 清理函数
     return () => {
@@ -483,11 +482,33 @@ const HomePage: React.FC = () => {
       setOriginalImage((location.state as any).croppedImg);
       // 清除state避免回退时重复
       window.history.replaceState({}, document.title);
+      if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+        window.webkit?.messageHandlers.jsBridge.postMessage({
+        action: "addEdgePan",
+        });
+      }
+    } else {
+      if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+      (async () => {
+        try {
+            const result = await getOriginImage();
+            if (result !== ''){
+              (window as any).setHomePageImage(result);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+      })();
+      }
     }
   }, [location.state]);
 
+
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
+    <div className="min-h-screen bg-gray-100 flex flex-col" style={{
+      height: "100vh",
+      overflow: "auto"
+    }}>
       {/* 顶部工具栏 */}
       <div className="bg-blue-600 text-white p-4">
         <h1 className="text-xl font-semibold text-center">CAD零件参数化白板</h1>
@@ -713,7 +734,7 @@ const HomePage: React.FC = () => {
           ref={fileInputRef}
           type="file"
           accept="image/*"
-          capture="environment"
+          // capture="environment"
           onChange={handleImageUpload}
           className="hidden"
         />

@@ -29,6 +29,12 @@ const CropPage: React.FC = () => {
   // Canvas初始化
   useEffect(() => {
     const canvas = canvasRef.current;
+    if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+        window.webkit?.messageHandlers.jsBridge.postMessage({
+        action: "removeEdgePan",
+        });
+      }
+  
     if (canvas) {
       const resizeCanvas = () => {
         const rect = canvas.getBoundingClientRect();
