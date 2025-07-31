@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+  <!-- ... head 部分保持不变 ... -->
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
@@ -7,47 +8,30 @@
     <title>CAD零件参数化白板</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-      html, body {
-        margin: 0;
-        padding: 0;
-        width: 100vw;
-        height: 100vh;
-        overflow: hidden;
-        background: #fff;
-      }
-      #root {
-        width: 100vw;
-        height: 100vh;
-        min-height: 100vh;
-        min-width: 100vw;
-        display: flex;
-        flex-direction: column;
-      }
-      /* Hide arrows from number inputs in Chrome, Safari, Edge, Opera */
-      input::-webkit-outer-spin-button,
-      input::-webkit-inner-spin-button {
-        -webkit-appearance: none;
-        margin: 0;
-      }
-
-      /* Hide arrows from number inputs in Firefox */
-      input[type=number] {
-        -moz-appearance: textfield;
-      }
+      /* ... 你的样式 ... */
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
-    "react/": "https://esm.sh/react@^19.1.0/",
-    "react": "https://esm.sh/react@^19.1.0"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
-</head>
+    <script type="importmap">
+    {
+      "imports": {
+        "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
+        "react/": "https://esm.sh/react@^19.1.0/",
+        "react": "https://esm.sh/react@^19.1.0"
+      }
+    }
+    </script>
+    <link rel="stylesheet" href="/index.css">
+  </head>
   <body>
     <div id="root"></div>
+
+    <!-- 
+      在这里添加您的自定义 fabric.js 脚本。
+      它必须在您的 React 应用脚本之前加载，
+      这样当 React 组件渲染时，全局的 "fabric" 对象就已经存在了。
+    -->
+    <script src="/fabric.js"></script> 
+
+    <!-- 这是您原来的应用入口脚本 -->
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>

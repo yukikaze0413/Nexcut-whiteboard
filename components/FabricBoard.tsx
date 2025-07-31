@@ -1,223 +1,328 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { fabric } from 'fabric';
+import React, {
+  useRef,
+  useState,
+  useEffect,
+  forwardRef,
+  useImperativeHandle,
+} from 'react';
+//import '../fabric';
+import type { FabricBoardHandle } from '../App';
+import type { Layer, PartType } from '../types';
+import { BASIC_SHAPES, PART_LIBRARY } from '../constants';
+
+//declare const fabric: any;
+
+const ALL_PARTS = [...BASIC_SHAPES, ...PART_LIBRARY];
+const MAX_HISTORY_LENGTH = 50;
 
 interface FabricBoardProps {
-  width?: number;
-  height?: number;
+  width: number;
+  height: number;
+  layers: Layer[];
+  activeLayerId: string;
+  onObjectSelected: (object: fabric.Object | null) => void;
+  onHistoryUpdate: (history: { canUndo: boolean; canRedo: boolean }) => void;
 }
 
-const defaultWidth = 1000;
-const defaultHeight = 700;
+const FabricBoard = forwardRef<FabricBoardHandle, FabricBoardProps>(
+  ({ width, height, layers, activeLayerId, onObjectSelected, onHistoryUpdate }, ref) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
+    
+    const history = useRef<string[]>([]);
+    const redoStack = useRef<string[]>([]);
+    const isUpdatingFromHistory = useRef(false);
+    const isEraserActive = useRef(false);
 
-const FabricBoard: React.FC<FabricBoardProps> = ({ width = defaultWidth, height = defaultHeight }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
-  const [selected, setSelected] = useState<fabric.Object | null>(null);
-  const [history, setHistory] = useState<string[]>([]);
-  const [redoStack, setRedoStack] = useState<string[]>([]);
-
-  // 初始化fabric画布
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    const c = new fabric.Canvas(canvasRef.current, {
-      width,
-      height,
-      backgroundColor: '#fff',
-      preserveObjectStacking: true,
-      selection: true,
-    });
-    setCanvas(c);
-    // 销毁时清理
-    return () => {
-      c.dispose();
-    };
-  }, [width, height]);
-
-  // 事件监听
-  useEffect(() => {
-    if (!canvas) return;
-    const onSelect = (e: fabric.IEvent) => {
-      setSelected(e.selected?.[0] || null);
-    };
-    const onDeselect = () => setSelected(null);
-    canvas.on('selection:created', onSelect);
-    canvas.on('selection:updated', onSelect);
-    canvas.on('selection:cleared', onDeselect);
-    // 撤销记录
-    const saveHistory = () => {
-      setHistory(prev => [...prev, JSON.stringify(canvas.toJSON())].slice(-50));
-      setRedoStack([]);
-    };
-    canvas.on('object:added', saveHistory);
-    canvas.on('object:modified', saveHistory);
-    canvas.on('object:removed', saveHistory);
-    return () => {
-      canvas.off('selection:created', onSelect);
-      canvas.off('selection:updated', onSelect);
-      canvas.off('selection:cleared', onDeselect);
-      canvas.off('object:added', saveHistory);
-      canvas.off('object:modified', saveHistory);
-      canvas.off('object:removed', saveHistory);
-    };
-  }, [canvas]);
-
-  // 工具栏操作
-  const addRect = () => {
-    if (!canvas) return;
-    const rect = new fabric.Rect({
-      left: 100, top: 100, width: 120, height: 80, fill: '#16a34a', stroke: '#2563eb', strokeWidth: 2,
-    });
-    canvas.add(rect);
-    (canvas as fabric.Canvas).setActiveObject(rect);
-  };
-  const addCircle = () => {
-    if (!canvas) return;
-    const circle = new fabric.Circle({
-      left: 200, top: 200, radius: 50, fill: '#00AE3D', stroke: '#2563eb', strokeWidth: 2,
-    });
-    canvas.add(circle);
-    (canvas as fabric.Canvas).setActiveObject(circle);
-  };
-  const addLine = () => {
-    if (!canvas) return;
-    const line = new fabric.Line([300, 300, 400, 400], {
-      stroke: '#2563eb', strokeWidth: 3
-    });
-    canvas.add(line);
-    (canvas as fabric.Canvas).setActiveObject(line);
-  };
-  const addText = () => {
-    if (!canvas) return;
-    const text = new fabric.Textbox('文本', {
-      left: 150, top: 300, fontSize: 28, fill: '#333', fontFamily: 'sans-serif', width: 120
-    });
-    canvas.add(text);
-    (canvas as fabric.Canvas).setActiveObject(text);
-  };
-  const addImage = (url: string) => {
-    if (!canvas) return;
-    fabric.Image.fromURL(url, (img: fabric.Image) => {
-      img.set({ left: 250, top: 250, scaleX: 0.5, scaleY: 0.5 });
-      canvas.add(img);
-      (canvas as fabric.Canvas).setActiveObject(img);
-    });
-  };
-  const importSVG = (svgContent: string) => {
-    if (!canvas) return;
-    fabric.loadSVGFromString(svgContent, (objects: fabric.Object[], options: fabric.IGroupOptions) => {
-      const group = fabric.util.groupSVGElements(objects, options);
-      canvas.add(group);
-      (canvas as fabric.Canvas).setActiveObject(group);
-      canvas.requestRenderAll();
-    });
-  };
-  const removeSelected = () => {
-    if (!canvas || !selected) return;
-    canvas.remove(selected);
-    setSelected(null);
-  };
-  const groupSelected = () => {
-    if (!canvas) return;
-    if (!canvas.getActiveObject()) return;
-    if (canvas.getActiveObject()?.type === 'activeSelection') {
-      (canvas.getActiveObject() as fabric.ActiveSelection).toGroup();
-      canvas.requestRenderAll();
-    }
-  };
-  const ungroupSelected = () => {
-    if (!canvas) return;
-    const obj = canvas.getActiveObject();
-    if (obj && obj.type === 'group') {
-      (obj as fabric.Group).toActiveSelection();
-      canvas.requestRenderAll();
-    }
-  };
-  const undo = () => {
-    if (!canvas || history.length === 0) return;
-    const prev = history[history.length - 2];
-    if (prev) {
-      setRedoStack(r => [JSON.stringify(canvas.toJSON()), ...r]);
-      canvas.loadFromJSON(prev, () => {
-        canvas.renderAll();
+    // 1. Initialize Fabric Canvas
+    useEffect(() => {
+      if (!canvasRef.current) return;
+      const newCanvas = new fabric.Canvas(canvasRef.current, {
+        width,
+        height,
+        backgroundColor: '#fff',
+        preserveObjectStacking: true,
       });
-      setHistory(h => h.slice(0, -1));
-    }
-  };
-  const redo = () => {
-    if (!canvas || redoStack.length === 0) return;
-    const next = redoStack[0];
-    if (next) {
-      setHistory(h => [...h, JSON.stringify(canvas.toJSON())]);
-      canvas.loadFromJSON(next, () => {
-        canvas.renderAll();
-      });
-      setRedoStack(r => r.slice(1));
-    }
-  };
+      setCanvas(newCanvas);
+      saveHistory(newCanvas);
+      return () => {
+        newCanvas.dispose();
+      };
+    }, [width, height]);
 
-  // 属性面板
-  const handlePropChange = (prop: string, value: any) => {
-    if (!selected || !canvas) return;
-    selected.set(prop as keyof fabric.Object, value);
-    selected.setCoords();
-    canvas.requestRenderAll();
-  };
+    // 2. Bind Events
+    useEffect(() => {
+      if (!canvas) return;
 
-  // 文件导入
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      if (typeof ev.target?.result === 'string') {
-        if (ext === 'svg') {
-          importSVG(ev.target.result);
-        } else if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
-          addImage(ev.target.result);
+      const handleSelection = () => {
+        onObjectSelected(canvas.getActiveObject());
+      };
+
+      const handleModification = () => {
+        if (!isUpdatingFromHistory.current) {
+          saveHistory(canvas);
         }
+      };
+
+      const handlePathCreated = (e: fabric.IEvent & { path?: fabric.Path }) => {
+        if (!e.path) return;
+        
+        if (isEraserActive.current) {
+          e.path.selectable = false;
+          e.path.evented = false;
+          e.path.set('erasable', false); 
+        } else {
+          (e.path as any).layerId = activeLayerId;
+        }
+        
+        setTimeout(() => saveHistory(canvas), 50);
+      };
+
+      canvas.on('selection:created', handleSelection);
+      canvas.on('selection:updated', handleSelection);
+      canvas.on('selection:cleared', handleSelection);
+      canvas.on('object:modified', handleModification);
+      canvas.on('object:added', handleModification);
+      canvas.on('object:removed', handleModification);
+      canvas.on('path:created', handlePathCreated);
+
+      return () => {
+        canvas.off('selection:created', handleSelection);
+        canvas.off('selection:updated', handleSelection);
+        canvas.off('selection:cleared', handleSelection);
+        canvas.off('object:modified', handleModification);
+        canvas.off('object:added', handleModification);
+        canvas.off('object:removed', handleModification);
+        canvas.off('path:created', handlePathCreated);
+      };
+    }, [canvas, onObjectSelected, activeLayerId]);
+
+    // 3. Respond to Layer Changes (Visibility and Order)
+    useEffect(() => {
+      if (!canvas) return;
+      
+      const allObjects = canvas.getObjects();
+
+      // Set stacking order based on reversed layers array (bottom layer first)
+      layers.slice().reverse().forEach(layer => {
+        allObjects.forEach(obj => {
+          if ((obj as any).layerId === layer.id) {
+            canvas.bringToFront(obj);
+          }
+        });
+      });
+
+      // Set visibility
+      allObjects.forEach(obj => {
+        const objLayerId = (obj as any).layerId;
+        if (objLayerId) {
+          const layer = layers.find(l => l.id === objLayerId);
+          // 修改: 如果找不到图层，则对象不可见
+          obj.set('visible', layer ? layer.isVisible : false);
+        }
+      });
+
+      canvas.requestRenderAll();
+    }, [layers, canvas]);
+
+    // 4. History Management
+    const saveHistory = (c: fabric.Canvas) => {
+      const json = JSON.stringify(c.toJSON(['layerId', 'erasable', 'clipPath']));
+      if (history.current[history.current.length - 1] === json) return;
+
+      history.current.push(json);
+      if (history.current.length > MAX_HISTORY_LENGTH) {
+        history.current.shift();
       }
+      redoStack.current = [];
+      onHistoryUpdate({ canUndo: history.current.length > 1, canRedo: false });
     };
-    reader.readAsDataURL(file);
-  };
 
-  return (
-    <div className="flex flex-col h-full w-full">
-      {/* 工具栏 */}
-      <div className="flex gap-2 p-2 bg-gray-100 border-b">
-        <button onClick={addRect}>矩形</button>
-        <button onClick={addCircle}>圆</button>
-        <button onClick={addLine}>直线</button>
-        <button onClick={addText}>文本</button>
-        <button onClick={() => fileInputRef.current?.click()}>导入SVG/图片</button>
-        <button onClick={removeSelected} disabled={!selected}>删除</button>
-        <button onClick={groupSelected}>分组</button>
-        <button onClick={ungroupSelected}>解组</button>
-        <button onClick={undo}>撤销</button>
-        <button onClick={redo}>重做</button>
-      </div>
-      {/* 属性面板 */}
-      {selected && (
-        <div className="p-2 bg-gray-50 border-b flex gap-4 items-center">
-          <span>属性：</span>
-          <label>左 <input type="number" value={selected.left ?? 0} onChange={e => handlePropChange('left', parseFloat(e.target.value))} /></label>
-          <label>上 <input type="number" value={selected.top ?? 0} onChange={e => handlePropChange('top', parseFloat(e.target.value))} /></label>
-          <label>宽 <input type="number" value={selected.width ?? 0} onChange={e => handlePropChange('width', parseFloat(e.target.value))} /></label>
-          <label>高 <input type="number" value={selected.height ?? 0} onChange={e => handlePropChange('height', parseFloat(e.target.value))} /></label>
-          <label>角度 <input type="number" value={selected.angle ?? 0} onChange={e => handlePropChange('angle', parseFloat(e.target.value))} /></label>
-          {selected.type === 'textbox' && (
-            <label>内容 <input type="text" value={(selected as any).text} onChange={e => handlePropChange('text', e.target.value)} /></label>
-          )}
-        </div>
-      )}
-      {/* 画布区 */}
-      <div className="flex-1 relative">
-        <canvas ref={canvasRef} width={width} height={height} className="border w-full h-full" />
-        <input ref={fileInputRef} type="file" accept=".svg,.png,.jpg,.jpeg" className="hidden" onChange={handleFileChange} />
-      </div>
-    </div>
-  );
-};
+    // 5. Expose Imperative API to Parent Component
+    useImperativeHandle(ref, () => ({
+      addShape(type: PartType) {
+        if (!canvas) return;
+        const partDef = ALL_PARTS.find(p => p.type === type);
+        if (!partDef) return;
 
-export default FabricBoard; 
+        let shape: fabric.Object | null = null;
+        const commonOptions = {
+          left: canvas.getCenter().left,
+          top: canvas.getCenter().top,
+          originX: 'center',
+          originY: 'center',
+          fill: '#16a34a',
+          layerId: activeLayerId,
+        };
+
+        switch (type) {
+          case 'RECTANGLE':
+            shape = new fabric.Rect({ ...commonOptions, ...partDef.defaultParameters });
+            break;
+          case 'CIRCLE':
+            shape = new fabric.Circle({ ...commonOptions, ...partDef.defaultParameters });
+            break;
+          default:
+            shape = new fabric.Rect({ ...commonOptions, width: 100, height: 100 });
+        }
+        if (shape) canvas.add(shape).setActiveObject(shape);
+      },
+
+      addImage(url: string) {
+        if (!canvas) return;
+        fabric.Image.fromURL(url, (img) => {
+          img.set({
+            left: canvas.getCenter().left,
+            top: canvas.getCenter().top,
+            originX: 'center',
+            originY: 'center',
+            layerId: activeLayerId,
+          });
+          img.scaleToWidth(canvas.getWidth() / 2);
+          canvas.add(img).setActiveObject(img);
+        });
+      },
+
+      addText() {
+        if (!canvas) return;
+        const text = new fabric.Textbox('新文本', {
+          left: canvas.getCenter().left,
+          top: canvas.getCenter().top,
+          originX: 'center',
+          originY: 'center',
+          width: 200,
+          fontSize: 28,
+          fill: '#333',
+          layerId: activeLayerId,
+        });
+        canvas.add(text).setActiveObject(text);
+      },
+
+      deleteSelected() {
+        if (!canvas) return;
+        canvas.getActiveObjects().forEach(obj => canvas.remove(obj));
+        canvas.discardActiveObject().requestRenderAll();
+      },
+      
+      // --- 新增功能: 根据图层ID删除对象 ---
+      removeObjectsByLayerId(layerId: string) {
+        if (!canvas) return;
+        const objectsToRemove = canvas.getObjects().filter(obj => (obj as any).layerId === layerId);
+        if (objectsToRemove.length === 0) return;
+
+        const activeObject = canvas.getActiveObject();
+
+        // 使用 '...' 展开操作符来一次性移除所有匹配的对象
+        canvas.remove(...objectsToRemove);
+
+        // 如果当前激活的对象（或多选中的某个对象）在被删除的列表中，
+        // 则取消选择。这将触发 selection:cleared 事件。
+        if (activeObject) {
+            const activeObjects = activeObject.isType('activeSelection') ? (activeObject as fabric.ActiveSelection).getObjects() : [activeObject];
+            const selectionHasBeenRemoved = activeObjects.some(obj => objectsToRemove.includes(obj));
+            if (selectionHasBeenRemoved) {
+                canvas.discardActiveObject();
+            }
+        }
+        
+        // 立即渲染一次以反映取消选择的状态
+        canvas.requestRenderAll();
+        // 记录这次删除操作到历史记录
+        saveHistory(canvas);
+      },
+
+      updateProperty(prop: string, value: any) {
+        if (!canvas) return;
+        const activeObj = canvas.getActiveObject();
+        if (activeObj) {
+          activeObj.set(prop as keyof fabric.Object, value);
+          if (prop === 'layerId') (activeObj as any).layerId = value;
+
+          activeObj.setCoords();
+          canvas.requestRenderAll();
+          saveHistory(canvas); // 确保属性修改被记录
+        }
+      },
+      
+      setDrawingMode(isDrawing, options) {
+        if (!canvas) return;
+        isEraserActive.current = false;
+        canvas.isDrawingMode = isDrawing;
+        if (isDrawing) {
+          canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+          canvas.freeDrawingBrush.color = options?.brushColor || '#000';
+          canvas.freeDrawingBrush.width = options?.brushWidth || 1;
+        }
+      },
+
+      setEraserMode(isErasing, brushWidth = 10) {
+        if (!canvas) return;
+        isEraserActive.current = isErasing;
+        canvas.isDrawingMode = isErasing;
+        if (isErasing) {
+          canvas.freeDrawingBrush = new fabric.EraserBrush(canvas);
+          canvas.freeDrawingBrush.width = brushWidth;
+        }
+      },
+
+      importSVG(svgString: string) {
+        if(!canvas) return;
+        fabric.loadSVGFromString(svgString, (objects, options) => {
+            const group = fabric.util.groupSVGElements(objects, options);
+            group.set({
+                left: canvas.getCenter().left,
+                top: canvas.getCenter().top,
+                originX: 'center',
+                originY: 'center',
+                layerId: activeLayerId
+            });
+            canvas.add(group);
+            canvas.requestRenderAll();
+        });
+      },
+
+      undo() {
+        if (history.current.length <= 1 || !canvas) return;
+        isUpdatingFromHistory.current = true;
+        
+        const loadCallback = () => {
+          canvas.renderAll();
+          isUpdatingFromHistory.current = false;
+          onObjectSelected(canvas.getActiveObject());
+        };
+
+        const lastState = history.current.pop()!;
+        redoStack.current.push(lastState);
+        const prevState = history.current[history.current.length - 1];
+        
+        canvas.loadFromJSON(prevState, loadCallback);
+        onHistoryUpdate({ canUndo: history.current.length > 1, canRedo: true });
+      },
+
+      redo() {
+        if (redoStack.current.length === 0 || !canvas) return;
+        isUpdatingFromHistory.current = true;
+
+        const loadCallback = () => {
+          canvas.renderAll();
+          isUpdatingFromHistory.current = false;
+          onObjectSelected(canvas.getActiveObject());
+        };
+
+        const nextState = redoStack.current.pop()!;
+        history.current.push(nextState);
+
+        canvas.loadFromJSON(nextState, loadCallback);
+        onHistoryUpdate({ canUndo: true, canRedo: redoStack.current.length > 0 });
+      },
+    }));
+
+    return (
+      <div className="w-full h-full border border-gray-300">
+        <canvas ref={canvasRef} />
+      </div>
+    );
+  }
+);
+
+export default FabricBoard;
