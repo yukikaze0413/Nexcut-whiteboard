@@ -80,23 +80,26 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
     startDistance: number;
     startViewBox: { x: number; y: number; width: number; height: number };
     isPinching: boolean;
+    centerPoint?: { x: number; y: number }; // 新增：记录缩放中心点
   }>(null);
+  
+  // 新增：缩放结束后的冷却期状态
+  const [pinchCooldown, setPinchCooldown] = useState<boolean>(false);
+  const cooldownTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const [viewBox, setViewBox] = useState({ x: 0, y: 0 });
-  const [canvasSize, setCanvasSize] = useState({ width: 1, height: 1 });
+  const [canvasSize, setCanvasSize] = useState({ width: canvasWidth, height: canvasHeight });
 
    useEffect(() => {
-    const resizeObserver = new ResizeObserver(entries => {
-        if (entries[0]) {
-            const { width, height } = entries[0].contentRect;
-            setCanvasSize({ width, height });
-        }
+    const resizeObserver = new ResizeObserver(() => {
+        // 保持画布尺寸不变，只更新容器尺寸用于缩放计算
+        setCanvasSize({ width: canvasWidth, height: canvasHeight });
     });
     if (svgContainerRef.current) {
         resizeObserver.observe(svgContainerRef.current);
     }
     return () => resizeObserver.disconnect();
-  }, []);
+  }, [canvasWidth, canvasHeight]);
 
   useEffect(() => {
     if (activeTool !== ToolType.ERASER) {
@@ -104,6 +107,15 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
       setEraserState(null);
     }
   }, [activeTool]);
+
+  // 清理冷却期超时
+  useEffect(() => {
+    return () => {
+      if (cooldownTimeoutRef.current) {
+        clearTimeout(cooldownTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // 计算两指距离
   function getTouchDistance(touches: TouchList) {
@@ -119,12 +131,26 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
 
     function handleTouchStart(e: TouchEvent) {
       if (e.touches.length === 2) {
+        // 清除任何现有的冷却期
+        if (cooldownTimeoutRef.current) {
+          clearTimeout(cooldownTimeoutRef.current);
+          cooldownTimeoutRef.current = null;
+        }
+        setPinchCooldown(false);
+        
         // 记录初始距离和viewBox
+        const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        
         setPinchState({
           startDistance: getTouchDistance(e.touches),
           startViewBox: { x: viewBox.x, y: viewBox.y, width: canvasSize.width, height: canvasSize.height },
           isPinching: true,
+          centerPoint: { x: centerX, y: centerY }, // 记录缩放中心点
         });
+      } else if (e.touches.length === 1) {
+        // 单指触摸时清除缩放状态，确保不会意外触发缩放
+        setPinchState(null);
       }
     }
 
@@ -132,28 +158,56 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
       if (pinchState && pinchState.isPinching && e.touches.length === 2) {
         e.preventDefault(); // 禁止页面滚动
         const newDistance = getTouchDistance(e.touches);
-        let scale = newDistance / pinchState.startDistance;
+        
+        // 添加缩放阻尼，降低灵敏度
+        const distanceRatio = newDistance / pinchState.startDistance;
+        const dampedScale = 1 + (distanceRatio - 1) * 0.2; // 进一步降低缩放灵敏度到20%
+        
+        // 添加防抖：只有当缩放变化足够大时才更新
+        const scaleChange = Math.abs(dampedScale - 1);
+        if (scaleChange < 0.05) return; // 忽略小于5%的缩放变化
+        
         // 限制缩放比例
-        scale = Math.max(0.2, Math.min(5, scale));
-        // 以中心为缩放中心，调整viewBox宽高
+        const scale = Math.max(0.2, Math.min(5, dampedScale));
+        
+        // 计算新的viewBox尺寸
         const newWidth = pinchState.startViewBox.width / scale;
         const newHeight = pinchState.startViewBox.height / scale;
-        // 保持中心点不变
-        const centerX = pinchState.startViewBox.x + pinchState.startViewBox.width / 2;
-        const centerY = pinchState.startViewBox.y + pinchState.startViewBox.height / 2;
-        setViewBox({
-          x: centerX - newWidth / 2,
-          y: centerY - newHeight / 2,
-        });
-        setCanvasSize({ width: newWidth, height: newHeight });
+        
+        // 计算缩放中心在SVG坐标系中的位置
+        if (svgRef.current && pinchState.centerPoint) {
+          const CTM = svgRef.current.getScreenCTM();
+          if (CTM) {
+            const pt = new DOMPoint(pinchState.centerPoint.x, pinchState.centerPoint.y);
+            const svgPoint = pt.matrixTransform(CTM.inverse());
+            
+            // 以触摸中心为缩放中心
+            const centerX = svgPoint.x;
+            const centerY = svgPoint.y;
+            
+            setViewBox({
+              x: centerX - newWidth / 2,
+              y: centerY - newHeight / 2,
+            });
+            setCanvasSize({ width: newWidth, height: newHeight });
+          }
+        }
       }
     }
 
-    function handleTouchEnd(e: TouchEvent) {
-      if (e.touches.length < 2) {
-        setPinchState(null);
+          function handleTouchEnd(e: TouchEvent) {
+        if (e.touches.length < 2 && pinchState?.isPinching) {
+          // 从双指缩放过渡到单指或无触摸时，启动冷却期
+          setPinchState(null);
+          setPinchCooldown(true);
+          
+          // 300ms后清除冷却期，允许正常的拖拽操作
+          cooldownTimeoutRef.current = setTimeout(() => {
+            setPinchCooldown(false);
+            cooldownTimeoutRef.current = null;
+          }, 300);
+        }
       }
-    }
 
     container.addEventListener('touchstart', handleTouchStart, { passive: false });
     container.addEventListener('touchmove', handleTouchMove, { passive: false });
@@ -166,7 +220,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
       container.removeEventListener('touchcancel', handleTouchEnd);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [svgContainerRef, viewBox, canvasSize, pinchState]);
+  }, [svgRef, viewBox, canvasSize, pinchState]);
 
   const getPointerPosition = (event: React.PointerEvent | React.MouseEvent): { x: number; y: number } => {
     if (!svgRef.current) return { x: 0, y: 0 };
@@ -179,6 +233,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
   
   const handlePointerDown = useCallback((event: React.PointerEvent) => {
     if (pinchState?.isPinching) return;
+    if (pinchCooldown) return; // 在缩放冷却期内阻止所有指针操作
     const pos = getPointerPosition(event);
     const target = event.target as SVGElement;
     const itemId = (event.target as SVGElement).closest('[data-item-id]')?.getAttribute('data-item-id');
@@ -234,10 +289,11 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
         setEraserPos(pos); // 记录橡皮擦位置
         break;
     }
-  }, [activeTool, onSelectItem, items, layers, onAddItem, viewBox, selectedItemId, pinchState]);
+  }, [activeTool, onSelectItem, items, layers, onAddItem, viewBox, selectedItemId, pinchState, pinchCooldown]);
 
   const handlePointerMove = useCallback((event: React.PointerEvent) => {
     if (pinchState?.isPinching) return;
+    if (pinchCooldown) return; // 在缩放冷却期内阻止移动操作
     if (event.buttons !== 1) {
       setDragState(null);
       setDrawingState(null);
@@ -255,7 +311,21 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
       const { initialItem } = dragState;
 
       if ('x' in initialItem && 'y' in initialItem) {
-         onUpdateItem(dragState.id, { x: initialItem.x + dx, y: initialItem.y + dy });
+         // 直接使用SVG坐标系统，不需要额外的转换
+         const newX = initialItem.x + dx;
+         const newY = initialItem.y + dy;
+         
+         // 添加调试信息
+         console.log('拖拽坐标:', {
+           startPos: dragState.startPos,
+           currentPos: pos,
+           delta: { dx, dy },
+           initialItem: { x: initialItem.x, y: initialItem.y },
+           newPosition: { x: newX, y: newY },
+           viewBox: viewBox
+         });
+         
+         onUpdateItem(dragState.id, { x: newX, y: newY });
       }
     } else if (drawingState) {
       setDrawingState(prev => (prev ? { ...prev, points: [...prev.points, pos] } : null));
@@ -309,14 +379,20 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
         setItems(newItems); // 直接更新items
       }
     } else if (panState) {
+        // 修复缩放后平移的问题：使用正确的缩放比例计算平移距离
         const dx = event.clientX - panState.startClient.x;
         const dy = event.clientY - panState.startClient.y;
+        
+        // 根据当前缩放比例调整平移距离
+        const scaleX = canvasSize.width / (svgContainerRef.current?.clientWidth || 1);
+        const scaleY = canvasSize.height / (svgContainerRef.current?.clientHeight || 1);
+        
         setViewBox({
-            x: panState.startViewBox.x - dx,
-            y: panState.startViewBox.y - dy
+            x: panState.startViewBox.x - dx * scaleX,
+            y: panState.startViewBox.y - dy * scaleY
         });
     }
-  }, [dragState, drawingState, panState, eraserState, items, onUpdateItem, setItems, eraserRadius, pinchState]);
+  }, [dragState, drawingState, panState, eraserState, items, onUpdateItem, setItems, eraserRadius, pinchState, pinchCooldown, canvasSize, viewBox]);
 
   const handlePointerUp = useCallback(() => {
     if (pinchState?.isPinching) return;
@@ -370,15 +446,15 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
             ref={svgRef} 
             width="100%" 
             height="100%"
-            viewBox={`${viewBox.x} ${viewBox.y} ${canvasSize.width} ${canvasSize.height}`}
+            viewBox={`${viewBox.x} ${viewBox.y} ${canvasWidth} ${canvasHeight}`}
             style={{ touchAction: 'none' }}
           >
             <defs>
-              <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse" x={viewBox.x} y={viewBox.y}>
+              <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
                 <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(209, 213, 219, 0.7)" strokeWidth="0.5"/>
               </pattern>
             </defs>
-            <rect x={viewBox.x} y={viewBox.y} width="100%" height="100%" fill="url(#grid)" />
+            <rect x="0" y="0" width="100%" height="100%" fill="url(#grid)" />
             
             <rect 
               x="0" 
@@ -398,6 +474,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
                         {items.filter(item => item.layerId === layer.id).map(item => (
                             <g 
                                 key={item.id} 
+                                // gxx: avoid two times <g>  the other <g> is in components/renders/imageRender.tsx
                                 transform={`translate(${'x' in item ? item.x : 0}, ${'y' in item ? item.y : 0})`}
                                 data-item-id={item.id}
                                 className={activeTool === ToolType.SELECT ? 'cursor-pointer' : ''}
