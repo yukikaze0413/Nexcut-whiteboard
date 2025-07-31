@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>裁剪功能测试</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+        .test-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-image {
+            width: 100%;
+            max-width: 400px;
+            height: 300px;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #feca57);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 16px;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .debug-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>裁剪功能测试</h1>
+        
+        <div class="debug-info">
+            <h3>调试信息</h3>
+            <div id="debug-info">正在加载...</div>
+        </div>
+
+        <div class="test-image" id="test-image">
+            测试图片
+        </div>
+
+        <div>
+            <button class="button" onclick="generateTestImage()">生成测试图片</button>
+            <button class="button" onclick="testCropNavigation()">测试裁剪导航</button>
+            <button class="button" onclick="clearDebug()">清除调试信息</button>
+        </div>
+
+        <div class="debug-info">
+            <h3>操作日志</h3>
+            <div id="log-container"></div>
+        </div>
+    </div>
+
+    <script>
+        let testImageData = null;
+
+        function log(message) {
+            const logContainer = document.getElementById('log-container');
+            const timestamp = new Date().toLocaleTimeString();
+            logContainer.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            console.log(message);
+        }
+
+        function updateDebugInfo() {
+            const debugInfo = document.getElementById('debug-info');
+            debugInfo.innerHTML = `
+                <strong>当前状态:</strong><br>
+                - 测试图片: ${testImageData ? '已生成' : '未生成'}<br>
+                - 图片长度: ${testImageData ? testImageData.length : 0}<br>
+                - 图片前缀: ${testImageData ? testImageData.slice(0, 50) + '...' : 'N/A'}<br>
+                - 当前URL: ${window.location.href}<br>
+                - 用户代理: ${navigator.userAgent}
+            `;
+        }
+
+        function generateTestImage() {
+            log('开始生成测试图片...');
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = 400;
+            canvas.height = 300;
+            const ctx = canvas.getContext('2d');
+            
+            if (ctx) {
+                // 创建渐变背景
+                const gradient = ctx.createLinearGradient(0, 0, 400, 300);
+                gradient.addColorStop(0, '#ff6b6b');
+                gradient.addColorStop(0.25, '#4ecdc4');
+                gradient.addColorStop(0.5, '#45b7d1');
+                gradient.addColorStop(0.75, '#96ceb4');
+                gradient.addColorStop(1, '#feca57');
+                
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, 400, 300);
+                
+                // 添加文字
+                ctx.fillStyle = 'white';
+                ctx.font = '24px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('测试图片', 200, 100);
+                ctx.fillText('用于验证裁剪功能', 200, 130);
+                ctx.fillText('点击裁剪按钮测试', 200, 160);
+                
+                // 添加一些图形
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.beginPath();
+                ctx.arc(100, 200, 30, 0, 2 * Math.PI);
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.arc(300, 200, 30, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+            
+            testImageData = canvas.toDataURL('image/png');
+            
+            // 更新显示
+            const testImage = document.getElementById('test-image');
+            testImage.style.background = `url(${testImageData})`;
+            testImage.style.backgroundSize = 'cover';
+            testImage.style.backgroundPosition = 'center';
+            testImage.innerHTML = '';
+            
+            updateDebugInfo();
+            log('测试图片生成完成');
+        }
+
+        function testCropNavigation() {
+            if (!testImageData) {
+                log('错误: 请先生成测试图片');
+                return;
+            }
+            
+            log('开始测试裁剪导航...');
+            log(`图片数据长度: ${testImageData.length}`);
+            
+            // 模拟React Router的导航
+            const cropState = {
+                image: testImageData,
+                original: testImageData
+            };
+            
+            log('导航状态: ' + JSON.stringify({
+                hasImage: !!cropState.image,
+                hasOriginal: !!cropState.original,
+                imageLength: cropState.image?.length || 0
+            }));
+            
+            // 在实际应用中，这里会导航到 /crop 路由
+            log('模拟导航到裁剪页面...');
+            
+            // 显示裁剪状态
+            const cropInfo = `
+                <h4>裁剪页面状态:</h4>
+                <ul>
+                    <li>图片数据: ${cropState.image ? '已传递' : '未传递'}</li>
+                    <li>原图数据: ${cropState.original ? '已传递' : '未传递'}</li>
+                    <li>数据长度: ${cropState.image?.length || 0}</li>
+                </ul>
+            `;
+            
+            const logContainer = document.getElementById('log-container');
+            logContainer.innerHTML += `<div class="debug-info">${cropInfo}</div>`;
+        }
+
+        function clearDebug() {
+            document.getElementById('log-container').innerHTML = '';
+            log('调试信息已清除');
+        }
+
+        // 初始化
+        updateDebugInfo();
+        log('测试页面已加载');
+    </script>
+</body>
+</html> 
