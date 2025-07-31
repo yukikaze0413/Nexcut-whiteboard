@@ -16,7 +16,11 @@ const ImageRenderer: React.FC<ImageRendererProps> = ({ imageObject, isSelected, 
   const transform = `translate(${x}, ${y}) rotate(${rotation})`;
 
   return (
+<<<<<<< Updated upstream
     <g transform={transform}>
+=======
+    <g >
+>>>>>>> Stashed changes
       {isSelected && (
         <rect
           x={-ENLARGE / 2}
