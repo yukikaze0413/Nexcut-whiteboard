@@ -103,6 +103,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
   const [step, setStep] = useState(1); // 新增步骤状态
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null); // 图层设置界面选中
+  const [processedImage, setProcessedImage] = useState<string | null>(null); // 跟踪已处理的图片
 
 
   // 初始化activeLayerId
@@ -265,14 +266,45 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
   // 处理从路由传递的图片数据
   useEffect(() => {
-    if (location.state?.image) {
+    if (location.state?.image && location.state.image !== processedImage) {
+      setProcessedImage(location.state.image);
       const img = new Image();
       img.onload = () => {
-        addImage(location.state.image, img.width, img.height);
+        // 根据画布大小动态设定图片最大尺寸（占画布的70%）
+        const MAX_IMAGE_WIDTH = canvasWidth * 0.4;
+        const MAX_IMAGE_HEIGHT = canvasHeight * 0.4;
+        
+        let newWidth = img.width;
+        let newHeight = img.height;
+        
+        // 计算缩放比例，保持原图宽高比
+        const scale = Math.min(MAX_IMAGE_WIDTH / img.width, MAX_IMAGE_HEIGHT / img.height, 1);
+        if (scale < 1) {
+          newWidth = img.width * scale;
+          newHeight = img.height * scale;
+        }
+        
+        // 如果图片太小，设定一个最小尺寸（至少占画布的20%）
+        const MIN_SIZE = Math.min(canvasWidth, canvasHeight) * 0.05;
+        if (Math.max(newWidth, newHeight) < MIN_SIZE) {
+          const minScale = MIN_SIZE / Math.max(newWidth, newHeight);
+          newWidth *= minScale;
+          newHeight *= minScale;
+        }
+        
+        addItem({
+          type: CanvasItemType.IMAGE,
+          x: canvasWidth / 2 - newWidth / 2, // 图片左上角，使图片中心在画布中心
+          y: canvasHeight / 2 - newHeight / 2,
+          href: location.state.image,
+          width: newWidth,
+          height: newHeight,
+          rotation: 0,
+        } as Omit<ImageObject, 'id' | 'layerId'>);
       };
       img.src = location.state.image;
     }
-  }, [location.state, addImage]);
+  }, [location.state?.image, canvasWidth, canvasHeight, addItem, processedImage]);
 
   const updateItem = useCallback((itemId: string, updates: Partial<CanvasItem>) => {
     // 如果尝试修改图层，需要验证图层类型是否匹配
