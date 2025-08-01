@@ -49,7 +49,7 @@ const renderPartSVG = (item: CanvasItem, parentTransform: string = ''): React.Re
     const segs = [item.parameters.seg1, item.parameters.seg2, item.parameters.seg3].filter(Boolean);
     let points = [[0,0]];
     let x = 0;
-    segs.forEach((len, i) => {
+    segs.forEach((len) => {
       x += len;
       points.push([x, 0]);
     });
@@ -98,18 +98,7 @@ const renderPartSVG = (item: CanvasItem, parentTransform: string = ''): React.Re
   return null;
 };
 
-const renderVectorElementPreview = (item: CanvasItem) => {
-  const size = 60;
-  if (item.type === CanvasItemType.IMAGE) return null;
-  return (
-    <div key={item.id} className="flex flex-col items-center mx-2 my-2">
-      <svg width={size} height={size} viewBox={`-30 -30 60 60`} className="border rounded bg-white">
-        {renderPartSVG(item)}
-      </svg>
-      <div className="text-xs text-gray-500 mt-1">x: {item.x}, y: {item.y}</div>
-    </div>
-  );
-};
+
 
 const renderLayerPreview = (layer: Layer, items: CanvasItem[], canvasWidth: number, canvasHeight: number) => {
   const layerItems = items.filter(item => item.layerId === layer.id);
@@ -226,26 +215,25 @@ const renderLayerPreview = (layer: Layer, items: CanvasItem[], canvasWidth: numb
 const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selectedLayerId, onSelectLayer, onUpdateLayer, items, canvasWidth, canvasHeight }) => {
   const selectedLayer = layers.find(l => l.id === selectedLayerId) || layers[0];
 
-  // 预览占位
-  const renderPreview = () => (
-    <div className="w-40 h-24 bg-gray-100 flex items-center justify-center rounded mb-4 border border-gray-200">
-      <span className="text-gray-400 text-sm">图层预览</span>
-    </div>
-  );
 
-  const handleInputChange = (key: 'lineDensity' | 'power', value: number) => {
+
+  const handleInputChange = (key: 'lineDensity' | 'power' | 'reverseMovementOffset', value: number) => {
     if (!selectedLayer) return;
-    onUpdateLayer(selectedLayer.id, { [key]: value });
+    const updates: Partial<Layer> = {};
+    updates[key] = value;
+    onUpdateLayer(selectedLayer.id, updates);
   };
   const handleCheckboxChange = (key: 'halftone', value: boolean) => {
     if (!selectedLayer) return;
-    onUpdateLayer(selectedLayer.id, { [key]: value });
+    const updates: Partial<Layer> = {};
+    updates[key] = value;
+    onUpdateLayer(selectedLayer.id, updates);
   };
 
   return (
     <div className="flex h-full">
       {/* 左侧边栏 */}
-      <div className="w-56 border-r bg-gray-50 p-2 overflow-y-auto">
+      <div className="w-48 border-r bg-gray-50 p-2 overflow-y-auto">
         <h3 className="text-base font-semibold mb-2">图层列表</h3>
         <ul>
           {layers.map(layer => (
@@ -271,15 +259,29 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
             {selectedLayer.printingMethod === PrintingMethod.SCAN ? (
               <>
                 <div className="mb-4">
-                  <label className="block text-sm font-medium mb-1">线密度</label>
+                  <label className="block text-sm font-medium mb-1">线密度 (线/毫米)</label>
                   <input
                     type="number"
                     min={1}
+                    max={100}
+                    step={1}
                     value={selectedLayer.lineDensity ?? 10}
                     onChange={e => handleInputChange('lineDensity', Number(e.target.value))}
-                    className="w-32 p-2 border rounded"
+                    className="w-full p-2 border rounded"
                   />
-                  <span className="ml-2 text-xs text-gray-500">（单位：线/毫米）</span>
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-1">空移距离 (mm)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={50}
+                    step={0.1}
+                    value={selectedLayer.reverseMovementOffset ?? 3}
+                    onChange={e => handleInputChange('reverseMovementOffset', Number(e.target.value))}
+                    className="w-full p-2 border rounded"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">每行扫描时在两端额外移动的距离</p>
                 </div>
                 <div className="mb-4 flex items-center">
                   <input
@@ -287,9 +289,9 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
                     checked={!!selectedLayer.halftone}
                     onChange={e => handleCheckboxChange('halftone', e.target.checked)}
                     id="halftone-checkbox"
-                    className="mr-2"
+                    className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-gray-300 rounded"
                   />
-                  <label htmlFor="halftone-checkbox" className="text-sm">使用半调网屏</label>
+                  <label htmlFor="halftone-checkbox" className="ml-2 block text-sm text-gray-900">半调网屏</label>
                 </div>
               </>
             ) : (

@@ -316,7 +316,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
               <label className="block text-xs text-gray-500 mb-1">{t('x')}</label>
               <EditableParameterInput 
                 label="" 
-                initialValue={selectedItem.type === CanvasItemType.IMAGE ? ((selectedItem.x || 0) * 2).toFixed(2) : (selectedItem.x || 0).toFixed(2)} 
+                initialValue={(selectedItem.x || 0).toFixed(2)} 
                 onCommit={(val) => {
                   console.log('X坐标更新:', {
                     itemId: selectedItem.id,
@@ -324,7 +324,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
                     newValue: val,
                     itemType: selectedItem.type
                   });
-                  handleUpdate('x', selectedItem.type === CanvasItemType.IMAGE ? (val as number) / 2 : (val as number));
+                  handleUpdate('x', val as number);
                 }} 
               />
             </div>
@@ -332,7 +332,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
               <label className="block text-xs text-gray-500 mb-1">{t('y')}</label>
               <EditableParameterInput 
                 label="" 
-                initialValue={selectedItem.type === CanvasItemType.IMAGE ? ((selectedItem.y || 0) * 2).toFixed(2) : (selectedItem.y || 0).toFixed(2)} 
+                initialValue={(selectedItem.y || 0).toFixed(2)} 
                 onCommit={(val) => {
                   console.log('Y坐标更新:', {
                     itemId: selectedItem.id,
@@ -340,7 +340,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
                     newValue: val,
                     itemType: selectedItem.type
                   });
-                  handleUpdate('y', selectedItem.type === CanvasItemType.IMAGE ? (val as number) / 2 : (val as number));
+                  handleUpdate('y', val as number);
                 }} 
               />
             </div>

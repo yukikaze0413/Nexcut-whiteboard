@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useCallback, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import type { CanvasItem, CanvasItemData, PartType, Layer, Part, ImageObject } from './types';
 import { CanvasItemType, ToolType, PrintingMethod } from './types';
 import { PART_LIBRARY, BASIC_SHAPES } from './constants';
@@ -8,6 +8,8 @@ import Canvas from './components/Canvas';
 import ParameterEditor from './components/ParameterEditor';
 import CategoryPicker from './components/CategoryPicker';
 import LayerPanel from './components/LayerPanel';
+import { generatePlatformScanGCode, GCodeScanSettings } from './lib/gcode';
+import LayerSettingsPanel from './components/LayerSettingsPanel';
 // @ts-ignore
 import { Helper, parseString as parseDxf } from 'dxf';
 import { parse as parseSvgson } from 'svgson';
@@ -20,7 +22,7 @@ import ImageIcon from './assets/图片.svg';
 import ImportIcon from './assets/导入.svg';
 import PartLibraryIcon from './assets/零件库.svg';
 import PropertyIcon from './assets/属性.svg';
-import HomeIcon from './assets/回零.svg';
+
 
 // 浏览器端简易 HPGL 解析器，仅支持 PU/PD/PA 指令
 function simpleParseHPGL(content: string) {
@@ -71,23 +73,26 @@ function getGroupBoundingBox(items: CanvasItemData[]): { minX: number, minY: num
 const MAX_HISTORY = 50;
 const ALL_PARTS = [...BASIC_SHAPES, ...PART_LIBRARY];
 
-// 1. 定义AppProps接口，支持canvasWidth和canvasHeight
-interface AppProps {
+// 1. 定义WhiteboardPageProps接口，支持canvasWidth和canvasHeight
+interface WhiteboardPageProps {
   canvasWidth?: number;
   canvasHeight?: number;
 }
 
 // 2. WhiteboardPage组件支持props传入宽高，默认500
-const WhiteboardPage: React.FC<AppProps> = () => {
-  const navigate = useNavigate();
+const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   const location = useLocation();
-  const firstLayerId = `layer_${Date.now()}`;
-  const [layers, setLayers] = useState<Layer[]>([{ id: firstLayerId, name: '图层 1', isVisible: true, printingMethod: PrintingMethod.SCAN }]);
+  
+
+  const [layers, setLayers] = useState<Layer[]>([
+    { id: `scan_layer_${Date.now()}`, name: '扫描图层', isVisible: true, printingMethod: PrintingMethod.SCAN },
+    { id: `engrave_layer_${Date.now()}`, name: '雕刻图层', isVisible: true, printingMethod: PrintingMethod.ENGRAVE }
+  ]);
   const [items, setItems] = useState<CanvasItem[]>([]);
   const [history, setHistory] = useState<[Layer[], CanvasItem[]][]>([]);
 
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [activeLayerId, setActiveLayerId] = useState<string | null>(firstLayerId);
+  const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<ToolType>(ToolType.SELECT);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
   const [drawer, setDrawer] = useState<'property' | 'layer' | 'toolbar' | null>(null);
@@ -96,29 +101,120 @@ const WhiteboardPage: React.FC<AppProps> = () => {
   const [canvasWidth, setCanvasWidth] = useState(400);
   const [canvasHeight, setCanvasHeight] = useState(400);
 
+  const [step, setStep] = useState(1); // 新增步骤状态
+  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null); // 图层设置界面选中
+  const [processedImage, setProcessedImage] = useState<string | null>(null); // 跟踪已处理的图片
+
+
+  // 初始化activeLayerId
+  useEffect(() => {
+    if (!activeLayerId && layers.length > 0) {
+      setActiveLayerId(layers[0].id);
+    }
+  }, [layers, activeLayerId]);
+
+  // 根据对象类型确定图层类型
+  const getPrintingMethodByItemType = useCallback((itemType: CanvasItemType | 'GROUP') => {
+    // 矢量图类型（包括形状、零件、涂鸦、文本）
+    const vectorTypes = [
+      CanvasItemType.RECTANGLE,
+      CanvasItemType.CIRCLE,
+      CanvasItemType.LINE,
+      CanvasItemType.POLYLINE,
+      CanvasItemType.ARC,
+      CanvasItemType.SECTOR,
+      CanvasItemType.EQUILATERAL_TRIANGLE,
+      CanvasItemType.ISOSCELES_RIGHT_TRIANGLE,
+      CanvasItemType.L_BRACKET,
+      CanvasItemType.U_CHANNEL,
+      CanvasItemType.FLANGE,
+      CanvasItemType.TORUS,
+      CanvasItemType.CIRCLE_WITH_HOLES,
+      CanvasItemType.RECTANGLE_WITH_HOLES,
+      CanvasItemType.DRAWING,
+      CanvasItemType.TEXT,
+    ];
+    
+    // 位图类型
+    const bitmapTypes = [
+      CanvasItemType.IMAGE,
+    ];
+    
+    // GROUP类型默认为矢量（雕刻）
+    if (itemType === 'GROUP') {
+      return PrintingMethod.ENGRAVE;
+    }
+    
+    if (vectorTypes.includes(itemType as CanvasItemType)) {
+      return PrintingMethod.ENGRAVE; // 矢量默认使用雕刻图层
+    } else if (bitmapTypes.includes(itemType as CanvasItemType)) {
+      return PrintingMethod.SCAN; // 位图只能使用扫描图层
+    }
+    
+    // 默认返回雕刻（矢量）
+    return PrintingMethod.ENGRAVE;
+  }, []);
+
+  // 获取指定类型的图层ID，如果没有对应类型的图层，则创建
+  const getLayerIdByType = useCallback((printingMethod: PrintingMethod) => {
+    let layer = layers.find(l => l.printingMethod === printingMethod);
+    
+    // 如果没有对应类型的图层，创建一个新的
+    if (!layer) {
+      const newLayer: Layer = {
+        id: `layer_${Date.now()}`,
+        name: printingMethod === PrintingMethod.SCAN ? '扫描图层' : '雕刻图层',
+        isVisible: true,
+        printingMethod: printingMethod
+      };
+      setLayers(prev => [newLayer, ...prev]);
+      layer = newLayer;
+    }
+    
+    return layer.id;
+  }, [layers]);
+
   const pushHistory = useCallback((currentLayers: Layer[], currentItems: CanvasItem[]) => {
     setHistory(prev => [...prev.slice(prev.length - MAX_HISTORY + 1), [currentLayers, currentItems]]);
   }, []);
 
   const addItem = useCallback((itemData: CanvasItemData) => {
     pushHistory(layers, items);
-    const newItem = { ...itemData, id: `item_${Date.now()}_${Math.random()}`, layerId: activeLayerId } as CanvasItem;
+    
+    // 根据对象类型自动确定图层
+    const printingMethod = getPrintingMethodByItemType(itemData.type);
+    const targetLayerId = getLayerIdByType(printingMethod);
+    
+    const newItem = { 
+      ...itemData, 
+      id: `item_${Date.now()}_${Math.random()}`, 
+      layerId: targetLayerId 
+    } as CanvasItem;
+    
     setItems(prev => [...prev, newItem]);
     setSelectedItemId(newItem.id);
     setActiveTool(ToolType.SELECT);
-  }, [items, layers, activeLayerId, pushHistory]);
+  }, [items, layers, pushHistory, getPrintingMethodByItemType, getLayerIdByType]);
 
   const addItems = useCallback((itemsData: CanvasItemData[]) => {
     pushHistory(layers, items);
-    const newItems = itemsData.map(itemData => ({
-      ...itemData,
-      id: `item_${Date.now()}_${Math.random()}`,
-      layerId: activeLayerId,
-    } as CanvasItem));
+    
+    const newItems = itemsData.map(itemData => {
+      // 根据对象类型自动确定图层
+      const printingMethod = getPrintingMethodByItemType(itemData.type);
+      const targetLayerId = getLayerIdByType(printingMethod);
+      
+      return {
+        ...itemData,
+        id: `item_${Date.now()}_${Math.random()}`,
+        layerId: targetLayerId,
+      } as CanvasItem;
+    });
+    
     setItems(prev => [...prev, ...newItems]);
     setSelectedItemId(newItems[newItems.length - 1]?.id || null);
     setActiveTool(ToolType.SELECT);
-  }, [items, layers, activeLayerId, pushHistory]);
+  }, [items, layers, pushHistory, getPrintingMethodByItemType, getLayerIdByType]);
 
   const addPart = useCallback((partType: PartType) => {
     const partDefinition = ALL_PARTS.find(p => p.type === partType);
@@ -126,8 +222,8 @@ const WhiteboardPage: React.FC<AppProps> = () => {
 
     addItem({
       type: partType,
-      x: 200,
-      y: 150,
+      x: 0,
+      y: 0,
       parameters: { ...partDefinition.defaultParameters },
       rotation: 0,
     } as Omit<Part, 'id' | 'layerId'>);
@@ -135,34 +231,104 @@ const WhiteboardPage: React.FC<AppProps> = () => {
   }, [addItem]);
 
   const addImage = useCallback((href: string, width: number, height: number) => {
-    const MAX_IMAGE_WIDTH = 400;
-    const MAX_IMAGE_HEIGHT = 400;
+    // 根据画布大小动态设定图片最大尺寸（占画布的70%）
+    const MAX_IMAGE_WIDTH = canvasWidth * 0.4;
+    const MAX_IMAGE_HEIGHT = canvasHeight * 0.4;
+    
     let newWidth = width;
     let newHeight = height;
+    
+    // 计算缩放比例，保持原图宽高比
     const scale = Math.min(MAX_IMAGE_WIDTH / width, MAX_IMAGE_HEIGHT / height, 1);
     if (scale < 1) {
       newWidth = width * scale;
       newHeight = height * scale;
     }
-    const newId = `item_${Date.now()}_${Math.random()}`;
+    
+    // 如果图片太小，设定一个最小尺寸（至少占画布的20%）
+    const MIN_SIZE = Math.min(canvasWidth, canvasHeight) * 0.05;
+    if (Math.max(newWidth, newHeight) < MIN_SIZE) {
+      const minScale = MIN_SIZE / Math.max(newWidth, newHeight);
+      newWidth *= minScale;
+      newHeight *= minScale;
+    }
+    
     addItem({
       type: CanvasItemType.IMAGE,
-      x: 0, // 插入到标尺原点
-      y: 0, // 插入到标尺原点
+      x: canvasWidth / 2 - newWidth / 2, // 图片左上角，使图片中心在画布中心
+      y: canvasHeight / 2 - newHeight / 2,
       href,
       width: newWidth,
       height: newHeight,
       rotation: 0,
-      id: newId, // 仅用于日志，addItem 内部会重新生成 id
-    } as any);
-    console.log('[白板] 添加图片，id:', newId);
-  }, [addItem]);
+    } as Omit<ImageObject, 'id' | 'layerId'>);
+  }, [addItem, canvasWidth, canvasHeight]);
+
+  // 处理从路由传递的图片数据
+  useEffect(() => {
+    if (location.state?.image && location.state.image !== processedImage) {
+      setProcessedImage(location.state.image);
+      const img = new Image();
+      img.onload = () => {
+        // 根据画布大小动态设定图片最大尺寸（占画布的70%）
+        const MAX_IMAGE_WIDTH = canvasWidth * 0.4;
+        const MAX_IMAGE_HEIGHT = canvasHeight * 0.4;
+        
+        let newWidth = img.width;
+        let newHeight = img.height;
+        
+        // 计算缩放比例，保持原图宽高比
+        const scale = Math.min(MAX_IMAGE_WIDTH / img.width, MAX_IMAGE_HEIGHT / img.height, 1);
+        if (scale < 1) {
+          newWidth = img.width * scale;
+          newHeight = img.height * scale;
+        }
+        
+        // 如果图片太小，设定一个最小尺寸（至少占画布的20%）
+        const MIN_SIZE = Math.min(canvasWidth, canvasHeight) * 0.05;
+        if (Math.max(newWidth, newHeight) < MIN_SIZE) {
+          const minScale = MIN_SIZE / Math.max(newWidth, newHeight);
+          newWidth *= minScale;
+          newHeight *= minScale;
+        }
+        
+        addItem({
+          type: CanvasItemType.IMAGE,
+          x: canvasWidth / 2 - newWidth / 2, // 图片左上角，使图片中心在画布中心
+          y: canvasHeight / 2 - newHeight / 2,
+          href: location.state.image,
+          width: newWidth,
+          height: newHeight,
+          rotation: 0,
+        } as Omit<ImageObject, 'id' | 'layerId'>);
+      };
+      img.src = location.state.image;
+    }
+  }, [location.state?.image, canvasWidth, canvasHeight, addItem, processedImage]);
 
   const updateItem = useCallback((itemId: string, updates: Partial<CanvasItem>) => {
+    // 如果尝试修改图层，需要验证图层类型是否匹配
+    if ('layerId' in updates && updates.layerId) {
+      const item = items.find(i => i.id === itemId);
+      if (item) {
+        const targetLayer = layers.find(l => l.id === updates.layerId);
+        
+        if (targetLayer) {
+          // 位图对象只能使用扫描图层
+          if (item.type === CanvasItemType.IMAGE && targetLayer.printingMethod === PrintingMethod.ENGRAVE) {
+            console.warn('位图对象只能使用扫描图层');
+            return; // 阻止位图移动到雕刻图层
+          }
+          
+          // 矢量对象可以使用雕刻或扫描图层（允许灵活分配）
+        }
+      }
+    }
+    
     setItems(prevItems =>
       prevItems.map(p => (p.id === itemId ? { ...p, ...updates } as CanvasItem : p))
     );
-  }, []);
+  }, [items, layers]);
 
   const commitUpdate = useCallback(() => {
     pushHistory(layers, items);
@@ -189,12 +355,81 @@ const WhiteboardPage: React.FC<AppProps> = () => {
     setSelectedItemId(null);
   }, [history, activeLayerId]);
 
-  // Layer Management
+  // Layer Management - 修改图层管理逻辑
   const addLayer = useCallback(() => {
-    pushHistory(layers, items);
-    const newLayer: Layer = { id: `layer_${Date.now()}`, name: `图层 ${layers.length + 1}`, isVisible: true, printingMethod: PrintingMethod.SCAN };
-    setLayers(prev => [newLayer, ...prev]);
-    setActiveLayerId(newLayer.id);
+    // 创建选择图层属性的对话框
+    const dialog = document.createElement('div');
+    dialog.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+    `;
+    
+    const content = document.createElement('div');
+    content.style.cssText = `
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      min-width: 300px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    `;
+    
+    content.innerHTML = `
+      <h3 style="margin: 0 0 15px 0; font-size: 16px; font-weight: bold;">选择图层属性</h3>
+      <div style="margin-bottom: 15px;">
+        <label style="display: block; margin-bottom: 5px; font-size: 14px;">图层类型：</label>
+        <select id="layerType" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;">
+          <option value="scan">扫描图层</option>
+          <option value="engrave">雕刻图层</option>
+        </select>
+      </div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+        <button id="cancelBtn" style="padding: 8px 16px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer;">取消</button>
+        <button id="confirmBtn" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">确定</button>
+      </div>
+    `;
+    
+    dialog.appendChild(content);
+    document.body.appendChild(dialog);
+    
+    const select = content.querySelector('#layerType') as HTMLSelectElement;
+    const cancelBtn = content.querySelector('#cancelBtn') as HTMLButtonElement;
+    const confirmBtn = content.querySelector('#confirmBtn') as HTMLButtonElement;
+    
+    const cleanup = () => {
+      document.body.removeChild(dialog);
+    };
+    
+    cancelBtn.onclick = cleanup;
+    confirmBtn.onclick = () => {
+      const selectedMethod = select.value as PrintingMethod;
+      const layerName = selectedMethod === PrintingMethod.SCAN 
+        ? `扫描图层 ${layers.filter(l => l.printingMethod === PrintingMethod.SCAN).length + 1}`
+        : `雕刻图层 ${layers.filter(l => l.printingMethod === PrintingMethod.ENGRAVE).length + 1}`;
+      
+      const newLayer: Layer = { 
+        id: `layer_${Date.now()}`, 
+        name: layerName, 
+        isVisible: true, 
+        printingMethod: selectedMethod
+      };
+      pushHistory(layers, items);
+      setLayers(prev => [newLayer, ...prev]);
+      setActiveLayerId(newLayer.id);
+      cleanup();
+    };
+    
+    // 点击背景关闭
+    dialog.onclick = (e) => {
+      if (e.target === dialog) cleanup();
+    };
   }, [layers, items, pushHistory]);
 
   const deleteLayer = useCallback((layerId: string) => {
@@ -208,8 +443,12 @@ const WhiteboardPage: React.FC<AppProps> = () => {
   }, [layers, items, activeLayerId, pushHistory]);
 
   const updateLayer = useCallback((layerId: string, updates: Partial<Omit<Layer, 'id'>>) => {
+    // 禁止修改图层属性（打印方式），只允许修改名称和可见性
+    const allowedUpdates = { ...updates };
+    delete allowedUpdates.printingMethod; // 禁止修改打印方式
+    
     pushHistory(layers, items);
-    setLayers(prev => prev.map(l => (l.id === layerId ? { ...l, ...updates } : l)));
+    setLayers(prev => prev.map(l => (l.id === layerId ? { ...l, ...allowedUpdates } : l)));
   }, [layers, items, pushHistory]);
 
   const moveLayer = useCallback((layerId: string, direction: 'up' | 'down') => {
@@ -814,134 +1053,27 @@ const WhiteboardPage: React.FC<AppProps> = () => {
 
   // 分图层导出预览和传递到安卓
   const handleNext = async () => {
-    // 记录当前选中项
-    const prevSelected = selectedItemId;
-    setSelectedItemId(null);
-    await new Promise(r => setTimeout(r, 0)); // 等待UI刷新
-
-    // 固定导出分辨率
-    const exportWidth = 2500;
-    const exportHeight = 2500;
-    // 1. 获取每个图层的items
-    const layerData = await Promise.all(layers.map(async layer => {
-      // 只导出可见图层
-      if (!layer.isVisible) return null;
-      // 只导出当前图层的items
-      const layerItems = items.filter(item => item.layerId === layer.id);
-      // 构造SVG字符串，viewBox仍然用canvasWidth/canvasHeight，width/height用2500
-      const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${exportWidth}' height='${exportHeight}' viewBox='0 0 ${canvasWidth} ${canvasHeight}'>` +
-        `<g>${document.querySelectorAll(`[data-layer-id='${layer.id}']`)[0]?.innerHTML || ''}</g></svg>`;
-      // SVG转图片
-      const imgUrl = await new Promise(resolve => {
-        const img = new window.Image();
-        const svgBlob = new Blob([svg], { type: 'image/svg+xml' });
-        const url = URL.createObjectURL(svgBlob);
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = exportWidth;
-          canvas.height = exportHeight;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(img, 0, 0, exportWidth, exportHeight);
-          }
-          URL.revokeObjectURL(url);
-          resolve(canvas.toDataURL('image/png', 1));
-        };
-        img.src = url;
-      });
-      return {
-        id: layer.id,
-        name: layer.name,
-        printingMethod: layer.printingMethod,
-        bitmap: imgUrl,
-        width: exportWidth,
-        height: exportHeight
-      };
-    }));
-    // 过滤掉不可见图层
-    const filtered = layerData.filter(Boolean);
-
-    // 新增：将每个图层图片保存为临时文件，并传递文件路径和雕刻方式
-    if (typeof window !== 'undefined' && window.Android && typeof window.Android.saveTempFile === 'function' && typeof window.Android.onNextStep === 'function') {
-      const layerDataWithFiles = await Promise.all(filtered.map(async (layer, idx) => {
-        if (!layer) return null;
-        // bitmap: data:image/png;base64,xxxx
-        let filePath = '';
-        if (window.Android && typeof window.Android.saveTempFile === 'function') {
-          filePath = window.Android.saveTempFile(layer.bitmap as string, `layer_${idx}.png`);
-        }
-        return {
-          filePath,
-          printingMethod: layer.printingMethod,
-          name: layer.name,
-          id: layer.id,
-          width: layer.width,
-          height: layer.height
-        };
-      }));
-      // 过滤掉 null
-      const validLayers = layerDataWithFiles.filter(Boolean);
-      // 只传递二维数组 [[filePath, printingMethod], ...]
-      const arr2d = validLayers
-        .filter(layer => !!layer)
-        .map(layer => [(layer as any).filePath, (layer as any).printingMethod]);
-      if (window.Android && typeof window.Android.onNextStep === 'function') {
-        window.Android.onNextStep(JSON.stringify(arr2d));
-      }
-      // 恢复选中项
-      setSelectedItemId(prevSelected);
-      return;
-    }
-
-    // 兼容：如果没有Android接口，仍然弹窗预览
-    // 弹窗预览
-    const win = window.open('', '_blank');
-    if (win) {
-      win.document.write('<html><head><title>分图层导出预览</title></head><body style="font-family:sans-serif">');
-      win.document.write('<h2>分图层导出预览</h2>');
-      win.document.write(`<p style="color:#666;margin-bottom:20px;">导出分辨率: 2500×2500 像素</p>`);
-      filtered.forEach(layer => {
-        if (!layer) return;
-        win.document.write(`<div style="margin-bottom:32px"><h3>${layer.name}（打印方式：${layer.printingMethod}）</h3><img src="${layer.bitmap}" style="max-width:400px;border:1px solid #ccc;"/></div>`);
-      });
-      win.document.write('</body></html>');
-      win.document.close();
-    } else {
-      alert('无法打开新窗口，请检查浏览器设置');
-    }
-    // 恢复选中项
-    setSelectedItemId(prevSelected);
+    setStep(2);
+    setSelectedLayerId(layers[0]?.id || null);
+    setDrawer(null); // 新增：关闭移动端工具栏
   };
 
   const selectedItem = items.find(p => p.id === selectedItemId) || null;
 
-  const hasInsertedImage = useRef(false);
-
   useEffect(() => {
-    if (location.state && (location.state as any).image) {
-      const base64 = (location.state as any).image;
-      console.log('[白板] 检测到 location.state.image，base64 长度:', base64.length);
-      const img = new window.Image();
+    // 提供给外部调用的图片注入接口
+    (window as any).setWhiteboardImage = (base64ata: string) => {
+      const img = new Image();
       img.onload = () => {
-        console.log('[白板] 图片加载完成，宽度:', img.width, '高度:', img.height);
-        addImage(base64, img.width, img.height);
-        window.history.replaceState({}, document.title); // 清空 state
+        addImage(base64ata, img.width, img.height);
       };
-      img.onerror = (e) => {
-        console.error('[白板] 图片加载失败', e);
-      };
-      img.src = base64;
-    }
-
-    if (window.webkit && window.webkit.messageHandlers.jsBridge) {
-      window.webkit?.messageHandlers.jsBridge.postMessage({
-        action: "removeEdgePan",
-        });
-    }
-    // eslint-disable-next-line
-  }, []);
+      img.src = base64ata;
+    };
+    // 可选：卸载时清理
+    return () => {
+      delete (window as any).setWhiteboardImage;
+    };
+  }, [addImage]);
 
   const imageInputRef = React.useRef<HTMLInputElement>(null);
   const importInputRef = React.useRef<HTMLInputElement>(null);
@@ -1058,11 +1190,15 @@ const WhiteboardPage: React.FC<AppProps> = () => {
   //     }
   //   };
   //   reader.readAsText(file);
-  //   event.currentTarget.value
-  //  = '';
+  //   event.currentTarget.value = '';
   // };
 
   useEffect(() => {
+    (window as any).setCanvasSize = (w: number, h: number) => {
+      setCanvasWidth(w);
+      setCanvasHeight(h);
+    };
+
     // --- 【新增】添加图片的桥 ---
     // 我们将 addImage 函数也挂载到 window 对象上
     (window as any).addImageToCanvas = (href: string, width: number, height: number) => {
@@ -1091,109 +1227,203 @@ const WhiteboardPage: React.FC<AppProps> = () => {
       }
     }
     return () => {
+      delete (window as any).setCanvasSize;
       delete (window as any).addImageToCanvas;
     };
   }, [addImage]);
   
   return (
     <div className="h-screen w-screen flex flex-row font-sans text-gray-800 bg-gray-100 overflow-hidden" style={{ width: '100vw', height: '100vh', minHeight: '100vh', minWidth: '100vw' }}>
-      {/* 页面顶部：返回、撤销、下一步按钮 */}
-      <div className="w-full flex flex-row items-center justify-between px-4 py-2 bg-white border-b border-gray-200 fixed top-0 left-0 z-40 md:static md:justify-end md:py-0 md:px-0">
-        <div className="flex flex-row gap-2">
-          <button
-            className="px-4 py-2 rounded bg-gray-200 text-gray-800 text-sm font-medium shadow-sm hover:bg-gray-300"
-            onClick={() => navigate('/')}
-          >返回首页</button>
-          <button
-            className="px-4 py-2 rounded bg-gray-200 text-gray-800 text-sm font-medium shadow-sm hover:bg-gray-300"
-            onClick={undo}
-            disabled={history.length === 0}
-          >撤销</button>
+      {/* 页面顶部：下一步、撤销按钮 */}
+      {step === 1 && (
+        <div className="w-full flex flex-row items-center justify-between px-4 py-2 bg-white border-b border-gray-200 fixed top-0 left-0 z-40 md:static md:justify-end md:py-0 md:px-0">
+          <div className="flex flex-row gap-2">
+            <button
+              className="px-4 py-2 rounded bg-gray-200 text-gray-800 text-sm font-medium shadow-sm hover:bg-gray-300"
+              onClick={undo}
+              disabled={history.length === 0}
+            >撤销</button>
+          </div>
+          {/* 新增：画布大小显示在中间 */}
+          <div className="flex-1 flex justify-center">
+            <span style={{ color: '#888', fontSize: 13 }}>
+              画布大小：{canvasWidth} × {canvasHeight}
+            </span>
+          </div>
+          <div className="flex flex-row gap-2">
+            <button
+              className="px-4 py-2 rounded bg-blue-500 text-white text-sm font-medium shadow-sm hover:bg-blue-600"
+              onClick={handleNext}
+            >下一步</button>
+          </div>
         </div>
-        {/* 新增：画布大小显示在中间 */}
-        <div className="flex-1 flex justify-center">
-          <span style={{ color: '#888', fontSize: 13 }}>
-            画布大小：{canvasWidth} × {canvasHeight}
-          </span>
-        </div>
-        <div className="flex flex-row gap-2">
-          <button
-            className="px-4 py-2 rounded bg-blue-500 text-white text-sm font-medium shadow-sm hover:bg-blue-600"
-            onClick={handleNext}
-          >下一步</button>
-        </div>
-      </div>
+      )}
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-h-0 min-w-0 pt-14 md:pt-0">
-        {/* PC端工具栏 */}
-        <div className="hidden md:block h-16 bg-white border-b border-gray-200">
-          <Toolbar
-            onOpenCategoryPicker={setOpenCategory}
-            onAddImage={
-
-              () => {
-                imageInputRef.current?.click();
-              }
-
-            }
-            activeTool={activeTool}
-            onSetTool={setActiveTool}
-            onUndo={undo}
-            canUndo={history.length > 0}
-            onImportFile={handleImportFile}
-            onNext={handleNext}
-          />
-        </div>
-        <main className="flex-1 flex flex-col min-h-0 min-w-0 bg-white relative">
-          <Canvas
-            items={items}
-            layers={layers}
-            selectedItemId={selectedItemId}
-            onSelectItem={setSelectedItemId}
-            onUpdateItem={updateItem}
-            onAddItem={addItem}
-            onCommitUpdate={commitUpdate}
-            activeTool={activeTool}
-            canvasWidth={canvasWidth}
-            canvasHeight={canvasHeight}
-            setItems={setItems}
-            eraserRadius={eraserRadius}
-          />
-        </main>
-        {/* 底部工具栏抽屉触发按钮，仅移动端显示 */}
-        <button
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 px-6 py-2 rounded-full bg-gray-800 text-white text-base shadow-lg md:hidden"
-          style={{ paddingBottom: 'env(safe-area-inset-bottom,16px)' }}
-          onClick={() => setDrawer('toolbar')}
-        >工具栏</button>
-      </div>
-
-      {/* 右侧面板：仅PC端显示 */}
-      <aside className="w-72 flex-shrink-0 bg-white border-l border-gray-200 flex flex-col min-h-0 min-w-0 hidden md:flex">
-        {selectedItem ? (
-          <ParameterEditor
-            selectedItem={selectedItem}
-            layers={layers}
-            onUpdateItem={updateItem}
-            onDeleteItem={deleteItem}
-            onCommitUpdate={commitUpdate}
-          />
-        ) : (
-          <div className="p-4 h-full flex flex-col">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4 flex-shrink-0">图层管理</h3>
-            <LayerPanel
+      {step === 1 ? (
+        <>
+          <div className="flex-1 flex flex-col min-h-0 min-w-0 pt-14 md:pt-0">
+            {/* PC端工具栏 */}
+            <div className="hidden md:block h-16 bg-white border-b border-gray-200">
+              <Toolbar
+                onOpenCategoryPicker={setOpenCategory}
+                onAddImage={() => { imageInputRef.current?.click(); }}
+                activeTool={activeTool}
+                onSetTool={setActiveTool}
+                onUndo={undo}
+                canUndo={history.length > 0}
+                onImportFile={handleImportFile}
+                onNext={handleNext}
+              />
+            </div>
+            <main className="flex-1 flex flex-col min-h-0 min-w-0 bg-white relative">
+              <Canvas
+                items={items}
+                layers={layers}
+                selectedItemId={selectedItemId}
+                onSelectItem={setSelectedItemId}
+                onUpdateItem={updateItem}
+                onAddItem={addItem}
+                onCommitUpdate={commitUpdate}
+                activeTool={activeTool}
+                canvasWidth={canvasWidth}
+                canvasHeight={canvasHeight}
+                setItems={setItems}
+                eraserRadius={eraserRadius}
+              />
+            </main>
+            {/* 底部工具栏抽屉触发按钮，仅移动端显示 */}
+            <button
+              className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 px-6 py-2 rounded-full bg-gray-800 text-white text-base shadow-lg md:hidden"
+              style={{ paddingBottom: 'env(safe-area-inset-bottom,16px)' }}
+              onClick={() => setDrawer('toolbar')}
+            >工具栏</button>
+          </div>
+          {/* 右侧面板：仅PC端显示 */}
+          <aside className="w-72 flex-shrink-0 bg-white border-l border-gray-200 flex flex-col min-h-0 min-w-0 hidden md:flex">
+            {selectedItem ? (
+              <ParameterEditor
+                selectedItem={selectedItem}
+                layers={layers}
+                onUpdateItem={updateItem}
+                onDeleteItem={deleteItem}
+                onCommitUpdate={commitUpdate}
+              />
+            ) : (
+              <div className="p-4 h-full flex flex-col">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex-shrink-0">图层管理</h3>
+                <LayerPanel
+                  layers={layers}
+                  activeLayerId={activeLayerId}
+                  onAddLayer={addLayer}
+                  onDeleteLayer={deleteLayer}
+                  onUpdateLayer={updateLayer}
+                  onSetActiveLayerId={setActiveLayerId}
+                  onMoveLayer={moveLayer}
+                />
+              </div>
+            )}
+          </aside>
+        </>
+      ) : (
+        // step === 2: 图层设置界面
+        <div className="w-full h-full flex flex-col">
+          {/* 顶部返回栏 */}
+          <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200">
+            <div className="flex items-center">
+              <button
+                className="mr-4 px-3 py-1 rounded bg-gray-200 text-gray-800 text-sm font-medium hover:bg-gray-300"
+                onClick={() => setStep(1)}
+              >返回</button>
+              <span className="text-lg font-bold">导出预览</span>
+            </div>
+            <button
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm font-medium"
+              onClick={async () => {
+                const layerToExport = layers.find(l => l.id === selectedLayerId);
+                if (!layerToExport) {
+                  alert('请先选择一个图层');
+                  return;
+                }
+              
+                if (layerToExport.printingMethod === PrintingMethod.SCAN) {
+                  // 检查图层中是否有图像
+                  const layerImageItems = items.filter(item => 
+                    item.layerId === layerToExport.id && item.type === CanvasItemType.IMAGE
+                  );
+                  
+                  if (layerImageItems.length === 0) {
+                    alert('扫描图层上没有需要处理的图片。');
+                    return;
+                  }
+              
+                  const settings: GCodeScanSettings = {
+                    lineDensity: 1 / (layerToExport.lineDensity || 10), // 转换单位
+                    isHalftone: !!layerToExport.halftone,
+                    negativeImage: false,
+                    hFlipped: false,
+                    vFlipped: false,
+                    minPower: 0,
+                    maxPower: 255,
+                    burnSpeed: 1000,
+                    travelSpeed: 6000,
+                    overscanDist: layerToExport.reverseMovementOffset ?? 3, // 使用图层设置的空移距离
+                  };
+              
+                  try {
+                    console.log("正在生成整个平台的G代码...");
+                    
+                    // 使用平台尺寸生成G代码
+                    const gcode = await generatePlatformScanGCode(
+                      layerToExport,
+                      items,
+                      canvasWidth,  // 使用画布宽度作为平台宽度
+                      canvasHeight, // 使用画布高度作为平台高度
+                      settings,
+                      canvasWidth,  // canvasWidth
+                      canvasHeight  // canvasHeight
+                    );
+                    
+                    const blob = new Blob([gcode], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${layerToExport.name.replace(/\s+/g, '_') || 'platform_scan'}.gcode`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+              
+                    alert('平台扫描G代码已生成并开始下载。');
+                  } catch (error) {
+                    console.error("G代码生成失败:", error);
+                    alert(`G代码生成失败: ${error instanceof Error ? error.message : String(error)}`);
+                  }
+              
+                } else {
+                  // 雕刻图层的逻辑暂空
+                  console.log('生成G代码（雕刻）', { layers, items });
+                  alert('雕刻图层的G代码生成功能尚未实现。');
+                }
+              }}
+            >
+              生成G代码
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 min-w-0">
+            <LayerSettingsPanel
               layers={layers}
-              activeLayerId={activeLayerId}
-              onAddLayer={addLayer}
-              onDeleteLayer={deleteLayer}
-              onUpdateLayer={updateLayer}
-              onSetActiveLayerId={setActiveLayerId}
-              onMoveLayer={moveLayer}
+              selectedLayerId={selectedLayerId}
+              onSelectLayer={setSelectedLayerId}
+              onUpdateLayer={(layerId: string, updates: Partial<Layer>) => {
+                setLayers(prev => prev.map(l => l.id === layerId ? { ...l, ...updates } : l));
+              }}
+              items={items}
+              canvasWidth={canvasWidth}
+              canvasHeight={canvasHeight}
             />
           </div>
-        )}
-      </aside>
-
+        </div>
+      )}
       {openCategory && (
         <CategoryPicker
           category={openCategory}

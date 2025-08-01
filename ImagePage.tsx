@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Banner from './assets/banner.png'
+// import Banner from './assets/banner.png'
 const ImagePage = ()=> {
     var saveImage = ()=>{
         onSaveImage();
@@ -45,13 +45,13 @@ interface ChildProps2 {
 const Content:React.FC<ChildProps2> = ({onSaveImage})=>{
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [loaded, setLoaded] = useState(0);
-    const MAX_WIDTH = 200;
+    // const MAX_WIDTH = 200;
     const navigate = useNavigate();
 
 
     function saveFile(){
         const canvas = canvasRef.current!;
-        const ctx = canvas.getContext('2d')!;
+        // const ctx = canvas.getContext('2d')!;
 
         if (window.webkit && window.webkit.messageHandlers.jsBridge) {
             (async () => {

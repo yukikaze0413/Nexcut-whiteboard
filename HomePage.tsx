@@ -12,7 +12,6 @@ declare global {
     __pendingWhiteboardImage?: { base64Data?: string; timestamp: number }; // 缓存白板图片数据
   }
 }
-
 declare global {
   interface Window {
     webkit?: {
@@ -37,6 +36,7 @@ function getOriginImage(): Promise<string>{
         });
   });
 }
+
 declare global {
   interface Window {
     // 允许任意以 __cb_ 开头的属性，值是接收 string 的函数
@@ -53,48 +53,23 @@ const HomePage: React.FC = () => {
   const [brightness, setBrightness] = useState(0); // 亮度调节值
   const [contrast, setContrast] = useState(0); // 对比度调节值
   const [originalImage, setOriginalImage] = useState<string | null>(null); // 原始图片（用于撤销操作）
-  const [imageSize, setImageSize] = useState<{width: number, height: number} | null>(null); // 图片尺寸信息
+
   const fileInputRef = useRef<HTMLInputElement>(null); // 文件输入框引用
-  const [hasAndroidImage, setHasAndroidImage] = useState(false); // 标记是否有Android传递的图片
 
   // 提供给Android调用的图片设置接口
   useEffect(() => {
-    console.log("---------/被加载----------");
     (window as any).setHomePageImage = (base64Data: string) => {
       console.log('[首页] Android调用setHomePageImage，base64长度:', base64Data.length);
       console.log('[首页] base64Data前100:', base64Data.substring(0, 100));
+      // // 自动补全base64格式
+      // if (base64Data && !base64Data.startsWith('data:image')) {
+      //   base64Data = 'data:image/png;base64,' + base64Data;
+      //   console.log('[首页] 自动补全base64格式:', base64Data.slice(0, 30));
+      // }
       setImage(base64Data);
       setOriginalImage(base64Data);
-      setImageSize(null); // 重置图片尺寸
-      setHasAndroidImage(true); // 标记有Android传递的图片
+
     };
-    // 检查是否有缓存图片
-    // if ((window as any).__pendingHomePageImage) {
-    //   (window as any).setHomePageImage((window as any).__pendingHomePageImage);
-    //   (window as any).__pendingHomePageImage = null;
-    // }
-
-      // if (window.webkit && window.webkit.messageHandlers.jsBridge) {
-      // (async () => {
-      //   try {
-      //       const result = await getOriginImage();
-      //       if (result !== ''){
-      //         (window as any).setHomePageImage(result);
-      //       }
-      //   } catch (e) {
-      //       console.error(e);
-      //   }
-      // })();
-      // }
-
-    // 清理函数
-  //   return () => {
-  //     (window as any).setHomePageImage = (base64Data: string) => {
-  //       console.log('[全局] setHomePageImage 被调用，但当前页面未处理', base64Data?.length);
-  //       (window as any).__pendingHomePageImage = base64Data;
-  //     };
-  //   };
-  // }, []);
 
     // 提供给Android调用的白板跳转接口
     (window as any).setWhiteboardImage = (base64Data?: string) => {
@@ -113,9 +88,9 @@ const HomePage: React.FC = () => {
     if ((window as any).__pendingHomePageImage) {
       const cachedData = (window as any).__pendingHomePageImage;
       console.log('[首页] 发现缓存的图片数据，长度:', cachedData.length);
+      
       setImage(cachedData);
       setOriginalImage(cachedData);
-      setImageSize(null);
       delete (window as any).__pendingHomePageImage;
     }
 
@@ -135,7 +110,7 @@ const HomePage: React.FC = () => {
       }
       delete (window as any).__pendingWhiteboardImage;
     }
-
+    
     // 清理函数：当组件卸载时，设置一个空的处理函数
     return () => {
       delete (window as any).setHomePageImage;
@@ -147,71 +122,55 @@ const HomePage: React.FC = () => {
   const handleImageLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
     const img = event.currentTarget;
     
-    // 设置图片尺寸信息
-    setImageSize({
-      width: img.naturalWidth,
-      height: img.naturalHeight
-    });
     console.log('图片原始尺寸:', img.naturalWidth, 'x', img.naturalHeight);
     
-    // 延迟获取调整后的图片尺寸
-    setTimeout(() => {
-      const adjustedWidth = img.offsetWidth;
-      const adjustedHeight = img.offsetHeight;
-      console.log('调整后的图片尺寸:', adjustedWidth, 'x', adjustedHeight);
+    // 获取容器信息用于调试
+    const container = img.parentElement;
+    if (container) {
+      const containerRect = container.getBoundingClientRect();
+      console.log('容器尺寸:', containerRect.width, 'x', containerRect.height);
       
-      // 获取容器信息
-      const container = img.parentElement;
-      if (container) {
-        const containerRect = container.getBoundingClientRect();
-        console.log('容器尺寸:', containerRect.width, 'x', containerRect.height);
-        
-        // 计算白框区域的实际尺寸（减去margin）
-        const whiteBoxWidth = containerRect.width - 32; // 减去左右margin
-        const whiteBoxHeight = containerRect.height - 32; // 减去上下margin
-        console.log('白框区域尺寸:', whiteBoxWidth, 'x', whiteBoxHeight);
-        
-        // 计算白框内的内容区域（即padding以内的区域，p-2 = 8px padding）
-        const contentWidth = whiteBoxWidth - 16; // 减去左右padding (8px * 2)
-        const contentHeight = whiteBoxHeight - 16; // 减去上下padding (8px * 2)
-        console.log('白框内容区域尺寸:', contentWidth, 'x', contentHeight);
-        
-        // 计算缩放比例
-        const scaleX = adjustedWidth / img.naturalWidth;
-        const scaleY = adjustedHeight / img.naturalHeight;
-        console.log('缩放比例 - 宽度:', scaleX.toFixed(3), '高度:', scaleY.toFixed(3));
-        
-        // 检查是否在白框内容区域内完整显示
-        const isFullyVisibleInContent = adjustedWidth <= contentWidth && adjustedHeight <= contentHeight;
-        console.log('图片是否在白框内容区域内完整显示:', isFullyVisibleInContent);
-        
-        // 检查是否有滚动条
-        const hasScrollbar = container.scrollHeight > container.clientHeight || container.scrollWidth > container.clientWidth;
-        console.log('是否需要滚动条:', hasScrollbar);
-        
-        // 获取CSS计算样式
-        const computedStyle = window.getComputedStyle(img);
-        console.log('CSS object-fit:', computedStyle.objectFit);
-        console.log('CSS max-width:', computedStyle.maxWidth);
-        console.log('CSS max-height:', computedStyle.maxHeight);
-        console.log('CSS width:', computedStyle.width);
-        console.log('CSS height:', computedStyle.height);
-        
-        // 检查图片是否超出白框内容区域
-        const isOverflowingContent = adjustedWidth > contentWidth || adjustedHeight > contentHeight;
-        console.log('图片是否超出白框内容区域:', isOverflowingContent);
-        
-        // 计算图片在白框内容区域内的显示比例
-        const displayRatioX = Math.min(1, contentWidth / adjustedWidth);
-        const displayRatioY = Math.min(1, contentHeight / adjustedHeight);
-        console.log('图片在白框内容区域内的显示比例 - 宽度:', displayRatioX.toFixed(3), '高度:', displayRatioY.toFixed(3));
-        
-        // 计算实际显示尺寸（考虑object-fit: contain的效果）
-        const actualDisplayWidth = Math.min(adjustedWidth, contentWidth);
-        const actualDisplayHeight = Math.min(adjustedHeight, contentHeight);
-        console.log('实际显示尺寸:', actualDisplayWidth, 'x', actualDisplayHeight);
-      }
-    }, 100); // 延迟100ms确保CSS调整完成
+      // 计算白框区域的实际尺寸
+      const whiteBoxWidth = containerRect.width - 32;
+      const whiteBoxHeight = containerRect.height - 32;
+      console.log('白框区域尺寸:', whiteBoxWidth, 'x', whiteBoxHeight);
+      
+      // 计算白框内的内容区域（即padding以内的区域）
+      const contentWidth = whiteBoxWidth - 16;
+      const contentHeight = whiteBoxHeight - 16;
+      console.log('白框内容区域尺寸:', contentWidth, 'x', contentHeight);
+      
+      const scaleX = img.offsetWidth / img.naturalWidth;
+      const scaleY = img.offsetHeight / img.naturalHeight;
+      console.log('缩放比例:', scaleX.toFixed(3), 'x', scaleY.toFixed(3));
+      
+      // 检查是否在白框内容区域内完整显示
+      const isFullyVisibleInContent = img.offsetWidth <= contentWidth && img.offsetHeight <= contentHeight;
+      console.log('图片是否在白框内容区域内完整显示:', isFullyVisibleInContent);
+      
+      // 检查是否需要滚动条
+      const needsScroll = img.offsetWidth > contentWidth || img.offsetHeight > contentHeight;
+      console.log('是否需要滚动条:', needsScroll);
+      
+      // 输出CSS属性信息
+      console.log('CSS object-fit:', getComputedStyle(img).objectFit);
+      console.log('CSS max-width:', getComputedStyle(img).maxWidth);
+      console.log('CSS max-height:', getComputedStyle(img).maxHeight);
+      console.log('CSS width:', getComputedStyle(img).width);
+      console.log('CSS height:', getComputedStyle(img).height);
+      
+      // 检查图片是否超出白框内可用空间
+      const isOverflowingContent = img.offsetWidth > contentWidth || img.offsetHeight > contentHeight;
+      console.log('图片是否超出白框内可用空间:', isOverflowingContent);
+      
+      // 计算图片在白框内的显示比例
+      const displayRatioX = img.offsetWidth / contentWidth;
+      const displayRatioY = img.offsetHeight / contentHeight;
+      console.log('图片在白框内的显示比例:', displayRatioX.toFixed(3), 'x', displayRatioY.toFixed(3));
+      
+      // 输出实际显示尺寸
+      console.log('实际显示尺寸:', img.offsetWidth, 'x', img.offsetHeight);
+    }
   };
 
   // 处理图片文件上传
@@ -239,7 +198,6 @@ const HomePage: React.FC = () => {
         console.log('图片URL长度:', imageUrl.length);
         setImage(imageUrl);
         setOriginalImage(imageUrl);
-        setImageSize(null); // 重置图片尺寸
       };
       reader.onerror = (e) => {
         console.error('文件读取失败:', e);
@@ -259,19 +217,19 @@ const HomePage: React.FC = () => {
 
   // 处理拍照功能
   const handleCapturePhoto = () => {
-    // 检查是否支持getUserMedia
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      alert('您的设备不支持摄像头功能');
-      return;
-    }
-
-    // 检查是否在HTTPS环境下（摄像头功能需要安全上下文）
+    // 检查是否在HTTPS环境下
     if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      alert('摄像头功能需要在HTTPS环境下使用');
+      alert('拍照功能需要HTTPS环境才能使用。\n\n在移动端，摄像头访问需要安全连接。\n\n请使用HTTPS协议访问此页面，或者使用"从相册选择"功能。');
       return;
     }
 
-    // 创建全屏视频元素
+    // 检查浏览器是否支持getUserMedia
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('您的浏览器不支持摄像头功能，请使用现代浏览器或尝试"从相册选择"功能。');
+      return;
+    }
+
+    // 创建视频元素
     const video = document.createElement('video');
     video.style.position = 'fixed';
     video.style.top = '0';
@@ -351,7 +309,6 @@ const HomePage: React.FC = () => {
             const photoDataUrl = canvas.toDataURL('image/jpeg', 0.9);
             setImage(photoDataUrl);
             setOriginalImage(photoDataUrl);
-            setImageSize(null); // 重置图片尺寸
 
             // 停止摄像头
             stream.getTracks().forEach(track => track.stop());
@@ -387,6 +344,8 @@ const HomePage: React.FC = () => {
           errorMessage = '您的设备不支持摄像头功能';
         } else if (err.name === 'NotReadableError') {
           errorMessage = '摄像头被其他应用占用，请关闭其他使用摄像头的应用';
+        } else if (err.name === 'SecurityError') {
+          errorMessage = '由于安全限制，摄像头访问被拒绝。请确保使用HTTPS协议访问此页面。';
         }
 
         alert(errorMessage);
@@ -561,11 +520,27 @@ const HomePage: React.FC = () => {
 
   // 重置到原始图片：恢复图片到最初状态
   const resetToOriginal = () => {
-    if (originalImage) {
-      setImage(originalImage);
+    
+    if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+      (async () => {
+        try {
+            const result = await getOriginImage();
+            setImage(result);
+            setOriginalImage(result);
+        } catch (e) {
+            console.error(e);
+        }
+      })();
       setBrightness(0);
       setContrast(0);
+    } else{
+      if (originalImage) {
+        setImage(originalImage);
+        setBrightness(0);
+        setContrast(0);
+      }
     }
+    
   };
 
   // 处理下一步按钮点击：跳转到白板页面
@@ -577,52 +552,17 @@ const HomePage: React.FC = () => {
     }
   };
 
-  // 处理主页按钮点击：返回首页
-  const handleMainPage = () => {
-    navigate('/');
-  };
 
-  // 处理设置按钮点击：显示设置功能
-  const handleSetting = () => {
-    alert('设置功能');
-  };
 
   // 页面加载时根据路由state显示裁剪结果
   useEffect(() => {
-
     console.log('HomePage useEffect: 检查图片');
     console.log('location.state:', location.state);
     console.log('location.state.image:', (location.state as any)?.image);
     
+    // 尝试从state或localstorage中获得图片
     let img = (location.state as any)?.image;
     console.log('从location.state获取的图片:', img ? '有图片' : '无图片');
-
-    if (location.state && (location.state as any).croppedImg) {
-      setImage((location.state as any).croppedImg);
-      setOriginalImage((location.state as any).croppedImg);
-      // 清除state避免回退时重复
-      window.history.replaceState({}, document.title);
-      if (window.webkit && window.webkit.messageHandlers.jsBridge) {
-        window.webkit?.messageHandlers.jsBridge.postMessage({
-        action: "addEdgePan",
-        });
-      }
-    }
-    
-    if (window.webkit && window.webkit.messageHandlers.jsBridge) {
-    (async () => {
-      try {
-          const result = await getOriginImage();
-          if (result !== ''){
-            (window as any).setHomePageImage(result);
-          } 
-      } catch (e) {
-          console.error(e);
-      }
-    })();
-    }
-
-
     if (!img) {
       // 如果location.state中没有图片，尝试从localStorage获取
       const localStorageImg = localStorage.getItem('croppedImage');
@@ -641,14 +581,27 @@ const HomePage: React.FC = () => {
       console.log('图片前100字符:', img.slice(0, 100));
       setImage(img);
       setOriginalImage(img);
-      setImageSize(null); // 重置图片尺寸
       window.history.replaceState({}, document.title);
       // 禁止 setHomePageImage 再次覆盖
       (window as any).setHomePageImage = () => {};
     } else {
       console.log('HomePage: 没有接收到图片');
+      //如果没有图片，从原生接受图片
+      if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+        (async () => {
+          try {
+              const result = await getOriginImage();
+              if (result !== ''){
+                (window as any).setHomePageImage(result);
+              } else {
+                (window as any).setWhiteboardImage();
+              }
+          } catch (e) {
+              console.error(e);
+          }
+        })();
+      }
     }
-
   }, [location.state]); // 只依赖location.state
 
   // 移除监听窗口大小变化以重新调整图片尺寸的 useEffect
@@ -697,178 +650,129 @@ const HomePage: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, [image]);
 
-
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col" style={{
-      height: "100vh",
-      overflow: "auto"
-    }}>
-      {/* 顶部工具栏 */}
-      <div className="bg-blue-600 text-white p-4">
-        <h1 className="text-xl font-semibold text-center">CAD零件参数化白板</h1>
+    <div className="min-h-screen bg-gray-100 flex flex-col">
+      {/* 标题区域 */}
+      <div className="bg-white shadow-sm border-b border-gray-200 px-4 py-3">
+        <h1 className="text-lg font-semibold text-gray-800">图片编辑</h1>
       </div>
 
-      {/* 主要内容区域 */}
-      <div className="flex-1 flex flex-col relative">
-        {/* 图片显示区域 */}
-        {/* 将 overflow-hidden 改为 overflow-y-auto */}
-        <div className="flex-1 bg-gray-300 rounded-lg flex items-center justify-center overflow-hidden relative">
-          {image ? (
-            // 移除 JSX 注释，只保留 div 元素
-            <div className="w-full h-full flex items-center justify-center p-2" style={{
-              minHeight: 0,
-              boxSizing: 'border-box',
-              position: 'relative',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: 'white', // 添加白色背景，模拟白框
-              borderRadius: '8px', // 添加圆角
-              margin: '16px', // 添加外边距，创建白框效果
-              maxWidth: 'calc(100% - 32px)', // 限制最大宽度
-              maxHeight: 'calc(100% - 32px)', // 限制最大高度
-              overflow: 'hidden' // 确保内容不超出白框边界
-            }}>
-              <img
-                src={image}
-                alt="编辑图片"
-                style={{
-                  filter: `brightness(${1 + brightness / 100}) contrast(${1 + contrast / 100})`,
-                  display: 'block',
-                  maxWidth: '100%', // 相对于父容器（白色方框）的100%
-                  maxHeight: '100%', // 相对于父容器（白色方框）的100%
-                  width: 'auto', // 让宽度自适应
-                  height: 'auto', // 让高度自适应
-                  objectFit: 'contain',
-                  objectPosition: 'center' // 确保图片居中
-                }}
-                onError={(e) => {
-                  console.error('图片加载失败:', e, image?.slice(0, 100));
-                }}
-                onLoad={handleImageLoad}
-              />
-              {/* 重新选择图片按钮 */}
-              <div className="absolute top-2 right-2 flex gap-2">
-                <button
-                  onClick={handleSelectImage}
-                  className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors duration-200"
-                  title="重新选择图片"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                </button>
-                <button
-                  onClick={handleCapturePhoto}
-                  className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors duration-200"
-                  title="拍照"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </button>
-              </div>
-              {/* 图片尺寸提示 */}
-              {imageSize && (
-                <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded">
-                  {imageSize.width} × {imageSize.height}
-                </div>
-              )}
+      {/* 图片显示区域 */}
+      <div className="flex-1 flex items-center justify-center p-4" style={{
+        backgroundColor: 'white',
+        borderRadius: '8px',
+        margin: '16px',
+        maxWidth: 'calc(100% - 32px)',
+        maxHeight: 'calc(100% - 32px)',
+        overflow: 'hidden'
+      }}>
+        {image ? (
+          // 有图片时的显示
+          <div className="w-full h-full flex items-center justify-center relative">
+            <img
+              src={image}
+              alt="编辑图片"
+              style={{
+                filter: `brightness(${1 + brightness / 100}) contrast(${1 + contrast / 100})`,
+                display: 'block',
+                maxWidth: '100%',
+                maxHeight: '100%',
+                width: 'auto',
+                height: 'auto',
+                objectFit: 'contain',
+                objectPosition: 'center'
+              }}
+              onError={(e) => {
+                console.error('图片加载失败:', e, image?.slice(0, 100));
+              }}
+              onLoad={handleImageLoad}
+            />
+          </div>
+        ) : (
+          // 无图片时的初始状态
+          <div className="text-gray-500 text-center">
+            <div className="mb-4">
+              <svg className="w-16 h-16 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
             </div>
-          ) : (
-            // 无图片时的初始状态
-            <div className="text-gray-500 text-center">
-              <div className="mb-4">
-                <svg className="w-16 h-16 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <p className="text-lg font-medium mb-2">选择图片</p>
+            <p className="text-sm text-gray-400 mb-4">从相册选择或拍摄照片</p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={handleSelectImage}
+                className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200 flex items-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-              </div>
-              <p className="text-lg font-medium mb-2">选择图片</p>
-              <p className="text-sm text-gray-400 mb-4">从相册选择或拍摄照片</p>
-              <div className="flex gap-3 justify-center">
-                <button
-                  onClick={handleSelectImage}
-                  className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200 flex items-center gap-2"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  从相册选择
-                </button>
-                <button
-                  onClick={handleCapturePhoto}
-                  className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-200 flex items-center gap-2"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  拍照
-                </button>
-              </div>
+                从相册选择
+              </button>
+              <button
+                onClick={handleCapturePhoto}
+                className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors duration-200 flex items-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                拍照
+              </button>
             </div>
-          )}
+          </div>
+        )}
+      </div>
+
+      {/* 亮度对比度调节区域 */}
+      <div className="bg-white border-t border-gray-200 px-4 py-3">
+        {/* 亮度调节滑块 */}
+        <div className="flex items-center mb-2">
+          <span className="text-sm font-medium w-16">亮度</span>
+          <input
+            type="range"
+            min="-100"
+            max="100"
+            value={brightness}
+            onChange={(e) => setBrightness(Number(e.target.value))}
+            className="flex-1 mx-4"
+          />
+          <span className="text-sm text-gray-600 w-12">{brightness}</span>
         </div>
+        {/* 对比度调节滑块 */}
+        <div className="flex items-center mb-2">
+          <span className="text-sm font-medium w-16">对比度</span>
+          <input
+            type="range"
+            min="-100"
+            max="100"
+            value={contrast}
+            onChange={(e) => setContrast(Number(e.target.value))}
+            className="flex-1 mx-4"
+          />
+          <span className="text-sm text-gray-600 w-12">{contrast}</span>
+        </div>
+      </div>
 
-        {/* 隐藏的文件输入 */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          // capture="environment"
-          onChange={handleImageUpload}
-          className="hidden"
-        />
-
-        {/* 底部操作区（亮度/对比度/编辑按钮） */}
-        <div className="fixed left-0 right-0 bottom-24 z-20 bg-white border-t border-gray-200 px-4 pt-2 pb-3 shadow-lg">
-          {/* 亮度调节滑块 */}
-          <div className="flex items-center mb-2">
-            <span className="text-sm font-medium w-16">亮度</span>
-            <input
-              type="range"
-              min="-100"
-              max="100"
-              value={brightness}
-              onChange={(e) => setBrightness(Number(e.target.value))}
-              className="flex-1 mx-4"
-            />
-            <span className="text-sm text-gray-600 w-12">{brightness}</span>
-          </div>
-          {/* 对比度调节滑块 */}
-          <div className="flex items-center mb-2">
-            <span className="text-sm font-medium w-16">对比度</span>
-            <input
-              type="range"
-              min="-100"
-              max="100"
-              value={contrast}
-              onChange={(e) => setContrast(Number(e.target.value))}
-              className="flex-1 mx-4"
-            />
-            <span className="text-sm text-gray-600 w-12">{contrast}</span>
-          </div>
-          {/* 图片编辑按钮区域 */}
-          <div className="overflow-x-auto">
-            <div className="flex space-x-2 min-w-max">
-              <button onClick={() => applyFilter('grayscale')} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">灰度</button>
-              <button onClick={() => applyFilter('binary')} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">二值化</button>
-              <button onClick={() => applyFilter('invert')} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">反色</button>
-              <button onClick={() => { if (!image) return; if (window.cv && window.cv.GaussianBlur) { applyGaussianBlurOpenCV(image, 15, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">高斯模糊</button>
-              <button onClick={() => { if (!image) return; if (window.cv && window.cv.Canny) { applyCannyEdgeDetectionOpenCV(image, 120, 250, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">线框提取</button>
-              <button onClick={() => { if (!image) return; if (window.cv && window.cv.rotate) { applyRotate90OpenCV(image, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">旋转</button>
-              <button onClick={() => { if (!image) return; navigate('/crop', { state: { image, original: originalImage } }); }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">裁剪</button>
-              <button onClick={() => { if (!image) return; if (window.cv && window.cv.flip) { applyFlipHorizontalOpenCV(image, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">水平翻转</button>
-              <button onClick={() => { if (!image) return; if (window.cv && window.cv.flip) { applyFlipVerticalOpenCV(image, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">垂直翻转</button>
-              <button onClick={resetToOriginal} className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">撤销操作</button>
-            </div>
+      {/* 功能操作按钮区域 */}
+      <div className="bg-white border-t border-gray-200 px-4 py-3">
+        <div className="overflow-x-auto">
+          <div className="flex space-x-2 min-w-max">
+            <button onClick={() => applyFilter('grayscale')} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">灰度</button>
+            <button onClick={() => applyFilter('binary')} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">二值化</button>
+            <button onClick={() => applyFilter('invert')} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">反色</button>
+            <button onClick={() => { if (!image) return; if (window.cv && window.cv.GaussianBlur) { applyGaussianBlurOpenCV(image, 15, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">高斯模糊</button>
+            <button onClick={() => { if (!image) return; if (window.cv && window.cv.Canny) { applyCannyEdgeDetectionOpenCV(image, 120, 250, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">线框提取</button>
+            <button onClick={() => { if (!image) return; if (window.cv && window.cv.rotate) { applyRotate90OpenCV(image, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">旋转</button>
+            <button onClick={() => { if (!image) return; navigate('/crop', { state: { image, original: originalImage } }); }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">裁剪</button>
+            <button onClick={() => { if (!image) return; if (window.cv && window.cv.flip) { applyFlipHorizontalOpenCV(image, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">水平翻转</button>
+            <button onClick={() => { if (!image) return; if (window.cv && window.cv.flip) { applyFlipVerticalOpenCV(image, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">垂直翻转</button>
+            <button onClick={resetToOriginal} className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">撤销操作</button>
           </div>
         </div>
       </div>
 
-      {/* 底部导航栏 */}
-      <div className="fixed left-0 right-0 bottom-0 z-30 bg-white border-t border-gray-200 p-4 shadow-lg">
+      {/* 下一步按钮区域 */}
+      <div className="bg-white border-t border-gray-200 px-4 py-3">
         <div className="flex justify-center items-center">
           <button onClick={handleNextStep} className="flex flex-col items-center">
             <div className="w-12 h-12 bg-green-500 rounded-full mb-1 flex items-center justify-center">
@@ -880,6 +784,16 @@ const HomePage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* 隐藏的文件输入 */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleImageUpload}
+        className="hidden"
+      />
     </div>
   );
 };

@@ -2,7 +2,6 @@ import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import type { CanvasItem, CanvasItemData, Layer, Drawing, TextObject } from '../types';
 import { ToolType, CanvasItemType } from '../types';
 import CanvasItemRenderer from './renderers/CanvasItemRenderer';
-import Ruler from './Ruler';
 import pointicon from '../assets/回零.svg'
 
 interface CanvasProps {
@@ -20,7 +19,7 @@ interface CanvasProps {
   eraserRadius: number;
 }
 
-const RULER_SIZE = 30; // in pixels
+
 
 // 辅助函数：计算点到线段的最小距离
 function pointToSegmentDistance(px: number, py: number, x1: number, y1: number, x2: number, y2: number) {
@@ -44,8 +43,7 @@ function findCircleSegmentIntersection(
   let t0 = 0, t1 = 1;
   let found = false;
   let mid = 0.5;
-  let pA = { x: x1, y: y1 };
-  let pB = { x: x2, y: y2 };
+
   // 只在距离小于r的区间内细分
   for (let i = 0; i < 20; i++) {
     mid = (t0 + t1) / 2;
@@ -82,6 +80,10 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
     isPinching: boolean;
     centerPoint?: { x: number; y: number }; // 新增：记录缩放中心点
   }>(null);
+  
+  // 新增：缩放结束后的冷却期状态
+  const [pinchCooldown, setPinchCooldown] = useState<boolean>(false);
+  const cooldownTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const [viewBox, setViewBox] = useState({ x: 0, y: 0 });
   const [canvasSize, setCanvasSize] = useState({ width: canvasWidth, height: canvasHeight });
@@ -104,6 +106,15 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
     }
   }, [activeTool]);
 
+  // 清理冷却期超时
+  useEffect(() => {
+    return () => {
+      if (cooldownTimeoutRef.current) {
+        clearTimeout(cooldownTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // 计算两指距离
   function getTouchDistance(touches: TouchList) {
     const dx = touches[0].clientX - touches[1].clientX;
@@ -118,6 +129,13 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
 
     function handleTouchStart(e: TouchEvent) {
       if (e.touches.length === 2) {
+        // 清除任何现有的冷却期
+        if (cooldownTimeoutRef.current) {
+          clearTimeout(cooldownTimeoutRef.current);
+          cooldownTimeoutRef.current = null;
+        }
+        setPinchCooldown(false);
+        
         // 记录初始距离和viewBox
         const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
         const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
@@ -175,11 +193,19 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
       }
     }
 
-    function handleTouchEnd(e: TouchEvent) {
-      if (e.touches.length < 2) {
-        setPinchState(null);
+          function handleTouchEnd(e: TouchEvent) {
+        if (e.touches.length < 2 && pinchState?.isPinching) {
+          // 从双指缩放过渡到单指或无触摸时，启动冷却期
+          setPinchState(null);
+          setPinchCooldown(true);
+          
+          // 300ms后清除冷却期，允许正常的拖拽操作
+          cooldownTimeoutRef.current = setTimeout(() => {
+            setPinchCooldown(false);
+            cooldownTimeoutRef.current = null;
+          }, 300);
+        }
       }
-    }
 
     container.addEventListener('touchstart', handleTouchStart, { passive: false });
     container.addEventListener('touchmove', handleTouchMove, { passive: false });
@@ -205,6 +231,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
   
   const handlePointerDown = useCallback((event: React.PointerEvent) => {
     if (pinchState?.isPinching) return;
+    if (pinchCooldown) return; // 在缩放冷却期内阻止所有指针操作
     const pos = getPointerPosition(event);
     const target = event.target as SVGElement;
     const itemId = (event.target as SVGElement).closest('[data-item-id]')?.getAttribute('data-item-id');
@@ -260,10 +287,11 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
         setEraserPos(pos); // 记录橡皮擦位置
         break;
     }
-  }, [activeTool, onSelectItem, items, layers, onAddItem, viewBox, selectedItemId, pinchState]);
+  }, [activeTool, onSelectItem, items, layers, onAddItem, viewBox, selectedItemId, pinchState, pinchCooldown]);
 
   const handlePointerMove = useCallback((event: React.PointerEvent) => {
     if (pinchState?.isPinching) return;
+    if (pinchCooldown) return; // 在缩放冷却期内阻止移动操作
     if (event.buttons !== 1) {
       setDragState(null);
       setDrawingState(null);
@@ -362,7 +390,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
             y: panState.startViewBox.y - dy * scaleY
         });
     }
-  }, [dragState, drawingState, panState, eraserState, items, onUpdateItem, setItems, eraserRadius, pinchState, canvasSize, viewBox]);
+  }, [dragState, drawingState, panState, eraserState, items, onUpdateItem, setItems, eraserRadius, pinchState, pinchCooldown, canvasSize, viewBox]);
 
   const handlePointerUp = useCallback(() => {
     if (pinchState?.isPinching) return;
@@ -444,6 +472,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
                         {items.filter(item => item.layerId === layer.id).map(item => (
                             <g 
                                 key={item.id} 
+                                // gxx: avoid two times <g>  the other <g> is in components/renders/imageRender.tsx
                                 transform={`translate(${'x' in item ? item.x : 0}, ${'y' in item ? item.y : 0})`}
                                 data-item-id={item.id}
                                 className={activeTool === ToolType.SELECT ? 'cursor-pointer' : ''}

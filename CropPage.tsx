@@ -29,18 +29,26 @@ const CropPage: React.FC = () => {
   // Canvas初始化
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (window.webkit && window.webkit.messageHandlers.jsBridge) {
-        window.webkit?.messageHandlers.jsBridge.postMessage({
-        action: "removeEdgePan",
-        });
-      }
-  
     if (canvas) {
       const resizeCanvas = () => {
         const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-        console.log('Canvas尺寸已更新:', canvas.width, 'x', canvas.height);
+        const devicePixelRatio = window.devicePixelRatio || 1;
+        
+        // 设置Canvas的实际像素尺寸（考虑设备像素比）
+        canvas.width = rect.width * devicePixelRatio;
+        canvas.height = rect.height * devicePixelRatio;
+        
+        // 设置Canvas的CSS尺寸
+        canvas.style.width = rect.width + 'px';
+        canvas.style.height = rect.height + 'px';
+        
+        // 缩放绘图上下文以匹配设备像素比
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.scale(devicePixelRatio, devicePixelRatio);
+        }
+        
+        console.log('Canvas尺寸已更新:', canvas.width, 'x', canvas.height, '设备像素比:', devicePixelRatio);
       };
 
       // 初始设置
@@ -72,12 +80,12 @@ const CropPage: React.FC = () => {
       // 计算图片在Canvas中的位置和尺寸（适配移动端）
       const canvas = canvasRef.current;
       if (canvas) {
-        // 获取Canvas的实际显示尺寸
+        // 获取Canvas的CSS显示尺寸（不是像素尺寸）
         const rect = canvas.getBoundingClientRect();
         const canvasWidth = rect.width;
         const canvasHeight = rect.height;
         
-        console.log('Canvas尺寸:', canvasWidth, 'x', canvasHeight);
+        console.log('Canvas CSS尺寸:', canvasWidth, 'x', canvasHeight);
         console.log('图片原始尺寸:', img.width, 'x', img.height);
         
         // 计算适配移动端的图片尺寸
@@ -122,22 +130,28 @@ const CropPage: React.FC = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // 获取Canvas的实际显示尺寸
+    // 获取Canvas的CSS显示尺寸（不是像素尺寸）
     const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    
+    // 重置变换矩阵，避免重复缩放
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(devicePixelRatio, devicePixelRatio);
 
-    console.log('绘制Canvas - 尺寸:', canvas.width, 'x', canvas.height);
+    console.log('绘制Canvas - CSS尺寸:', rect.width, 'x', rect.height);
+    console.log('绘制Canvas - 像素尺寸:', canvas.width, 'x', canvas.height);
     console.log('绘制图片 - 位置:', imageRect.x, imageRect.y, '尺寸:', imageRect.width, 'x', imageRect.height);
 
     // 清空画布
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, rect.width, rect.height);
 
     // 绘制白色背景
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, rect.width, rect.height);
 
-    // 绘制图片（适配移动端尺寸）
+    // 绘制图片（使用高质量的图像平滑）
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, imageRect.x, imageRect.y, imageRect.width, imageRect.height);
 
     // 遮罩：裁剪框外半透明黑色
@@ -145,7 +159,7 @@ const CropPage: React.FC = () => {
     ctx.globalAlpha = 0.5;
     ctx.fillStyle = '#000';
     ctx.beginPath();
-    ctx.rect(0, 0, canvas.width, canvas.height);
+    ctx.rect(0, 0, rect.width, rect.height);
     ctx.moveTo(cropBox.x, cropBox.y);
     ctx.lineTo(cropBox.x + cropBox.width, cropBox.y);
     ctx.lineTo(cropBox.x + cropBox.width, cropBox.y + cropBox.height);
