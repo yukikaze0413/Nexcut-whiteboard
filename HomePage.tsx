@@ -12,6 +12,37 @@ declare global {
     __pendingWhiteboardImage?: { base64Data?: string; timestamp: number }; // 缓存白板图片数据
   }
 }
+declare global {
+  interface Window {
+    webkit?: {
+      messageHandlers: {
+        jsBridge: {
+          postMessage: (message: any) => void;
+        };
+      };
+    };
+  }
+}
+
+//js请求原生的图片数据，输入无，输出图片ImageData
+function getOriginImage(): Promise<string>{
+  return new Promise<string>((resolve) => {
+    // 临时挂一个一次性回调
+    const id = Math.random().toString(36).slice(2);
+    window[`__cb_${id}`] = resolve; // Swift 回传时调用
+    window.webkit?.messageHandlers.jsBridge.postMessage({
+        action: "getOriginImage",
+        id: id
+        });
+  });
+}
+
+declare global {
+  interface Window {
+    // 允许任意以 __cb_ 开头的属性，值是接收 string 的函数
+    [key: `__cb_${string}`]: (result: string) => void;
+  }
+}
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
@@ -30,6 +61,11 @@ const HomePage: React.FC = () => {
     (window as any).setHomePageImage = (base64Data: string) => {
       console.log('[首页] Android调用setHomePageImage，base64长度:', base64Data.length);
       console.log('[首页] base64Data前100:', base64Data.substring(0, 100));
+      // // 自动补全base64格式
+      // if (base64Data && !base64Data.startsWith('data:image')) {
+      //   base64Data = 'data:image/png;base64,' + base64Data;
+      //   console.log('[首页] 自动补全base64格式:', base64Data.slice(0, 30));
+      // }
       setImage(base64Data);
       setOriginalImage(base64Data);
 
@@ -52,6 +88,7 @@ const HomePage: React.FC = () => {
     if ((window as any).__pendingHomePageImage) {
       const cachedData = (window as any).__pendingHomePageImage;
       console.log('[首页] 发现缓存的图片数据，长度:', cachedData.length);
+      
       setImage(cachedData);
       setOriginalImage(cachedData);
       delete (window as any).__pendingHomePageImage;
@@ -73,7 +110,7 @@ const HomePage: React.FC = () => {
       }
       delete (window as any).__pendingWhiteboardImage;
     }
-
+    
     // 清理函数：当组件卸载时，设置一个空的处理函数
     return () => {
       delete (window as any).setHomePageImage;
@@ -483,11 +520,27 @@ const HomePage: React.FC = () => {
 
   // 重置到原始图片：恢复图片到最初状态
   const resetToOriginal = () => {
-    if (originalImage) {
-      setImage(originalImage);
+    
+    if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+      (async () => {
+        try {
+            const result = await getOriginImage();
+            setImage(result);
+            setOriginalImage(result);
+        } catch (e) {
+            console.error(e);
+        }
+      })();
       setBrightness(0);
       setContrast(0);
+    } else{
+      if (originalImage) {
+        setImage(originalImage);
+        setBrightness(0);
+        setContrast(0);
+      }
     }
+    
   };
 
   // 处理下一步按钮点击：跳转到白板页面
@@ -507,9 +560,9 @@ const HomePage: React.FC = () => {
     console.log('location.state:', location.state);
     console.log('location.state.image:', (location.state as any)?.image);
     
+    // 尝试从state或localstorage中获得图片
     let img = (location.state as any)?.image;
     console.log('从location.state获取的图片:', img ? '有图片' : '无图片');
-    
     if (!img) {
       // 如果location.state中没有图片，尝试从localStorage获取
       const localStorageImg = localStorage.getItem('croppedImage');
@@ -533,6 +586,21 @@ const HomePage: React.FC = () => {
       (window as any).setHomePageImage = () => {};
     } else {
       console.log('HomePage: 没有接收到图片');
+      //如果没有图片，从原生接受图片
+      if (window.webkit && window.webkit.messageHandlers.jsBridge) {
+        (async () => {
+          try {
+              const result = await getOriginImage();
+              if (result !== ''){
+                (window as any).setHomePageImage(result);
+              } else {
+                (window as any).setWhiteboardImage();
+              }
+          } catch (e) {
+              console.error(e);
+          }
+        })();
+      }
     }
   }, [location.state]); // 只依赖location.state
 
