@@ -1,35 +1,32 @@
-import React, { useState, useEffect, useCallback, ChangeEvent, KeyboardEvent } from 'react';
-import type { CanvasItem, Layer } from '../types';
-import { CanvasItemType } from '../types';
-import { PrintingMethod } from '../types'; // Added this import for PrintingMethod
+import React, { useState, useEffect, ChangeEvent, KeyboardEvent } from 'react';
+import type { Layer } from '../types';
 
 interface ParameterEditorProps {
-  selectedItem: CanvasItem | null;
+  selectedObject: fabric.Object | null;
   layers: Layer[];
-  onUpdateItem: (itemId: string, updates: Partial<CanvasItem>) => void;
-  onDeleteItem: (itemId: string) => void;
-  onCommitUpdate: () => void;
+  onUpdateProperty: (prop: string, value: any) => void;
+  onDeleteItem: () => void;
 }
 
 const translations: Record<string, string> = {
     // Item types
-    [CanvasItemType.RECTANGLE]: '矩形',
-    [CanvasItemType.L_BRACKET]: 'L型支架',
-    [CanvasItemType.U_CHANNEL]: 'U型槽',
-    [CanvasItemType.CIRCLE]: '圆形',
-    [CanvasItemType.FLANGE]: '法兰',
-    [CanvasItemType.DRAWING]: '绘图',
-    [CanvasItemType.TEXT]: '文本',
-    [CanvasItemType.IMAGE]: '图片',
-    [CanvasItemType.LINE]: '直线',
-    [CanvasItemType.POLYLINE]: '多段线',
-    [CanvasItemType.ARC]: '圆弧',
-    [CanvasItemType.SECTOR]: '扇形',
-    [CanvasItemType.TORUS]: '圆环',
-    [CanvasItemType.EQUILATERAL_TRIANGLE]: '等边三角形',
-    [CanvasItemType.ISOSCELES_RIGHT_TRIANGLE]: '直角等腰三角形',
-    [CanvasItemType.CIRCLE_WITH_HOLES]: '带孔圆板',
-    [CanvasItemType.RECTANGLE_WITH_HOLES]: '带孔矩形板',
+    'RECTANGLE': '矩形',
+    'L_BRACKET': 'L型支架',
+    'U_CHANNEL': 'U型槽',
+    'CIRCLE': '圆形',
+    'FLANGE': '法兰',
+    'DRAWING': '绘图',
+    'TEXT': '文本',
+    'IMAGE': '图片',
+    'LINE': '直线',
+    'POLYLINE': '多段线',
+    'ARC': '圆弧',
+    'SECTOR': '扇形',
+    'TORUS': '圆环',
+    'EQUILATERAL_TRIANGLE': '等边三角形',
+    'ISOSCELES_RIGHT_TRIANGLE': '直角等腰三角形',
+    'CIRCLE_WITH_HOLES': '带孔圆板',
+    'RECTANGLE_WITH_HOLES': '带孔矩形板',
 
     // Parameters
     'width': '宽度',
@@ -106,9 +103,9 @@ const EditableParameterInput: React.FC<{
 
   const handleBlur = () => {
     if (type === 'number') {
-      const numericValue = parseFloat(value);
-      if (value.trim() !== '' && !isNaN(numericValue) && (min === undefined || numericValue >= min)) {
-        onCommit(numericValue);
+      const numValue = parseFloat(value);
+      if (!isNaN(numValue)) {
+        onCommit(numValue);
       } else {
         setValue(String(initialValue));
       }
@@ -119,16 +116,15 @@ const EditableParameterInput: React.FC<{
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      (e.target as HTMLInputElement).blur();
+      handleBlur();
     } else if (e.key === 'Escape') {
       setValue(String(initialValue));
-      (e.target as HTMLInputElement).blur();
     }
   };
 
   return (
-    <div>
-      <label className="block text-sm font-medium text-gray-600 capitalize mb-1">{label}</label>
+    <div className="flex flex-col gap-1">
+      <label className="text-sm font-medium text-gray-700">{label}</label>
       <input
         type={type}
         value={value}
@@ -136,371 +132,149 @@ const EditableParameterInput: React.FC<{
         onBlur={handleBlur}
         onKeyDown={handleKeyDown}
         min={min}
-        className="w-full bg-white text-gray-900 rounded-md p-2 border border-gray-300 focus:ring-teal-500 focus:border-teal-500"
+        className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
       />
     </div>
   );
 };
 
-// 拆分组合对象参数编辑为独立组件
-const GroupParameterEditor: React.FC<{
-  selectedItem: any;
-  onUpdateItem: (itemId: string, updates: Partial<CanvasItem>) => void;
-  onCommitUpdate: () => void;
-}> = ({ selectedItem, onUpdateItem, onCommitUpdate }) => {
-  // 取第一个线条的颜色和缩放为参考
-  const firstDrawing = selectedItem.children.find((child: any) => child.type === 'DRAWING');
-  const defaultColor = firstDrawing && 'color' in firstDrawing ? firstDrawing.color : '#2563eb';
-  const [color, setColor] = React.useState(defaultColor);
-  const [width, setWidth] = React.useState(selectedItem.width);
-  const [height, setHeight] = React.useState(selectedItem.height);
-  const [rotation, setRotation] = React.useState(selectedItem.rotation);
-  const [x, setX] = React.useState(selectedItem.x);
-  const [y, setY] = React.useState(selectedItem.y);
+const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedObject, layers, onUpdateProperty, onDeleteItem }) => {
+  if (!selectedObject) {
+    return (
+      <div className="p-4 text-center text-gray-500">
+        {t('Select an item to edit its properties.')}
+      </div>
+    );
+  }
 
-  // 颜色变更
-  const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newColor = e.target.value;
-    setColor(newColor);
-    // 批量更新所有子线条颜色
-    selectedItem.children.forEach((child: any) => {
-      if (child.type === 'DRAWING') {
-        onUpdateItem(child.id, { color: newColor });
-      }
-    });
-    onCommitUpdate();
+  const handlePropertyChange = (prop: string, value: any) => {
+    onUpdateProperty(prop, value);
   };
 
-  // 宽高变更
-  const handleSizeChange = (key: 'width' | 'height', value: number) => {
-    if (value <= 0) return;
-    const oldW = selectedItem.width;
-    const oldH = selectedItem.height;
-    let scaleX = 1, scaleY = 1;
-    if (key === 'width') {
-      scaleX = value / oldW;
-      scaleY = 1;
-    } else {
-      scaleX = 1;
-      scaleY = value / oldH;
-    }
-    // 批量缩放所有子元素
-    selectedItem.children.forEach((child: any) => {
-      if ('points' in child && Array.isArray(child.points)) {
-        const newPoints = (child.points as any[]).map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
-        onUpdateItem(child.id, { points: newPoints });
-      }
-    });
-    if (key === 'width') setWidth(value);
-    if (key === 'height') setHeight(value);
-    onUpdateItem(selectedItem.id, { width: key === 'width' ? value : selectedItem.width, height: key === 'height' ? value : selectedItem.height });
-    onCommitUpdate();
-  };
+  const renderContent = () => {
+    const obj = selectedObject;
+    const objType = obj.type || 'unknown';
 
-  // 旋转变更
-  const handleRotationChange = (value: number) => {
-    setRotation(value);
-    onUpdateItem(selectedItem.id, { rotation: value });
-    onCommitUpdate();
-  };
+    return (
+      <div className="space-y-4">
+        {/* 基本信息 */}
+        <div className="border-b border-gray-200 pb-4">
+          <h3 className="text-lg font-semibold text-gray-800 mb-3">{t('Properties')}</h3>
+          
+          {/* 位置属性 */}
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <EditableParameterInput
+              label={t('x')}
+              initialValue={obj.left || 0}
+              onCommit={(value) => handlePropertyChange('left', value)}
+            />
+            <EditableParameterInput
+              label={t('y')}
+              initialValue={obj.top || 0}
+              onCommit={(value) => handlePropertyChange('top', value)}
+            />
+          </div>
 
-  // 位置变更
-  const handlePositionChange = (key: 'x' | 'y', value: number) => {
-    if (key === 'x') {
-      setX(value);
-      onUpdateItem(selectedItem.id, { x: value });
-    } else {
-      setY(value);
-      onUpdateItem(selectedItem.id, { y: value });
-    }
-    onCommitUpdate();
+          {/* 尺寸属性 */}
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <EditableParameterInput
+              label={t('width')}
+              initialValue={obj.width || 0}
+              onCommit={(value) => handlePropertyChange('width', value)}
+            />
+            <EditableParameterInput
+              label={t('height')}
+              initialValue={obj.height || 0}
+              onCommit={(value) => handlePropertyChange('height', value)}
+            />
+          </div>
+
+          {/* 旋转 */}
+          <div className="mb-4">
+            <EditableParameterInput
+              label={t('rotation')}
+              initialValue={obj.angle || 0}
+              onCommit={(value) => handlePropertyChange('angle', value)}
+            />
+          </div>
+
+          {/* 文本特殊属性 */}
+          {objType === 'textbox' && (
+            <div className="space-y-3 mb-4">
+              <EditableParameterInput
+                label={t('text')}
+                initialValue={(obj as any).text || ''}
+                onCommit={(value) => handlePropertyChange('text', value)}
+                type="text"
+              />
+              <EditableParameterInput
+                label={t('fontSize')}
+                initialValue={(obj as any).fontSize || 16}
+                onCommit={(value) => handlePropertyChange('fontSize', value)}
+              />
+            </div>
+          )}
+
+          {/* 颜色属性 */}
+          <div className="space-y-3 mb-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-gray-700">{t('color')}</label>
+              <input
+                type="color"
+                value={obj.fill as string || '#000000'}
+                onChange={(e) => handlePropertyChange('fill', e.target.value)}
+                className="w-full h-10 border border-gray-300 rounded-md"
+              />
+            </div>
+            
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-gray-700">{t('strokeWidth')}</label>
+              <input
+                type="range"
+                min="0"
+                max="10"
+                value={obj.strokeWidth || 0}
+                onChange={(e) => handlePropertyChange('strokeWidth', parseFloat(e.target.value))}
+                className="w-full"
+              />
+              <span className="text-xs text-gray-500">{obj.strokeWidth || 0}px</span>
+            </div>
+          </div>
+
+          {/* 图层选择 */}
+          <div className="mb-4">
+            <label className="text-sm font-medium text-gray-700 block mb-2">{t('layer')}</label>
+            <select
+              value={obj.data?.layerId || layers[0]?.id || ''}
+              onChange={(e) => handlePropertyChange('data', { ...obj.data, layerId: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              {layers.map(layer => (
+                <option key={layer.id} value={layer.id}>
+                  {layer.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* 删除按钮 */}
+        <div className="pt-4">
+          <button
+            onClick={onDeleteItem}
+            className="w-full px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
+          >
+            {t('Delete Item')}
+          </button>
+        </div>
+      </div>
+    );
   };
 
   return (
-    <div className="p-4 h-full flex flex-col">
-      <h3 className="text-lg font-semibold text-gray-800">组合对象</h3>
-      
-      {/* 位置编辑 */}
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-600 mb-2">{t('Position')}</label>
-        <div className="flex gap-2">
-          <div className="flex-1">
-            <label className="block text-xs text-gray-500 mb-1">{t('x')}</label>
-            <input 
-              type="number" 
-              value={Number(x).toFixed(2)} 
-              onChange={e => handlePositionChange('x', parseFloat(e.target.value))} 
-              className="w-full p-1 bg-white border border-gray-300 rounded-md text-sm" 
-            />
-          </div>
-          <div className="flex-1">
-            <label className="block text-xs text-gray-500 mb-1">{t('y')}</label>
-            <input 
-              type="number" 
-              value={Number(y).toFixed(2)} 
-              onChange={e => handlePositionChange('y', parseFloat(e.target.value))} 
-              className="w-full p-1 bg-white border border-gray-300 rounded-md text-sm" 
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-600 mb-1">颜色</label>
-        <input type="color" value={color} onChange={handleColorChange} className="w-12 h-8 p-1 bg-white border border-gray-300 rounded-md cursor-pointer" />
-      </div>
-      <div className="mb-4 flex gap-2">
-        <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1">宽度</label>
-          <input type="number" min="1" value={width} onChange={e => handleSizeChange('width', parseFloat(e.target.value))} className="w-20 p-1 bg-white border border-gray-300 rounded-md" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-600 mb-1">高度</label>
-          <input type="number" min="1" value={height} onChange={e => handleSizeChange('height', parseFloat(e.target.value))} className="w-20 p-1 bg-white border border-gray-300 rounded-md" />
-        </div>
-      </div>
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-600 mb-1">旋转</label>
-        <input type="number" value={rotation} onChange={e => handleRotationChange(parseFloat(e.target.value))} className="w-20 p-1 bg-white border border-gray-300 rounded-md" />
-      </div>
-      <p className="text-gray-500 text-xs">可整体调整组合对象的颜色、宽高和旋转。</p>
+    <div className="p-4 h-full overflow-y-auto">
+      {renderContent()}
     </div>
-  );
-};
-
-const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers, onUpdateItem, onDeleteItem, onCommitUpdate }) => {
-    // GROUP类型单独渲染
-    if (selectedItem && selectedItem.type === 'GROUP') {
-      return <GroupParameterEditor selectedItem={selectedItem} onUpdateItem={onUpdateItem} onCommitUpdate={onCommitUpdate} />;
-    }
-
-    const handleUpdate = useCallback((key: string, value: string | number) => {
-        if (!selectedItem) return;
-        
-        // 添加调试信息
-        if (key === 'x' || key === 'y') {
-          console.log('位置属性更新:', {
-            itemId: selectedItem.id,
-            property: key,
-            oldValue: selectedItem[key as keyof typeof selectedItem],
-            newValue: value,
-            itemType: selectedItem.type
-          });
-        }
-        
-        onUpdateItem(selectedItem.id, { [key]: value });
-        onCommitUpdate();
-    }, [selectedItem, onUpdateItem, onCommitUpdate]);
-    
-    const handleParameterUpdate = useCallback((paramName: string, value: number) => {
-        if (!selectedItem || !('parameters' in selectedItem)) return;
-        const newParameters = { ...selectedItem.parameters, [paramName]: value };
-        onUpdateItem(selectedItem.id, { parameters: newParameters });
-        onCommitUpdate();
-    }, [selectedItem, onUpdateItem, onCommitUpdate]);
-    
-    const handleColorUpdate = useCallback((key: string, value: string) => {
-        if (!selectedItem) return;
-        onUpdateItem(selectedItem.id, { [key]: value });
-    }, [selectedItem, onUpdateItem]);
-
-    const renderContent = () => {
-      if (!selectedItem) return null;
-      
-      // 所有元素都显示位置编辑
-      const positionSection = (
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-600 mb-2">{t('Position')}</label>
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className="block text-xs text-gray-500 mb-1">{t('x')}</label>
-              <EditableParameterInput 
-                label="" 
-                initialValue={(selectedItem.x || 0).toFixed(2)} 
-                onCommit={(val) => {
-                  console.log('X坐标更新:', {
-                    itemId: selectedItem.id,
-                    oldValue: selectedItem.x,
-                    newValue: val,
-                    itemType: selectedItem.type
-                  });
-                  handleUpdate('x', val as number);
-                }} 
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-xs text-gray-500 mb-1">{t('y')}</label>
-              <EditableParameterInput 
-                label="" 
-                initialValue={(selectedItem.y || 0).toFixed(2)} 
-                onCommit={(val) => {
-                  console.log('Y坐标更新:', {
-                    itemId: selectedItem.id,
-                    oldValue: selectedItem.y,
-                    newValue: val,
-                    itemType: selectedItem.type
-                  });
-                  handleUpdate('y', val as number);
-                }} 
-              />
-            </div>
-          </div>
-          <p className="text-xs text-gray-400 mt-1">
-            坐标系统：SVG坐标 (左上角为原点，X向右，Y向下)
-          </p>
-          <p className="text-xs text-gray-400">
-            注意：拖拽时坐标会实时更新，修改坐标时元素会立即移动
-          </p>
-        </div>
-      );
-
-      switch(selectedItem.type) {
-          case CanvasItemType.TEXT:
-              return <>
-                  {positionSection}
-                  <EditableParameterInput label={t('text')} type="text" initialValue={selectedItem.text} onCommit={(val) => handleUpdate('text', val as string)} />
-                  <EditableParameterInput label={t('fontSize')} initialValue={selectedItem.fontSize} onCommit={(val) => handleUpdate('fontSize', val as number)} min={1}/>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-600 capitalize mb-1">{t('color')}</label>
-                    <input type="color" value={selectedItem.color} onChange={(e) => handleColorUpdate('color', e.target.value)} onBlur={onCommitUpdate} className="w-full h-10 p-1 bg-white border border-gray-300 rounded-md cursor-pointer"/>
-                  </div>
-                  <EditableParameterInput label={t('rotation')} initialValue={selectedItem.rotation} onCommit={(val) => handleUpdate('rotation', val as number)} />
-              </>;
-          case CanvasItemType.IMAGE:
-               return <>
-                  {positionSection}
-                  <EditableParameterInput label={t('width')} initialValue={selectedItem.width} onCommit={(val) => handleUpdate('width', val as number)} min={1}/>
-                  <EditableParameterInput label={t('height')} initialValue={selectedItem.height} onCommit={(val) => handleUpdate('height', val as number)} min={1}/>
-                  <EditableParameterInput label={t('rotation')} initialValue={selectedItem.rotation} onCommit={(val) => handleUpdate('rotation', val as number)} />
-              </>;
-          case CanvasItemType.DRAWING:
-               return <>
-                  {positionSection}
-                  <EditableParameterInput label={t('strokeWidth')} initialValue={selectedItem.strokeWidth} onCommit={(val) => handleUpdate('strokeWidth', val as number)} min={1}/>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-600 capitalize mb-1">{t('color')}</label>
-                    <input type="color" value={selectedItem.color} onChange={(e) => handleColorUpdate('color', e.target.value)} onBlur={onCommitUpdate} className="w-full h-10 p-1 bg-white border border-gray-300 rounded-md cursor-pointer"/>
-                  </div>
-               </>
-          default: // Part types
-              const showRotation = selectedItem.type !== CanvasItemType.ARC && selectedItem.type !== CanvasItemType.SECTOR;
-              return <>
-                  {positionSection}
-                  {showRotation && <EditableParameterInput label={t('rotation')} initialValue={selectedItem.rotation} onCommit={(val) => handleUpdate('rotation', val as number)} />}
-                  {Object.entries(selectedItem.parameters).map(([key, value]) => (
-                      <EditableParameterInput key={key} label={t(key)} initialValue={value} onCommit={(val) => handleParameterUpdate(key, val as number)} />
-                  ))}
-              </>;
-      }
-    }
-
-    const handleLayerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-      if (!selectedItem) return;
-      
-      // 检查目标图层类型是否匹配
-      const targetLayer = layers.find(l => l.id === e.target.value);
-      if (targetLayer) {
-        // 根据对象类型确定应该的图层类型
-        const isVectorType = [
-          'RECTANGLE', 'CIRCLE', 'LINE', 'POLYLINE', 'ARC', 'SECTOR',
-          'EQUILATERAL_TRIANGLE', 'ISOSCELES_RIGHT_TRIANGLE',
-          'L_BRACKET', 'U_CHANNEL', 'FLANGE', 'TORUS',
-          'CIRCLE_WITH_HOLES', 'RECTANGLE_WITH_HOLES',
-          'DRAWING', 'TEXT', 'GROUP'
-        ].includes(selectedItem.type);
-        
-        const isBitmapType = ['IMAGE'].includes(selectedItem.type);
-        
-        // 位图只能使用扫描图层
-        if (isBitmapType && targetLayer.printingMethod === PrintingMethod.ENGRAVE) {
-          alert('位图对象只能使用扫描图层');
-          return;
-        }
-        
-        // 矢量对象可以使用雕刻或扫描图层
-        if (isVectorType && targetLayer.printingMethod === PrintingMethod.SCAN) {
-          // 允许矢量对象使用扫描图层（用于特殊需求）
-        }
-      }
-      
-      onUpdateItem(selectedItem.id, { layerId: e.target.value });
-      onCommitUpdate();
-    };
-
-    return (
-        <div className="p-4 h-full flex flex-col">
-          {selectedItem ? (
-            <>
-              <div className="flex-1 overflow-y-auto pr-2 space-y-4 pb-4">
-                <h3 className="text-lg font-semibold text-gray-800">{t(selectedItem.type)} {t('Properties')}</h3>
-                <div>
-                  <label className="block text-sm font-medium text-gray-600">{t('ID')}</label>
-                  <p className="text-xs text-gray-500 truncate">{selectedItem.id}</p>
-                </div>
-                <div>
-                  <label htmlFor="layer-select" className="block text-sm font-medium text-gray-600">{t('layer')}</label>
-                  <select
-                    id="layer-select"
-                    value={selectedItem.layerId}
-                    onChange={handleLayerChange}
-                    className="w-full bg-white text-gray-900 rounded-md p-2 border border-gray-300 focus:ring-teal-500 focus:border-teal-500"
-                  >
-                    {layers
-                      .filter(layer => {
-                        // 位图对象只显示扫描图层
-                        if (selectedItem.type === CanvasItemType.IMAGE) {
-                          return layer.printingMethod === PrintingMethod.SCAN;
-                        }
-                        // 其他对象显示所有图层
-                        return true;
-                      })
-                      .map(layer => (
-                        <option key={layer.id} value={layer.id}>
-                          {layer.name} ({layer.printingMethod === 'scan' ? '扫描' : '雕刻'})
-                        </option>
-                      ))}
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {(() => {
-                      const isVectorType = [
-                        'RECTANGLE', 'CIRCLE', 'LINE', 'POLYLINE', 'ARC', 'SECTOR',
-                        'EQUILATERAL_TRIANGLE', 'ISOSCELES_RIGHT_TRIANGLE',
-                        'L_BRACKET', 'U_CHANNEL', 'FLANGE', 'TORUS',
-                        'CIRCLE_WITH_HOLES', 'RECTANGLE_WITH_HOLES',
-                        'DRAWING', 'TEXT', 'GROUP'
-                      ].includes(selectedItem.type);
-                      
-                      const isBitmapType = ['IMAGE'].includes(selectedItem.type);
-                      
-                      if (isVectorType) {
-                        return '矢量对象可以使用雕刻或扫描图层';
-                      } else if (isBitmapType) {
-                        return '位图对象只能使用扫描图层';
-                      }
-                      return '';
-                    })()}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    图层属性在创建后不可修改
-                  </p>
-                </div>
-                {renderContent()}
-              </div>
-              <div className="flex-shrink-0 pt-4 border-t border-gray-200">
-                <button
-                    onClick={() => onDeleteItem(selectedItem.id)}
-                    className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition-colors"
-                >
-                    {t('Delete Item')}
-                </button>
-              </div>
-            </>
-          ) : (
-            <div className="h-full pt-4">
-              <p className="text-gray-500">{t('Select an item to edit its properties.')}</p>
-            </div>
-          )}
-        </div>
   );
 };
 
