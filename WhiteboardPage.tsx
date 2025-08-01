@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import type { CanvasItem, CanvasItemData, PartType, Layer, Part, ImageObject } from './types';
+import type { CanvasItem, CanvasItemData, PartType, Layer, Part, ImageObject, Point } from './types';
 import { CanvasItemType, ToolType, PrintingMethod } from './types';
 import { PART_LIBRARY, BASIC_SHAPES } from './constants';
 import Toolbar from './components/Toolbar';
@@ -22,9 +22,10 @@ import ImageIcon from './assets/图片.svg';
 import ImportIcon from './assets/导入.svg';
 import PartLibraryIcon from './assets/零件库.svg';
 import PropertyIcon from './assets/属性.svg';
-
+import { Converter } from 'svg-to-gcode';
 
 // 浏览器端简易 HPGL 解析器，仅支持 PU/PD/PA 指令
+
 function simpleParseHPGL(content: string) {
   // 返回 [{type: 'PU'|'PD'|'PA', points: [[x,y], ...]}]
   const cmds: { type: string; points: [number, number][] }[] = [];
@@ -70,6 +71,73 @@ function getGroupBoundingBox(items: CanvasItemData[]): { minX: number, minY: num
   return { minX, minY, maxX, maxY };
 }
 
+// ==========================================================
+// SVG and G-code Generation Helpers for Engraving
+// ==========================================================
+
+/**
+ * Converts a single CanvasItem to an SVG element string.
+ * @param item The canvas item to convert.
+ * @returns An SVG element as a string.
+ */
+function itemToSvgElement(item: CanvasItem): string {
+
+  // Explicitly ignore images and text, as they cannot be converted to vector paths.
+  if (item.type === CanvasItemType.IMAGE || item.type === CanvasItemType.TEXT) {
+    return '';
+  }
+
+  const stroke = 'stroke="black" stroke-width="1" fill="none"';
+
+  if (item.type === 'GROUP' && Array.isArray(item.children)) {
+    const groupTransform = `transform="translate(${item.x || 0}, ${item.y || 0}) rotate(${item.rotation || 0})"`;
+    const childrenSvg = item.children.map(child => itemToSvgElement(child as CanvasItem)).join('');
+    return `<g ${groupTransform}>${childrenSvg}</g>`;
+  }
+
+  const transform = `transform="translate(${item.x || 0}, ${item.y || 0}) rotate(${item.rotation || 0})"`;
+
+  if ('parameters' in item) {
+    switch (item.type) {
+      case CanvasItemType.RECTANGLE: {
+        const w = item.parameters.width || 40;
+        const h = item.parameters.height || 40;
+        return `<rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" ${stroke} ${transform} />`;
+      }
+      case CanvasItemType.CIRCLE: {
+        const r = item.parameters.radius || 20;
+        return `<circle cx="0" cy="0" r="${r}" ${stroke} ${transform} />`;
+      }
+      case CanvasItemType.LINE: {
+        const l = item.parameters.length || 40;
+        return `<line x1="${-l / 2}" y1="0" x2="${l / 2}" y2="0" ${stroke} ${transform} />`;
+      }
+      // Add more complex shapes as needed, converting them to SVG paths.
+      // For now, we support the basic shapes that svg-to-gcode handles well.
+    }
+  }
+
+  if (item.type === CanvasItemType.DRAWING && 'points' in item && Array.isArray(item.points) && item.points.length > 1) {
+    const pointsStr = item.points.map(p => `${p.x},${p.y}`).join(' ');
+    const drawingTransform = `transform="translate(${item.x || 0}, ${item.y || 0}) rotate(${item.rotation || 0})"`;
+    return `<polyline points="${pointsStr}" ${stroke} ${drawingTransform} />`;
+  }
+
+  return '';
+}
+
+/**
+ * Generates a complete SVG string from a list of canvas items.
+ * @param items The array of canvas items to include.
+ * @param canvasWidth The width of the canvas.
+ * @param canvasHeight The height of the canvas.
+ * @returns A full SVG document as a string.
+ */
+function generateSvgForEngraving(items: CanvasItem[], canvasWidth: number, canvasHeight: number): string {
+  const svgElements = items.map(item => itemToSvgElement(item)).join('\n');
+  return `<svg width="${canvasWidth}mm" height="${canvasHeight}mm" viewBox="0 0 ${canvasWidth} ${canvasHeight}" xmlns="http://www.w3.org/2000/svg">\n${svgElements}\n</svg>`;
+}
+
 const MAX_HISTORY = 50;
 const ALL_PARTS = [...BASIC_SHAPES, ...PART_LIBRARY];
 
@@ -82,7 +150,7 @@ interface WhiteboardPageProps {
 // 2. WhiteboardPage组件支持props传入宽高，默认500
 const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   const location = useLocation();
-  
+
 
   const [layers, setLayers] = useState<Layer[]>([
     { id: `scan_layer_${Date.now()}`, name: '扫描图层', isVisible: true, printingMethod: PrintingMethod.SCAN },
@@ -134,23 +202,23 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       CanvasItemType.DRAWING,
       CanvasItemType.TEXT,
     ];
-    
+
     // 位图类型
     const bitmapTypes = [
       CanvasItemType.IMAGE,
     ];
-    
+
     // GROUP类型默认为矢量（雕刻）
     if (itemType === 'GROUP') {
       return PrintingMethod.ENGRAVE;
     }
-    
+
     if (vectorTypes.includes(itemType as CanvasItemType)) {
       return PrintingMethod.ENGRAVE; // 矢量默认使用雕刻图层
     } else if (bitmapTypes.includes(itemType as CanvasItemType)) {
       return PrintingMethod.SCAN; // 位图只能使用扫描图层
     }
-    
+
     // 默认返回雕刻（矢量）
     return PrintingMethod.ENGRAVE;
   }, []);
@@ -158,7 +226,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   // 获取指定类型的图层ID，如果没有对应类型的图层，则创建
   const getLayerIdByType = useCallback((printingMethod: PrintingMethod) => {
     let layer = layers.find(l => l.printingMethod === printingMethod);
-    
+
     // 如果没有对应类型的图层，创建一个新的
     if (!layer) {
       const newLayer: Layer = {
@@ -170,7 +238,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       setLayers(prev => [newLayer, ...prev]);
       layer = newLayer;
     }
-    
+
     return layer.id;
   }, [layers]);
 
@@ -180,17 +248,17 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
   const addItem = useCallback((itemData: CanvasItemData) => {
     pushHistory(layers, items);
-    
+
     // 根据对象类型自动确定图层
     const printingMethod = getPrintingMethodByItemType(itemData.type);
     const targetLayerId = getLayerIdByType(printingMethod);
-    
-    const newItem = { 
-      ...itemData, 
-      id: `item_${Date.now()}_${Math.random()}`, 
-      layerId: targetLayerId 
+
+    const newItem = {
+      ...itemData,
+      id: `item_${Date.now()}_${Math.random()}`,
+      layerId: targetLayerId
     } as CanvasItem;
-    
+
     setItems(prev => [...prev, newItem]);
     setSelectedItemId(newItem.id);
     setActiveTool(ToolType.SELECT);
@@ -198,19 +266,19 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
   const addItems = useCallback((itemsData: CanvasItemData[]) => {
     pushHistory(layers, items);
-    
+
     const newItems = itemsData.map(itemData => {
       // 根据对象类型自动确定图层
       const printingMethod = getPrintingMethodByItemType(itemData.type);
       const targetLayerId = getLayerIdByType(printingMethod);
-      
+
       return {
         ...itemData,
         id: `item_${Date.now()}_${Math.random()}`,
         layerId: targetLayerId,
       } as CanvasItem;
     });
-    
+
     setItems(prev => [...prev, ...newItems]);
     setSelectedItemId(newItems[newItems.length - 1]?.id || null);
     setActiveTool(ToolType.SELECT);
@@ -234,17 +302,17 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     // 根据画布大小动态设定图片最大尺寸（占画布的70%）
     const MAX_IMAGE_WIDTH = canvasWidth * 0.4;
     const MAX_IMAGE_HEIGHT = canvasHeight * 0.4;
-    
+
     let newWidth = width;
     let newHeight = height;
-    
+
     // 计算缩放比例，保持原图宽高比
     const scale = Math.min(MAX_IMAGE_WIDTH / width, MAX_IMAGE_HEIGHT / height, 1);
     if (scale < 1) {
       newWidth = width * scale;
       newHeight = height * scale;
     }
-    
+
     // 如果图片太小，设定一个最小尺寸（至少占画布的20%）
     const MIN_SIZE = Math.min(canvasWidth, canvasHeight) * 0.05;
     if (Math.max(newWidth, newHeight) < MIN_SIZE) {
@@ -252,7 +320,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       newWidth *= minScale;
       newHeight *= minScale;
     }
-    
+
     addItem({
       type: CanvasItemType.IMAGE,
       x: canvasWidth / 2 - newWidth / 2, // 图片左上角，使图片中心在画布中心
@@ -273,17 +341,17 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         // 根据画布大小动态设定图片最大尺寸（占画布的70%）
         const MAX_IMAGE_WIDTH = canvasWidth * 0.4;
         const MAX_IMAGE_HEIGHT = canvasHeight * 0.4;
-        
+
         let newWidth = img.width;
         let newHeight = img.height;
-        
+
         // 计算缩放比例，保持原图宽高比
         const scale = Math.min(MAX_IMAGE_WIDTH / img.width, MAX_IMAGE_HEIGHT / img.height, 1);
         if (scale < 1) {
           newWidth = img.width * scale;
           newHeight = img.height * scale;
         }
-        
+
         // 如果图片太小，设定一个最小尺寸（至少占画布的20%）
         const MIN_SIZE = Math.min(canvasWidth, canvasHeight) * 0.05;
         if (Math.max(newWidth, newHeight) < MIN_SIZE) {
@@ -291,7 +359,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           newWidth *= minScale;
           newHeight *= minScale;
         }
-        
+
         addItem({
           type: CanvasItemType.IMAGE,
           x: canvasWidth / 2 - newWidth / 2, // 图片左上角，使图片中心在画布中心
@@ -312,19 +380,19 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       const item = items.find(i => i.id === itemId);
       if (item) {
         const targetLayer = layers.find(l => l.id === updates.layerId);
-        
+
         if (targetLayer) {
           // 位图对象只能使用扫描图层
           if (item.type === CanvasItemType.IMAGE && targetLayer.printingMethod === PrintingMethod.ENGRAVE) {
             console.warn('位图对象只能使用扫描图层');
             return; // 阻止位图移动到雕刻图层
           }
-          
+
           // 矢量对象可以使用雕刻或扫描图层（允许灵活分配）
         }
       }
     }
-    
+
     setItems(prevItems =>
       prevItems.map(p => (p.id === itemId ? { ...p, ...updates } as CanvasItem : p))
     );
@@ -371,7 +439,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       justify-content: center;
       z-index: 10000;
     `;
-    
+
     const content = document.createElement('div');
     content.style.cssText = `
       background: white;
@@ -380,7 +448,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       min-width: 300px;
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     `;
-    
+
     content.innerHTML = `
       <h3 style="margin: 0 0 15px 0; font-size: 16px; font-weight: bold;">选择图层属性</h3>
       <div style="margin-bottom: 15px;">
@@ -395,29 +463,29 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         <button id="confirmBtn" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">确定</button>
       </div>
     `;
-    
+
     dialog.appendChild(content);
     document.body.appendChild(dialog);
-    
+
     const select = content.querySelector('#layerType') as HTMLSelectElement;
     const cancelBtn = content.querySelector('#cancelBtn') as HTMLButtonElement;
     const confirmBtn = content.querySelector('#confirmBtn') as HTMLButtonElement;
-    
+
     const cleanup = () => {
       document.body.removeChild(dialog);
     };
-    
+
     cancelBtn.onclick = cleanup;
     confirmBtn.onclick = () => {
       const selectedMethod = select.value as PrintingMethod;
-      const layerName = selectedMethod === PrintingMethod.SCAN 
+      const layerName = selectedMethod === PrintingMethod.SCAN
         ? `扫描图层 ${layers.filter(l => l.printingMethod === PrintingMethod.SCAN).length + 1}`
         : `雕刻图层 ${layers.filter(l => l.printingMethod === PrintingMethod.ENGRAVE).length + 1}`;
-      
-      const newLayer: Layer = { 
-        id: `layer_${Date.now()}`, 
-        name: layerName, 
-        isVisible: true, 
+
+      const newLayer: Layer = {
+        id: `layer_${Date.now()}`,
+        name: layerName,
+        isVisible: true,
         printingMethod: selectedMethod
       };
       pushHistory(layers, items);
@@ -425,7 +493,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       setActiveLayerId(newLayer.id);
       cleanup();
     };
-    
+
     // 点击背景关闭
     dialog.onclick = (e) => {
       if (e.target === dialog) cleanup();
@@ -446,7 +514,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     // 禁止修改图层属性（打印方式），只允许修改名称和可见性
     const allowedUpdates = { ...updates };
     delete allowedUpdates.printingMethod; // 禁止修改打印方式
-    
+
     pushHistory(layers, items);
     setLayers(prev => prev.map(l => (l.id === layerId ? { ...l, ...allowedUpdates } : l)));
   }, [layers, items, pushHistory]);
@@ -850,71 +918,10 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       }
       return;
     }
-    // // PLT(HPGL) 导入
-    // if (file.ext === 'plt') {
-    //   try {
-    //     alert('导入中');
-    //     const hpglData = simpleParseHPGL(file.content);
-    //     const items: CanvasItemData[] = [];
-    //     let cur: { x: number; y: number } = { x: 0, y: 0 };
-    //     let drawing: { x: number; y: number }[] = [];
-    //     hpglData.forEach((cmd: any) => {
-    //       if (cmd.type === 'PU') {
-    //         if (drawing.length > 1) {
-    //           const minX = Math.min(...drawing.map((p: any) => p.x));
-    //           const minY = Math.min(...drawing.map((p: any) => p.y));
-    //           items.push({
-    //             type: CanvasItemType.DRAWING,
-    //             x: minX,
-    //             y: minY,
-    //             points: drawing.map((p: any) => ({ x: p.x - minX, y: p.y - minY })),
-    //             color: '#eab308',
-    //             strokeWidth: 2,
-    //           });
-    //         }
-    //         drawing = [];
-    //         if (cmd.points && cmd.points.length > 0) {
-    //           cur = { x: cmd.points[0][0], y: cmd.points[0][1] };
-    //         }
-    //       } else if (cmd.type === 'PD' || cmd.type === 'PA') {
-    //         if (cmd.points) {
-    //           cmd.points.forEach((pt: [number, number]) => {
-    //             cur = { x: pt[0], y: pt[1] };
-    //             drawing.push({ ...cur });
-    //           });
-    //         }
-    //       }
-    //     });
-    //     if (drawing.length > 1) {
-    //       const minX = Math.min(...drawing.map((p: any) => p.x));
-    //       const minY = Math.min(...drawing.map((p: any) => p.y));
-    //       items.push({
-    //         type: CanvasItemType.DRAWING,
-    //         x: minX,
-    //         y: minY,
-    //         points: drawing.map((p: any) => ({ x: p.x - minX, y: p.y - minY })),
-    //         color: '#eab308',
-    //         strokeWidth: 2,
-    //       });
-    //     }
-    //     if (items.length === 0) {
-    //       alert('PLT未识别到可导入的线条');
-    //     } else {
-    //       addItems(items);
-    //     }
-    //   } catch (e) {
-    //     alert('PLT解析失败');
-    //   }
-    //   return;
-    // }
     if (file.ext === 'plt') {
       try {
-        //alert('导入中');
         const hpglCommands = simpleParseHPGL(file.content);
 
-        // ==========================================================
-        // 步骤 1: 将 HPGL 指令解析为原始坐标的多段线
-        // ==========================================================
         const polylines: { x: number; y: number }[][] = [];
         let currentPolyline: { x: number; y: number }[] = [];
         let currentPos = { x: 0, y: 0 };
@@ -966,11 +973,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           return;
         }
 
-        // ==========================================================
-        // 步骤 2: 坐标缩放适配 (Fit to View)
-        // ==========================================================
-
-        // 2.1 找到所有点的总边界框
         const allPoints = polylines.flat();
         const minX = Math.min(...allPoints.map(p => p.x));
         const minY = Math.min(...allPoints.map(p => p.y));
@@ -985,34 +987,25 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           return;
         }
 
-        // 2.2 定义你的画布尺寸，并留出一些边距
-        const CANVAS_WIDTH = 400; // <-- 请替换为您的画布实际宽度
-        const CANVAS_HEIGHT = 400; // <-- 请替换为您的画布实际高度
-        const PADDING = 20; // 在画布周围留出20像素的边距
+        const CANVAS_WIDTH = 400;
+        const CANVAS_HEIGHT = 400;
+        const PADDING = 20;
 
         const targetWidth = CANVAS_WIDTH - PADDING * 2;
         const targetHeight = CANVAS_HEIGHT - PADDING * 2;
 
-        // 2.3 计算缩放比例，必须取较小值以保持长宽比
         const scaleX = targetWidth / drawingWidth;
         const scaleY = targetHeight / drawingHeight;
         const scaleFactor = Math.min(scaleX, scaleY);
 
-        // (可选) 计算居中所需的偏移量
         const scaledDrawingWidth = drawingWidth * scaleFactor;
         const scaledDrawingHeight = drawingHeight * scaleFactor;
         const offsetX = (CANVAS_WIDTH - scaledDrawingWidth) / 2;
         const offsetY = (CANVAS_HEIGHT - scaledDrawingHeight) / 2;
 
-
-        // ==========================================================
-        // 步骤 3: 使用新的坐标创建最终的画布项目
-        // ==========================================================
         const finalItems: CanvasItemData[] = polylines.map(polyline => {
-          // 3.1 转换这条多段线上的每一个点
           const transformedPoints = polyline.map(p => {
             const translatedX = p.x - minX;
-            // 注意：HPGL的Y轴向上，Canvas的Y轴向下，所以需要翻转
             const translatedY = maxY - p.y;
 
             return {
@@ -1021,15 +1014,13 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             };
           });
 
-          // 3.2 计算转换后这条线的新的边界框左上角坐标
           const newMinX = Math.min(...transformedPoints.map(p => p.x));
           const newMinY = Math.min(...transformedPoints.map(p => p.y));
 
           return {
             type: CanvasItemType.DRAWING,
-            x: newMinX, // 定位点
-            y: newMinY, // 定位点
-            // 内部点的坐标是相对于这个新的定位点的
+            x: newMinX,
+            y: newMinY,
             points: transformedPoints.map(p => ({
               x: p.x - newMinX,
               y: p.y - newMinY,
@@ -1094,36 +1085,23 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     event.currentTarget.value = '';
   };
 
-  // 7.22
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
 
-    // === 核心逻辑：根据文件类型选择不同的读取方式 ===
     if (ext === 'svg') {
-      // --- 针对 SVG 文件的特殊处理流程 ---
-
-      // a. 设置 onload 回调，它会接收到一个文本字符串
       reader.onload = (e) => {
-        // 步骤 1: 获取 SVG 文件内容的字符串，这就是你想要的【中间变量】
         const svgString = e.target?.result as string;
         if (!svgString) return;
-
-        console.log("成功读取SVG为字符串:", svgString.substring(0, 100) + '...'); // 你可以在这里操作 svgString
-
-        // 步骤 2: 手动将 SVG 字符串转换为 Data URL
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(svgString);
-
-        // 步骤 3: 后续流程与原来完全相同，使用 Data URL 获取尺寸
         const img = new Image();
         img.onload = () => {
           addImage(dataUrl, img.width, img.height);
         };
         img.src = dataUrl;
       };
-      // b. 启动读取过程，读取为【纯文本】
       reader.readAsText(file);
     }
     else if (ext === 'dxf') {
@@ -1132,9 +1110,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           const dxfContents = e.target?.result as string;
           const helper = new Helper(dxfContents);
           const generatedSvg = helper.toSVG();
-
-          // 核心：在这里调用我们的新函数！
-          // 它会处理 SVG 字符串，并最终调用 onAddImage
           processSvgString(generatedSvg, addImage);
 
         } catch (err) {
@@ -1175,38 +1150,16 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     img.src = dataUrl;
   };
 
-  // const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
-  //   const file = event.target.files?.[0];
-  //   if (!file) return;
-  //   const ext = file.name.split('.').pop()?.toLowerCase() || '';
-  //   const reader = new FileReader();
-  //   reader.onload = (e) => {
-  //     if (typeof e.target?.result === 'string') {
-  //       handleImportFile({
-  //         name: file.name,
-  //         ext,
-  //         content: e.target.result
-  //       });
-  //     }
-  //   };
-  //   reader.readAsText(file);
-  //   event.currentTarget.value = '';
-  // };
-
   useEffect(() => {
     (window as any).setCanvasSize = (w: number, h: number) => {
       setCanvasWidth(w);
       setCanvasHeight(h);
     };
 
-    // --- 【新增】添加图片的桥 ---
-    // 我们将 addImage 函数也挂载到 window 对象上
     (window as any).addImageToCanvas = (href: string, width: number, height: number) => {
-      // 这里直接调用你已经写好的 addImage 函数
       addImage(href, width, height);
     };
 
-    // 新增：主动向安卓端请求画布大小
     if (window.Android && typeof window.Android.getPlatformSize === 'function') {
       try {
         const size = window.Android.getPlatformSize();
@@ -1223,7 +1176,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           setCanvasHeight(Number(obj.height));
         }
       } catch (e) {
-        // 忽略异常，保持默认
       }
     }
     return () => {
@@ -1231,7 +1183,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       delete (window as any).addImageToCanvas;
     };
   }, [addImage]);
-  
+
   return (
     <div className="h-screen w-screen flex flex-row font-sans text-gray-800 bg-gray-100 overflow-hidden" style={{ width: '100vw', height: '100vh', minHeight: '100vh', minWidth: '100vw' }}>
       {/* 页面顶部：下一步、撤销按钮 */}
@@ -1244,7 +1196,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               disabled={history.length === 0}
             >撤销</button>
           </div>
-          {/* 新增：画布大小显示在中间 */}
           <div className="flex-1 flex justify-center">
             <span style={{ color: '#888', fontSize: 13 }}>
               画布大小：{canvasWidth} × {canvasHeight}
@@ -1262,7 +1213,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       {step === 1 ? (
         <>
           <div className="flex-1 flex flex-col min-h-0 min-w-0 pt-14 md:pt-0">
-            {/* PC端工具栏 */}
             <div className="hidden md:block h-16 bg-white border-b border-gray-200">
               <Toolbar
                 onOpenCategoryPicker={setOpenCategory}
@@ -1291,14 +1241,12 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 eraserRadius={eraserRadius}
               />
             </main>
-            {/* 底部工具栏抽屉触发按钮，仅移动端显示 */}
             <button
               className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 px-6 py-2 rounded-full bg-gray-800 text-white text-base shadow-lg md:hidden"
               style={{ paddingBottom: 'env(safe-area-inset-bottom,16px)' }}
               onClick={() => setDrawer('toolbar')}
             >工具栏</button>
           </div>
-          {/* 右侧面板：仅PC端显示 */}
           <aside className="w-72 flex-shrink-0 bg-white border-l border-gray-200 flex flex-col min-h-0 min-w-0 hidden md:flex">
             {selectedItem ? (
               <ParameterEditor
@@ -1327,7 +1275,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       ) : (
         // step === 2: 图层设置界面
         <div className="w-full h-full flex flex-col">
-          {/* 顶部返回栏 */}
           <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200">
             <div className="flex items-center">
               <button
@@ -1344,20 +1291,19 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                   alert('请先选择一个图层');
                   return;
                 }
-              
+
                 if (layerToExport.printingMethod === PrintingMethod.SCAN) {
-                  // 检查图层中是否有图像
-                  const layerImageItems = items.filter(item => 
+                  const layerImageItems = items.filter(item =>
                     item.layerId === layerToExport.id && item.type === CanvasItemType.IMAGE
                   );
-                  
+
                   if (layerImageItems.length === 0) {
                     alert('扫描图层上没有需要处理的图片。');
                     return;
                   }
-              
+
                   const settings: GCodeScanSettings = {
-                    lineDensity: 1 / (layerToExport.lineDensity || 10), // 转换单位
+                    lineDensity: 1 / (layerToExport.lineDensity || 10),
                     isHalftone: !!layerToExport.halftone,
                     negativeImage: false,
                     hFlipped: false,
@@ -1366,23 +1312,20 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                     maxPower: 255,
                     burnSpeed: 1000,
                     travelSpeed: 6000,
-                    overscanDist: layerToExport.reverseMovementOffset ?? 3, // 使用图层设置的空移距离
+                    overscanDist: layerToExport.reverseMovementOffset ?? 3,
                   };
-              
+
                   try {
-                    console.log("正在生成整个平台的G代码...");
-                    
-                    // 使用平台尺寸生成G代码
                     const gcode = await generatePlatformScanGCode(
                       layerToExport,
                       items,
-                      canvasWidth,  // 使用画布宽度作为平台宽度
-                      canvasHeight, // 使用画布高度作为平台高度
+                      canvasWidth,
+                      canvasHeight,
                       settings,
-                      canvasWidth,  // canvasWidth
-                      canvasHeight  // canvasHeight
+                      canvasWidth,
+                      canvasHeight
                     );
-                    
+
                     const blob = new Blob([gcode], { type: 'text/plain' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
@@ -1392,17 +1335,70 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
-              
+
                     alert('平台扫描G代码已生成并开始下载。');
                   } catch (error) {
                     console.error("G代码生成失败:", error);
                     alert(`G代码生成失败: ${error instanceof Error ? error.message : String(error)}`);
                   }
-              
+
                 } else {
-                  // 雕刻图层的逻辑暂空
-                  console.log('生成G代码（雕刻）', { layers, items });
-                  alert('雕刻图层的G代码生成功能尚未实现。');
+                  // --- 修改后的雕刻图层逻辑: 只生成和下载SVG用于调试 ---
+                  const layerItems = items.filter(
+                    item => item.layerId === layerToExport.id && item.type !== CanvasItemType.IMAGE
+                  );
+
+                  if (layerItems.length === 0) {
+                    alert('雕刻图层上没有可雕刻的矢量轨迹。');
+                    return;
+                  }
+
+                  try {
+                    // 步骤1: 生成只包含矢量路径的纯净SVG字符串
+                    const svgString = generateSvgForEngraving(layerItems, canvasWidth, canvasHeight);
+
+                    // 步骤2: 配置并实例化svg-to-gcode转换器
+                    const settings = {
+                      zOffset: 1,
+                      feedRate: 1000,
+                      seekRate: 2000,
+                      zValue: -1,
+                      tolerance: 0.1,
+                      pathPlanning: 'minimumTravel' as const,
+                    };
+                    const converter = new Converter(settings);
+
+                    // 步骤3: 异步转换SVG到G-code
+                    const { gcode } = await converter.convert(svgString);
+
+                    // 步骤4: G-code后处理，适配激光雕刻机
+                    const laserPowerValue = Math.round(((layerToExport.power || 50) / 100) * 1000);
+
+                    // 查找 `G0 Z-1` (下降) 和 `G0 Z0` (抬起)
+                    // 添加 (\.0+)? 是为了处理可能出现的 .0, .00 等小数情况，使匹配更健壮
+                    const processedGcode = gcode
+                      .replace(/G0 Z-1(\.0+)?/g, `M3 S${laserPowerValue}`) // Z下降 -> 激光开启
+                      .replace(/G0 Z0(\.0+)?/g, 'M5');                   // Z抬起 -> 激光关闭
+
+                    // 添加G-code文件头尾，确保单位和绝对定位
+                    const finalGcode = `G21 ; Set units to mm\nG90 ; Use absolute positioning\n\n${processedGcode}\n\nM5 ; Ensure laser is off at the end\nG0 X0 Y0 ; Return home\n`;
+
+                    // 步骤5: 创建Blob并提供下载
+                    const blob = new Blob([finalGcode], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${layerToExport.name.replace(/\s+/g, '_') || 'engrave'}.gcode`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+
+                    alert('雕刻G代码已生成并开始下载。');
+                  } catch (err: any) {
+                    console.error("SVG generation for debugging failed:", err);
+                    alert(`生成SVG调试文件失败: ${err.message}`);
+                  }
                 }
               }}
             >
@@ -1617,7 +1613,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     </div>
   );
 
-  
+
 };
 
 // 声明window.Android类型
