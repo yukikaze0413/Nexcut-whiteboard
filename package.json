@@ -41,6 +41,8 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@types/svg-path-parser": "^1.1.6",
+    "@types/svgo": "^2.6.4",
+    "svgo": "^4.0.0",
     "typescript": "~5.7.2",
     "vite": "^6.2.0"
   }

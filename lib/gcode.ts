@@ -1,5 +1,6 @@
 import type { ImageObject, CanvasItem, Layer } from '../types';
 import { CanvasItemType, PrintingMethod } from '../types';
+import { Helper, parseString as parseDxf } from 'dxf';
 
 // 定义G代码生成所需的参数
 export interface GCodeScanSettings {
@@ -46,12 +47,12 @@ async function createPlatformImage(
   lineDensity: number,
   settings: GCodeScanSettings,
   // +++ 新增参数 +++
-  canvasWidth: number, 
+  canvasWidth: number,
   canvasHeight: number
 ): Promise<{ width: number; height: number; data: Int16Array }> {
   const pixelWidth = Math.round(platformWidth / lineDensity);
   const pixelHeight = Math.round(platformHeight / lineDensity);
-  
+
   const platformCanvas = document.createElement("canvas");
   platformCanvas.width = pixelWidth;
   platformCanvas.height = pixelHeight;
@@ -59,7 +60,7 @@ async function createPlatformImage(
   if (!platformCtx) {
     throw new Error("无法创建平台图像上下文");
   }
-  
+
   platformCtx.fillStyle = "white";
   platformCtx.fillRect(0, 0, pixelWidth, pixelHeight);
 
@@ -67,7 +68,7 @@ async function createPlatformImage(
   // 从前端画布尺寸到物理平台像素尺寸的缩放比例
   const scaleX = pixelWidth / canvasWidth;
   const scaleY = pixelHeight / canvasHeight;
-  
+
   const imagePromises = imageItems.map(async (item) => {
     return new Promise<void>((resolve, reject) => {
       const img = new Image();
@@ -83,13 +84,13 @@ async function createPlatformImage(
         const destY_pixels = itemTopLeftY_canvas * scaleY;
         const destWidth_pixels = item.width * scaleX;
         const destHeight_pixels = item.height * scaleY;
-        
+
         // 3. 绘制到平台Canvas上
         platformCtx.drawImage(
-          img, 
-          destX_pixels, 
-          destY_pixels, 
-          destWidth_pixels, 
+          img,
+          destX_pixels,
+          destY_pixels,
+          destWidth_pixels,
           destHeight_pixels
         );
         resolve();
@@ -98,12 +99,12 @@ async function createPlatformImage(
       img.src = item.href;
     });
   });
-  
-  await Promise.all(imagePromises);  
+
+  await Promise.all(imagePromises);
   // 提取像素数据并转换为灰度
   const srcData = platformCtx.getImageData(0, 0, pixelWidth, pixelHeight).data;
   const destData = new Int16Array(pixelWidth * pixelHeight);
-  
+
   for (let y = 0, i = 0; y < pixelHeight; y++) {
     for (let x = 0; x < pixelWidth; x++, i++) {
       const si = i << 2; // i * 4
@@ -112,7 +113,7 @@ async function createPlatformImage(
       destData[i] = linear2sRGB(Math.pow(settings.negativeImage ? 1 - l : l, 1.0));
     }
   }
-  
+
   // 应用翻转处理
   if (settings.hFlipped) {
     for (let y = 0, i = 0; y < pixelHeight; y++, i += pixelWidth) {
@@ -125,7 +126,7 @@ async function createPlatformImage(
       }
     }
   }
-  
+
   if (settings.vFlipped) {
     let y = pixelHeight >> 1;
     while (y-- > 0) {
@@ -138,28 +139,28 @@ async function createPlatformImage(
       }
     }
   }
-  
+
   // 应用半调网屏处理
   if (settings.isHalftone) {
     // 创建工作缓冲区以避免误差扩散污染原始空白区域
     const workingData = new Float32Array(destData);
     const originalWhiteMask = new Uint8Array(pixelWidth * pixelHeight);
-    
+
     // 记录原始的纯白像素位置
     for (let i = 0; i < destData.length; i++) {
       originalWhiteMask[i] = destData[i] >= 250 ? 1 : 0; // 原始白色区域
     }
-    
+
     const matrix = [[0, 0, 0, 7, 5], [3, 5, 7, 5, 3], [1, 3, 5, 3, 1]];
     for (let y = 0, i = 0; y < pixelHeight; y++) {
       for (let x = 0; x < pixelWidth; x++, i++) {
         const c = workingData[i];
         const newValue = c < 128 ? 0 : 255;
         destData[i] = newValue;
-        
+
         const quantError = c - newValue;
         if (quantError === 0) continue;
-        
+
         // 误差扩散到周围像素（在工作缓冲区中）
         for (let iy = 0; iy < 3; iy++) {
           const my = y + iy;
@@ -170,7 +171,7 @@ async function createPlatformImage(
             const mx = x + ix - 2;
             if (mx < 0 || mx >= pixelWidth) continue;
             const targetIndex = mx + my * pixelWidth;
-            
+
             // 只对非原始白色区域进行误差扩散
             if (originalWhiteMask[targetIndex] === 0) {
               workingData[targetIndex] += quantError * m / 48;
@@ -181,7 +182,7 @@ async function createPlatformImage(
         }
       }
     }
-    
+
     // 确保原始纯白区域保持为255
     for (let i = 0; i < destData.length; i++) {
       if (originalWhiteMask[i] === 1) {
@@ -189,7 +190,7 @@ async function createPlatformImage(
       }
     }
   }
-  
+
   return {
     width: pixelWidth,
     height: pixelHeight,
@@ -217,10 +218,10 @@ export async function generatePlatformScanGCode(
   canvasHeight: number
 ): Promise<string> {
   // 筛选出属于该图层的图像对象
-  const imageItems = items.filter(item => 
+  const imageItems = items.filter(item =>
     item.layerId === layer.id && item.type === CanvasItemType.IMAGE
   ) as ImageObject[];
-  
+
   if (imageItems.length === 0) {
     throw new Error('扫描图层中没有图像对象');
   }
@@ -233,27 +234,27 @@ export async function generatePlatformScanGCode(
     travelSpeed = 6000,
     overscanDist = 3,
   } = settings;
-  
+
   // 创建整个平台的像素数据
- const platformImage = await createPlatformImage(
-    imageItems, 
-    platformWidth, 
-    platformHeight, 
-    lineDensity, 
+  const platformImage = await createPlatformImage(
+    imageItems,
+    platformWidth,
+    platformHeight,
+    lineDensity,
     settings,
     // +++ 传递新参数 +++
     canvasWidth,
     canvasHeight
   );
-  
+
   const { width, height, data } = platformImage;
   const dx = lineDensity;
   const dy = lineDensity;
-  
+
   const gcode: string[] = [];
   let x0: number | null = null, y0: number | null = null, speed0: number | null = null;
   let x1: number | null = null, y1: number | null = null, speed1: number | null = null, power1 = 0;
-  
+
   function flush(ignoreTravel: boolean = false) {
     let cmd = "G1 ";
     if (x0 !== x1 && x1 != null) {
@@ -274,7 +275,7 @@ export async function generatePlatformScanGCode(
     }
     gcode.push(cmd);
   }
-  
+
   function goTo(x: number | null, y: number | null, power: number, speed: number, forceFlush: boolean = false) {
     if (power1 !== power || speed1 !== speed) {
       flush();
@@ -287,7 +288,7 @@ export async function generatePlatformScanGCode(
       flush();
     }
   }
-  
+
   // G代码头部信息
   gcode.push(`; Platform Scan G-Code for Nexcut`);
   gcode.push(`; Layer: ${layer.name}`);
@@ -304,7 +305,7 @@ export async function generatePlatformScanGCode(
   gcode.push(`G0 X0 Y0 F${travelSpeed} ; Move to origin`);
   gcode.push(`M4 ; Enable laser (variable power mode)`);
   gcode.push(``);
-  
+
   // 计算实际内容的边界框，避免扫描空白区域
   let minY = height, maxY = -1, minX = width, maxX = -1;
   for (let y = 0; y < height; y++) {
@@ -319,7 +320,7 @@ export async function generatePlatformScanGCode(
       }
     }
   }
-  
+
   // 如果没有内容，生成空的G代码
   if (minY > maxY || minX > maxX) {
     gcode.push(`; No content found in layer`);
@@ -328,31 +329,31 @@ export async function generatePlatformScanGCode(
     gcode.push(`M2 ; End program`);
     return gcode.join('\n');
   }
-  
+
   // 添加内容边界信息到注释
   const contentWidth = (maxX - minX + 1) * dx;
   const contentHeight = (maxY - minY + 1) * dy;
   const reductionX = ((width * dx - contentWidth) / (width * dx) * 100).toFixed(1);
   const reductionY = ((height * dy - contentHeight) / (height * dy) * 100).toFixed(1);
-  
+
   gcode.push(`; Content detection: using threshold < 250 (instead of < 255) for better edge detection`);
   gcode.push(`; Halftone processing: ${settings.isHalftone ? 'ENABLED - blank areas protected from error diffusion' : 'DISABLED - greyscale mode'}`);
   gcode.push(`; Reverse Movement Offset: ${overscanDist} mm (${Math.ceil(overscanDist / dx)} pixels at ${dx} mm/pixel)`);
   gcode.push(`; Content bounds: X[${(minX * dx).toFixed(1)}, ${(maxX * dx).toFixed(1)}] Y[${(minY * dy).toFixed(1)}, ${(maxY * dy).toFixed(1)}] mm`);
   gcode.push(`; Actual scan range: X[${((minX * dx) - overscanDist).toFixed(1)}, ${((maxX * dx) + overscanDist).toFixed(1)}] mm (content + overscan)`);
-  gcode.push(`; Content pixels: minX=${minX}, maxX=${maxX}, minY=${minY}, maxY=${maxY} (${maxX-minX+1}x${maxY-minY+1} pixels)`);
+  gcode.push(`; Content pixels: minX=${minX}, maxX=${maxX}, minY=${minY}, maxY=${maxY} (${maxX - minX + 1}x${maxY - minY + 1} pixels)`);
   gcode.push(`; Content area: ${contentWidth.toFixed(1)}x${contentHeight.toFixed(1)} mm (reduced by ${reductionX}%x${reductionY}%)`);
   gcode.push(`; Scan area optimized: ${(maxY - minY + 1)} rows of ${height} total (${((maxY - minY + 1) / height * 100).toFixed(1)}%)`);
   gcode.push(``);
-  
+
   // 生成扫描路径 - 只扫描有内容的区域
   let skippedRows = 0;
   const processedRows = maxY - minY + 1;
-  
+
   for (let y = minY; y <= maxY; y++) {
     const reverseDir = y % 2 !== 0; // 之字形扫描
     const currentY = y * dy;
-    
+
     // 检查这一行是否有内容
     let hasContent = false;
     let rowMinX = width, rowMaxX = -1;
@@ -365,41 +366,41 @@ export async function generatePlatformScanGCode(
         rowMaxX = Math.max(rowMaxX, x);
       }
     }
-    
+
     // 跳过空白行
     if (!hasContent) {
       skippedRows++;
       continue;
     }
-    
+
     // 计算内容的实际边界（毫米）
     const contentStartX = rowMinX * dx;
     const contentEndX = rowMaxX * dx;
-    
+
     // 计算扫描范围（仅用于像素级别的处理）
     const overscanPixels = Math.ceil(overscanDist / dx);
     const scanStartX = Math.max(0, rowMinX - overscanPixels);
     const scanEndX = Math.min(width - 1, rowMaxX + overscanPixels);
-    
+
     // 移动到行的开始位置（带超扫描）- 直接使用内容边界 + 超扫描距离
     const startX = reverseDir ? contentEndX + overscanDist : contentStartX - overscanDist;
     goTo(startX, currentY, 0, travelSpeed, true);
-    
+
     // 移动到扫描起始点（内容边界）
     goTo(reverseDir ? contentEndX : contentStartX, null, 0, travelSpeed);
-    
+
     // 扫描这一行的有效范围 - 优化连续空白像素处理
     let sx = scanStartX;
     while (sx <= scanEndX) {
       const ix = reverseDir ? (scanEndX - (sx - scanStartX)) : sx;
       const pixelIndex = ix + (height - 1 - y) * width;
       const c = data[pixelIndex];
-      
+
       // 计算激光功率
       const power = settings.isHalftone
         ? (c < 128 ? maxPower : 0)
         : Math.round((minPower + (1.0 - c / 255.0) * (maxPower - minPower)) * 10) / 10;
-      
+
       if (power > 0) {
         // 有功率输出，直接移动并设置功率
         const xpos = ix * dx;
@@ -409,7 +410,7 @@ export async function generatePlatformScanGCode(
         // 功率为0，查找连续的空白像素
         let blankStart = sx;
         let blankEnd = sx;
-        
+
         // 向前查找连续的空白像素
         while (blankEnd <= scanEndX) {
           const testIx = reverseDir ? (scanEndX - (blankEnd - scanStartX)) : blankEnd;
@@ -418,13 +419,13 @@ export async function generatePlatformScanGCode(
           const testPower = settings.isHalftone
             ? (testC < 128 ? maxPower : 0)
             : Math.round((minPower + (1.0 - testC / 255.0) * (maxPower - minPower)) * 10) / 10;
-          
+
           if (testPower > 0) {
             break; // 遇到非空白像素，停止
           }
           blankEnd++;
         }
-        
+
         // 如果有连续的空白像素（超过3个），使用快速移动跳过
         if (blankEnd - blankStart > 3) {
           const skipToIx = reverseDir ? (scanEndX - (blankEnd - 1 - scanStartX)) : (blankEnd - 1);
@@ -439,13 +440,13 @@ export async function generatePlatformScanGCode(
         }
       }
     }
-    
+
     // 移动到行的结束位置（带超扫描）- 使用精确的毫米距离
     const endX = reverseDir ? contentStartX - overscanDist : contentEndX + overscanDist;
     goTo(endX, null, 0, travelSpeed, true);
     gcode.push(``);
   }
-  
+
   // G代码尾部
   gcode.push(`M5 ; Disable laser`);
   gcode.push(`G1 S0 F${travelSpeed} ; Set power to 0`);
@@ -456,7 +457,7 @@ export async function generatePlatformScanGCode(
   gcode.push(`; - Total area reduction: ${((width * dx - contentWidth) / (width * dx) * 100).toFixed(1)}% width × ${((height * dy - contentHeight) / (height * dy) * 100).toFixed(1)}% height`);
   gcode.push(`; - Scan time reduced by skipping blank areas`);
   gcode.push(`M2 ; End program`);
-  
+
   return gcode.join('\n');
 }
 
@@ -466,15 +467,15 @@ export async function generatePlatformScanGCode(
  */
 export async function generateScanGCode(imageItem: ImageObject, settings: GCodeScanSettings): Promise<string> {
   // 为了兼容性，创建一个临时图层来使用新的平台扫描功能
-  const tempLayer: Layer = { 
-    id: 'temp', 
-    name: 'Single Image', 
-    isVisible: true, 
-    printingMethod: PrintingMethod.SCAN 
+  const tempLayer: Layer = {
+    id: 'temp',
+    name: 'Single Image',
+    isVisible: true,
+    printingMethod: PrintingMethod.SCAN
   };
-  
+
   const tempItems: CanvasItem[] = [imageItem];
-  
+
   // 使用图像的尺寸作为"平台"尺寸
   return generatePlatformScanGCode(
     tempLayer,
@@ -509,14 +510,14 @@ export interface GCodeEngraveSettings {
  * @param settings G代码设置
  * @returns 转换后的坐标
  */
-function transformCoordinate(x: number, y: number, settings: GCodeEngraveSettings): {x: number, y: number} {
+function transformCoordinate(x: number, y: number, settings: GCodeEngraveSettings): { x: number, y: number } {
   let transformedY = y;
-  
+
   // 如果启用Y轴反转且提供了画布高度
   if (settings.flipY && settings.canvasHeight) {
     transformedY = settings.canvasHeight - y;
   }
-  
+
   return {
     x: parseFloat(x.toFixed(3)),
     y: parseFloat(transformedY.toFixed(3))
@@ -532,21 +533,21 @@ function transformCoordinate(x: number, y: number, settings: GCodeEngraveSetting
  * @param rotation 旋转角度（度数）
  * @returns 变换后的坐标
  */
-function rotatePoint(px: number, py: number, centerX: number, centerY: number, rotation: number): {x: number, y: number} {
+function rotatePoint(px: number, py: number, centerX: number, centerY: number, rotation: number): { x: number, y: number } {
   if (rotation === 0) return { x: px, y: py };
-  
+
   const rad = (rotation * Math.PI) / 180;
   const cos = Math.cos(rad);
   const sin = Math.sin(rad);
-  
+
   // 平移到原点
   const dx = px - centerX;
   const dy = py - centerY;
-  
+
   // 应用旋转
   const rotatedX = dx * cos - dy * sin;
   const rotatedY = dx * sin + dy * cos;
-  
+
   // 平移回去
   return {
     x: rotatedX + centerX,
@@ -564,22 +565,22 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
   const paths: string[] = [];
   const { x = 0, y = 0 } = item;
   const rotation = 'rotation' in item ? item.rotation || 0 : 0;
-  
+
   // 激光功率设置
   const laserPower = Math.round((settings.power || 50) * 10); // 转换为0-1000范围
-  
+
   console.log(`处理对象 ${item.type} at (${x}, ${y}), rotation: ${rotation}°, Y轴${settings.flipY ? '已' : '未'}反转`);
   if ('parameters' in item) {
     console.log('参数:', item.parameters);
   }
-  
+
   if ('parameters' in item) {
     switch (item.type) {
       case CanvasItemType.RECTANGLE: {
         const { width = 40, height = 40 } = item.parameters;
         const w2 = width / 2;
         const h2 = height / 2;
-        
+
         // 矩形四个角点（相对于中心）
         const corners = [
           { x: x - w2, y: y - h2 }, // 左上
@@ -587,17 +588,17 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           { x: x + w2, y: y + h2 }, // 右下
           { x: x - w2, y: y + h2 }, // 左下
         ];
-        
+
         // 应用旋转变换
-        const rotatedCorners = corners.map(corner => 
+        const rotatedCorners = corners.map(corner =>
           rotatePoint(corner.x, corner.y, x, y, rotation)
         );
-        
+
         // 应用坐标转换（包括Y轴反转）
         const transformedCorners = rotatedCorners.map(corner =>
           transformCoordinate(corner.x, corner.y, settings)
         );
-        
+
         // 生成G代码路径
         const rectPaths = [
           `G0 X${transformedCorners[0].x} Y${transformedCorners[0].y}`, // 移动到起点
@@ -611,19 +612,19 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         paths.push(...rectPaths);
         break;
       }
-      
+
       case CanvasItemType.CIRCLE: {
         const { radius = 20 } = item.parameters;
-        
+
         // 圆形的起始点（右侧）
         const startPoint = rotatePoint(x + radius, y, x, y, rotation);
         const transformedStart = transformCoordinate(startPoint.x, startPoint.y, settings);
         const transformedCenter = transformCoordinate(x, y, settings);
-        
+
         // 计算I和J偏移（相对于起始点）
         const iOffset = transformedCenter.x - transformedStart.x;
         const jOffset = transformedCenter.y - transformedStart.y;
-        
+
         const circlePaths = [
           `G0 X${transformedStart.x} Y${transformedStart.y}`,  // 移动到起点
           `M3 S${laserPower}`,        // 开启激光
@@ -633,18 +634,18 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         paths.push(...circlePaths);
         break;
       }
-      
+
       case CanvasItemType.LINE: {
         const { length = 40 } = item.parameters;
         const l2 = length / 2;
-        
+
         // 直线两端点
         const startPoint = rotatePoint(x - l2, y, x, y, rotation);
         const endPoint = rotatePoint(x + l2, y, x, y, rotation);
-        
+
         const transformedStart = transformCoordinate(startPoint.x, startPoint.y, settings);
         const transformedEnd = transformCoordinate(endPoint.x, endPoint.y, settings);
-        
+
         // 直线路径
         const linePaths = [
           `G0 X${transformedStart.x} Y${transformedStart.y}`,      // 移动到起点
@@ -655,7 +656,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         paths.push(...linePaths);
         break;
       }
-      
+
       case CanvasItemType.FLANGE: {
         const {
           outerDiameter = 120,
@@ -704,12 +705,12 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           const angle = (i / boltHoleCount) * 2 * Math.PI - Math.PI / 2;
           const holeX = x + boltCircleRadius * Math.cos(angle);
           const holeY = y + boltCircleRadius * Math.sin(angle);
-          
+
           // 应用整体旋转
           const rotatedHoleCenter = rotatePoint(holeX, holeY, x, y, rotation);
           const transformedHoleCenter = transformCoordinate(rotatedHoleCenter.x, rotatedHoleCenter.y, settings);
           const holeStart = { x: transformedHoleCenter.x + boltHoleRadius, y: transformedHoleCenter.y };
-          
+
           paths.push(
             `G0 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)}`,
             `M3 S${laserPower}`,
@@ -722,9 +723,9 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
 
       case CanvasItemType.TORUS: {
         const { outerRadius = 60, innerRadius = 30 } = item.parameters;
-        
+
         console.log(`圆环参数 - 外径: ${outerRadius * 2}, 内径: ${innerRadius * 2}`);
-        
+
         // 外圆起始点（考虑旋转）
         const outerStart = rotatePoint(x + outerRadius, y, x, y, rotation);
         const transformedOuterStart = transformCoordinate(outerStart.x, outerStart.y, settings);
@@ -758,9 +759,9 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const { width = 80, height = 80, thickness = 15 } = item.parameters;
         const w2 = width / 2;
         const h2 = height / 2;
-        
+
         console.log(`L型支架参数 - 宽: ${width}, 高: ${height}, 厚度: ${thickness}`);
-        
+
         // L型支架的关键点
         const points = [
           { x: x - w2, y: y - h2 },                          // 起点
@@ -771,27 +772,27 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           { x: x - w2, y: y + h2 },                          // 下边
           { x: x - w2, y: y - h2 },                          // 回到起点
         ];
-        
+
         // 应用旋转变换
-        const rotatedPoints = points.map(point => 
+        const rotatedPoints = points.map(point =>
           rotatePoint(point.x, point.y, x, y, rotation)
         );
-        
+
         // 应用坐标转换（包括Y轴反转）
         const transformedPoints = rotatedPoints.map(point =>
           transformCoordinate(point.x, point.y, settings)
         );
-        
+
         // 生成G代码路径
         const bracketPaths = [
           `G0 X${transformedPoints[0].x} Y${transformedPoints[0].y}`,  // 移动到起点
           `M3 S${laserPower}`,
         ];
-        
+
         for (let i = 1; i < transformedPoints.length; i++) {
           bracketPaths.push(`G1 X${transformedPoints[i].x} Y${transformedPoints[i].y} F${settings.feedRate || 1000}`);
         }
-        
+
         bracketPaths.push(`M5`);
         paths.push(...bracketPaths);
         break;
@@ -801,9 +802,9 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const { width = 80, height = 100, thickness = 10 } = item.parameters;
         const w2 = width / 2;
         const h2 = height / 2;
-        
+
         console.log(`U型槽参数 - 宽: ${width}, 高: ${height}, 厚度: ${thickness}`);
-        
+
         // U型槽的关键点
         const points = [
           { x: x - w2, y: y - h2 },                          // 起点
@@ -816,27 +817,27 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           { x: x - w2, y: y + h2 },                          // 左下水平
           { x: x - w2, y: y - h2 },                          // 左边回到起点
         ];
-        
+
         // 应用旋转变换
-        const rotatedPoints = points.map(point => 
+        const rotatedPoints = points.map(point =>
           rotatePoint(point.x, point.y, x, y, rotation)
         );
-        
+
         // 应用坐标转换（包括Y轴反转）
         const transformedPoints = rotatedPoints.map(point =>
           transformCoordinate(point.x, point.y, settings)
         );
-        
+
         // 生成G代码路径
         const channelPaths = [
           `G0 X${transformedPoints[0].x} Y${transformedPoints[0].y}`,
           `M3 S${laserPower}`,
         ];
-        
+
         for (let i = 1; i < transformedPoints.length; i++) {
           channelPaths.push(`G1 X${transformedPoints[i].x} Y${transformedPoints[i].y} F${settings.feedRate || 1000}`);
         }
-        
+
         channelPaths.push(`M5`);
         paths.push(...channelPaths);
         break;
@@ -846,9 +847,9 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const { width = 120, height = 80, holeRadius = 8, horizontalMargin = 20, verticalMargin = 20 } = item.parameters;
         const w2 = width / 2;
         const h2 = height / 2;
-        
+
         console.log(`带孔矩形参数 - 宽: ${width}, 高: ${height}, 孔半径: ${holeRadius}`);
-        
+
         // 主矩形的四个角点
         const rectCorners = [
           { x: x - w2, y: y - h2 }, // 左上
@@ -856,17 +857,17 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           { x: x + w2, y: y + h2 }, // 右下
           { x: x - w2, y: y + h2 }, // 左下
         ];
-        
+
         // 应用旋转变换到矩形
-        const rotatedRectCorners = rectCorners.map(corner => 
+        const rotatedRectCorners = rectCorners.map(corner =>
           rotatePoint(corner.x, corner.y, x, y, rotation)
         );
-        
+
         // 应用坐标转换（包括Y轴反转）
         const transformedRectCorners = rotatedRectCorners.map(corner =>
           transformCoordinate(corner.x, corner.y, settings)
         );
-        
+
         // 生成主矩形G代码路径
         const rectPaths = [
           `G0 X${transformedRectCorners[0].x} Y${transformedRectCorners[0].y}`,
@@ -893,7 +894,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           const rotatedHoleCenter = rotatePoint(pos.x, pos.y, x, y, rotation);
           // 孔的起始点（右侧）
           const holeStart = transformCoordinate(rotatedHoleCenter.x + holeRadius, rotatedHoleCenter.y, settings);
-          
+
           paths.push(
             `G0 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)}`,
             `M3 S${laserPower}`,
@@ -906,9 +907,9 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
 
       case CanvasItemType.CIRCLE_WITH_HOLES: {
         const { radius = 50, holeRadius = 8, holeCount = 4 } = item.parameters;
-        
+
         console.log(`带孔圆形参数 - 半径: ${radius}, 孔半径: ${holeRadius}, 孔数量: ${holeCount}`);
-        
+
         // 主圆起始点（考虑旋转）
         const mainCircleStart = rotatePoint(x + radius, y, x, y, rotation);
         const transformedMainCircleStart = transformCoordinate(mainCircleStart.x, mainCircleStart.y, settings);
@@ -929,12 +930,12 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           const angle = (i / holeCount) * 2 * Math.PI;
           const holeX = x + holeCircleRadius * Math.cos(angle);
           const holeY = y + holeCircleRadius * Math.sin(angle);
-          
+
           // 应用整体旋转
           const rotatedHoleCenter = rotatePoint(holeX, holeY, x, y, rotation);
           const transformedHoleCenter = transformCoordinate(rotatedHoleCenter.x, rotatedHoleCenter.y, settings);
           const holeStart = { x: transformedHoleCenter.x + holeRadius, y: transformedHoleCenter.y };
-          
+
           paths.push(
             `G0 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)}`,
             `M3 S${laserPower}`,
@@ -948,37 +949,37 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
       case CanvasItemType.EQUILATERAL_TRIANGLE: {
         const { sideLength = 40 } = item.parameters;
         const h = (sideLength * Math.sqrt(3)) / 2;
-        
+
         console.log(`等边三角形参数 - 边长: ${sideLength}`);
-        
+
         // 三角形三个顶点
         const trianglePoints = [
-          { x: x - sideLength/2, y: y - h/3 },  // 左下
-          { x: x + sideLength/2, y: y - h/3 },  // 右下
-          { x: x, y: y + 2*h/3 },               // 顶点
-          { x: x - sideLength/2, y: y - h/3 },  // 回到起点
+          { x: x - sideLength / 2, y: y - h / 3 },  // 左下
+          { x: x + sideLength / 2, y: y - h / 3 },  // 右下
+          { x: x, y: y + 2 * h / 3 },               // 顶点
+          { x: x - sideLength / 2, y: y - h / 3 },  // 回到起点
         ];
-        
+
         // 应用旋转变换
-        const rotatedTrianglePoints = trianglePoints.map(point => 
+        const rotatedTrianglePoints = trianglePoints.map(point =>
           rotatePoint(point.x, point.y, x, y, rotation)
         );
-        
+
         // 应用坐标转换（包括Y轴反转）
         const transformedTrianglePoints = rotatedTrianglePoints.map(point =>
           transformCoordinate(point.x, point.y, settings)
         );
-        
+
         // 生成G代码路径
         const trianglePaths = [
           `G0 X${transformedTrianglePoints[0].x} Y${transformedTrianglePoints[0].y}`,
           `M3 S${laserPower}`,
         ];
-        
+
         for (let i = 1; i < transformedTrianglePoints.length; i++) {
           trianglePaths.push(`G1 X${transformedTrianglePoints[i].x} Y${transformedTrianglePoints[i].y} F${settings.feedRate || 1000}`);
         }
-        
+
         trianglePaths.push(`M5`);
         paths.push(...trianglePaths);
         break;
@@ -986,37 +987,37 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
 
       case CanvasItemType.ISOSCELES_RIGHT_TRIANGLE: {
         const { cathetus = 50 } = item.parameters;
-        
+
         console.log(`等腰直角三角形参数 - 直角边长: ${cathetus}`);
-        
+
         // 三角形三个顶点
         const trianglePoints = [
-          { x: x - cathetus/2, y: y + cathetus/2 },  // 左下角
-          { x: x + cathetus/2, y: y + cathetus/2 },  // 右下角
-          { x: x - cathetus/2, y: y - cathetus/2 },  // 左上角（直角顶点）
-          { x: x - cathetus/2, y: y + cathetus/2 },  // 回到起点
+          { x: x - cathetus / 2, y: y + cathetus / 2 },  // 左下角
+          { x: x + cathetus / 2, y: y + cathetus / 2 },  // 右下角
+          { x: x - cathetus / 2, y: y - cathetus / 2 },  // 左上角（直角顶点）
+          { x: x - cathetus / 2, y: y + cathetus / 2 },  // 回到起点
         ];
-        
+
         // 应用旋转变换
-        const rotatedTrianglePoints = trianglePoints.map(point => 
+        const rotatedTrianglePoints = trianglePoints.map(point =>
           rotatePoint(point.x, point.y, x, y, rotation)
         );
-        
+
         // 应用坐标转换（包括Y轴反转）
         const transformedTrianglePoints = rotatedTrianglePoints.map(point =>
           transformCoordinate(point.x, point.y, settings)
         );
-        
+
         // 生成G代码路径
         const trianglePaths = [
           `G0 X${transformedTrianglePoints[0].x} Y${transformedTrianglePoints[0].y}`,
           `M3 S${laserPower}`,
         ];
-        
+
         for (let i = 1; i < transformedTrianglePoints.length; i++) {
           trianglePaths.push(`G1 X${transformedTrianglePoints[i].x} Y${transformedTrianglePoints[i].y} F${settings.feedRate || 1000}`);
         }
-        
+
         trianglePaths.push(`M5`);
         paths.push(...trianglePaths);
         break;
@@ -1024,17 +1025,17 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
 
       case CanvasItemType.SECTOR: {
         const { radius = 50, startAngle = -90, sweepAngle = 90 } = item.parameters;
-        
+
         console.log(`扇形参数 - 半径: ${radius}, 起始角: ${startAngle}, 扫掠角: ${sweepAngle}`);
-        
+
         const startRad = ((startAngle + rotation) * Math.PI) / 180;
         const endRad = ((startAngle + sweepAngle + rotation) * Math.PI) / 180;
-        
+
         const sx = x + radius * Math.cos(startRad);
         const sy = y + radius * Math.sin(startRad);
         const ex = x + radius * Math.cos(endRad);
         const ey = y + radius * Math.sin(endRad);
-        
+
         // 扇形路径：中心到弧
         const sectorPaths = [
           `G0 X${x} Y${y}`,                           // 移动到中心
@@ -1051,17 +1052,17 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
 
       case CanvasItemType.ARC: {
         const { radius = 40, startAngle = 0, sweepAngle = 90 } = item.parameters;
-        
+
         console.log(`弧形参数 - 半径: ${radius}, 起始角: ${startAngle}, 扫掠角: ${sweepAngle}`);
-        
+
         const startRad = ((startAngle + rotation) * Math.PI) / 180;
         const endRad = ((startAngle + sweepAngle + rotation) * Math.PI) / 180;
-        
+
         const sx = x + radius * Math.cos(startRad);
         const sy = y + radius * Math.sin(startRad);
         const ex = x + radius * Math.cos(endRad);
         const ey = y + radius * Math.sin(endRad);
-        
+
         // 弧形路径
         const arcPaths = [
           `G0 X${sx} Y${sy}`,                         // 移动到弧起点
@@ -1073,12 +1074,12 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         paths.push(...arcPaths);
         break;
       }
-      
+
       case CanvasItemType.POLYLINE: {
         const { seg1 = 40, seg2 = 50, seg3 = 30, angle1 = 90, angle2 = 90 } = item.parameters;
-        
+
         console.log(`折线参数 - 段1: ${seg1}, 段2: ${seg2}, 段3: ${seg3}`);
-        
+
         // 折线的关键点（简化处理）
         const polylinePoints = [
           { x: x, y: y },                         // 起点
@@ -1086,32 +1087,32 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           { x: x + seg1, y: y + seg2 },           // 第二段终点（垂直）
           { x: x + seg1 + seg3, y: y + seg2 },    // 第三段终点（水平）
         ];
-        
+
         // 应用旋转变换
-        const rotatedPolylinePoints = polylinePoints.map(point => 
+        const rotatedPolylinePoints = polylinePoints.map(point =>
           rotatePoint(point.x, point.y, x, y, rotation)
         );
-        
+
         // 应用坐标转换（包括Y轴反转）
         const transformedPolylinePoints = rotatedPolylinePoints.map(point =>
           transformCoordinate(point.x, point.y, settings)
         );
-        
+
         // 生成G代码路径
         const polylinePaths = [
           `G0 X${transformedPolylinePoints[0].x} Y${transformedPolylinePoints[0].y}`,
           `M3 S${laserPower}`,
         ];
-        
+
         for (let i = 1; i < transformedPolylinePoints.length; i++) {
           polylinePaths.push(`G1 X${transformedPolylinePoints[i].x} Y${transformedPolylinePoints[i].y} F${settings.feedRate || 1000}`);
         }
-        
+
         polylinePaths.push(`M5`);
         paths.push(...polylinePaths);
         break;
       }
-      
+
       // 为其他复杂图形添加类似的旋转支持...
       default:
         // 对于不支持的参数化图形，生成注释并显示参数
@@ -1127,66 +1128,66 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         break;
     }
   }
-  
+
   // 处理手绘路径（应用旋转和Y轴反转）
   if (item.type === CanvasItemType.DRAWING && 'points' in item && Array.isArray(item.points)) {
     if (item.points.length > 1) {
       const drawingPaths = [];
-      
+
       // 对所有点应用旋转和坐标转换
       const transformedPoints = item.points.map(point => {
         const rotated = rotatePoint(x + point.x, y + point.y, x, y, rotation);
         return transformCoordinate(rotated.x, rotated.y, settings);
       });
-      
+
       drawingPaths.push(`G0 X${transformedPoints[0].x} Y${transformedPoints[0].y}`); // 移动到起点
       drawingPaths.push(`M3 S${laserPower}`); // 开启激光
-      
+
       for (let i = 1; i < transformedPoints.length; i++) {
         drawingPaths.push(`G1 X${transformedPoints[i].x} Y${transformedPoints[i].y} F${settings.feedRate || 1000}`);
       }
-      
+
       drawingPaths.push(`M5`); // 关闭激光
       paths.push(...drawingPaths);
     }
   }
-  
+
   // 处理文本对象（转换为注释）
   if (item.type === CanvasItemType.TEXT && 'text' in item) {
     const transformedPos = transformCoordinate(x, y, settings);
     paths.push(`; 文本对象: "${item.text}" 位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
   }
-  
+
   // 处理图像对象
   if (item.type === CanvasItemType.IMAGE) {
     const transformedPos = transformCoordinate(x, y, settings);
-    
+
     // 检查是否有矢量源数据
     if (item.vectorSource && item.vectorSource.parsedItems && item.vectorSource.parsedItems.length > 0) {
       // 使用矢量源数据生成G代码
       paths.push(`; 图像对象(矢量源)位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
-      
-      // 处理矢量源中的每个对象
-      for (const vectorItem of item.vectorSource.parsedItems) {
-        // 将矢量对象的位置相对于图像对象进行偏移
-        const vectorItemWithOffset: CanvasItem = {
-          ...vectorItem,
-          x: x + (vectorItem.x || 0),
-          y: y + (vectorItem.y || 0),
-          id: `vector_${Date.now()}_${Math.random()}`, // 临时ID
-          layerId: item.layerId
-        } as CanvasItem;
-        
-        // 递归处理矢量对象
-        const vectorPaths = itemToGCodePaths(vectorItemWithOffset, settings);
-        paths.push(...vectorPaths);
-      }
+
+        // 处理矢量源中的每个对象
+        for (const vectorItem of item.vectorSource.parsedItems) {
+          // 将矢量对象的位置相对于图像对象进行偏移
+          const vectorItemWithOffset: CanvasItem = {
+            ...vectorItem,
+            x: x + (vectorItem.x || 0),
+            y: y + (vectorItem.y || 0),
+            id: `vector_${Date.now()}_${Math.random()}`, // 临时ID
+            layerId: item.layerId
+          } as CanvasItem;
+
+          // 递归处理矢量对象
+          const vectorPaths = itemToGCodePaths(vectorItemWithOffset, settings);
+          paths.push(...vectorPaths);
+        }
     } else {
       // 没有矢量源数据，转换为注释
       paths.push(`; 图像对象位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}° - 建议使用扫描图层处理`);
     }
   }
-  
+
   // 处理组合对象
   if (item.type === 'GROUP' && 'children' in item && Array.isArray(item.children)) {
     const transformedPos = transformCoordinate(x, y, settings);
@@ -1203,7 +1204,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
     }
     paths.push(`; 结束组合对象`);
   }
-  
+
   return paths;
 }
 
@@ -1221,13 +1222,13 @@ export async function generateEngraveGCode(
 ): Promise<string> {
   // 获取属于该图层的所有对象（不再过滤图像）
   const layerItems = items.filter(item => item.layerId === layer.id);
-  
+
   if (layerItems.length === 0) {
     throw new Error('图层中没有对象');
   }
 
   const gcode: string[] = [];
-  
+
   // G代码文件头
   gcode.push(
     'G21 ; Set units to mm',
@@ -1247,7 +1248,7 @@ export async function generateEngraveGCode(
       gcode.push(`; Object: ${item.type} at (${item.x}, ${item.y})`);
       gcode.push(...itemPaths);
       gcode.push('');
-      
+
       // 统计实际生成了G代码路径的对象（不包括纯注释）
       if (itemPaths.some(path => !path.startsWith(';'))) {
         supportedItemsCount++;
@@ -1258,7 +1259,7 @@ export async function generateEngraveGCode(
   // G代码文件尾
   gcode.push(
     'M5 ; Ensure laser is off',
-    'G0 Z1 ; Raise to safe height', 
+    'G0 Z1 ; Raise to safe height',
     'G0 X0 Y0 ; Return to origin',
     'M30 ; Program end'
   );
