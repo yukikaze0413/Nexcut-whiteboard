@@ -61,11 +61,11 @@ const DrawingRenderer: React.FC<DrawingRendererProps> = ({ drawing, isSelected }
       {/* 透明的点击区域 */}
       <path
         d={d}
-        fill="transparent"
-        stroke="transparent"
-        strokeWidth={HITBOX_STROKE_WIDTH}
-        strokeLinejoin="round"
-        strokeLinecap="round"
+        // fill="transparent"
+        // stroke="transparent"
+        // strokeWidth={HITBOX_STROKE_WIDTH}
+        // strokeLinejoin="round"
+        // strokeLinecap="round"
       />
       {/* 实际显示的路径 */}
       <path
