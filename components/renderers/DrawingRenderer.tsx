@@ -11,7 +11,7 @@ interface DrawingRendererProps {
 
 
 const DrawingRenderer: React.FC<DrawingRendererProps> = ({ drawing, isSelected }) => {
-  const { points, color, strokeWidth, fillColor } = drawing;
+  const { points, color, strokeWidth, fillColor, x, y } = drawing;
   const ENLARGE = 8;
   const HITBOX_STROKE_WIDTH = 20; // 点击区域宽度
   if (!points || points.length < 2) return null;
@@ -43,7 +43,7 @@ const DrawingRenderer: React.FC<DrawingRendererProps> = ({ drawing, isSelected }
   const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
 
   return (
-    <g>
+    <g transform={`translate(${x},${y})`}>
       {isSelected && obbRect && (
         <rect
           x={obbRect.centerX - obbRect.width / 2 - ENLARGE / 2}

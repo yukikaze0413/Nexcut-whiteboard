@@ -691,7 +691,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     const rootTransform = new DOMMatrix();
     walk(svgJson, rootTransform, items);
     // 合并为GROUP（如果有多个子物体）
-    if (items.length > 1) {
+    if (items.length >= 1) {
       const bbox = getGroupBoundingBox(items);
       const groupX = (bbox.minX + bbox.maxX) / 2;
       const groupY = (bbox.minY + bbox.maxY) / 2;
@@ -1095,103 +1095,103 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   };
 
   // 7.22
+  // const handleImport_back = (event: React.ChangeEvent<HTMLInputElement>) => {
+  //   const file = event.target.files?.[0];
+  //   if (!file) return;
+  //   const reader = new FileReader();
+  //   const ext = file.name.split('.').pop()?.toLowerCase() || '';
+
+  //   // === 核心逻辑：根据文件类型选择不同的读取方式 ===
+  //   if (ext === 'svg') {
+  //     // --- 针对 SVG 文件的特殊处理流程 ---
+
+  //     // a. 设置 onload 回调，它会接收到一个文本字符串
+  //     reader.onload = (e) => {
+  //       // 步骤 1: 获取 SVG 文件内容的字符串，这就是你想要的【中间变量】
+  //       const svgString = e.target?.result as string;
+  //       if (!svgString) return;
+
+  //       console.log("成功读取SVG为字符串:", svgString.substring(0, 100) + '...'); // 你可以在这里操作 svgString
+
+  //       // 步骤 2: 手动将 SVG 字符串转换为 Data URL
+  //       const dataUrl = 'data:image/svg+xml;base64,' + btoa(svgString);
+
+  //       // 步骤 3: 后续流程与原来完全相同，使用 Data URL 获取尺寸
+  //       const img = new Image();
+  //       img.onload = () => {
+  //         addImage(dataUrl, img.width, img.height);
+  //       };
+  //       img.src = dataUrl;
+  //     };
+  //     // b. 启动读取过程，读取为【纯文本】
+  //     reader.readAsText(file);
+  //   }
+  //   else if (ext === 'dxf') {
+  //     reader.onload = (e) => {
+  //       try {
+  //         const dxfContents = e.target?.result as string;
+  //         const helper = new Helper(dxfContents);
+  //         const generatedSvg = helper.toSVG();
+
+  //         // 核心：在这里调用我们的新函数！
+  //         // 它会处理 SVG 字符串，并最终调用 onAddImage
+  //         processSvgString(generatedSvg, addImage);
+
+  //       } catch (err) {
+  //         alert("解析 DXF 文件时发生错误。");
+  //       }
+  //     };
+  //     reader.readAsText(file);
+  //   }
+  //   else if (ext === 'plt') {
+  //     reader.onload = (e) => {
+  //       if (typeof e.target?.result === 'string') {
+  //         handleImportFile({
+  //           name: file.name,
+  //           ext,
+  //           content: e.target.result
+  //         });
+  //       }
+  //     };
+  //     reader.readAsText(file);
+  //   }
+  //   else alert('不支持的文件类型');
+
+  //   event.currentTarget.value = '';
+  // };
+
+  // const processSvgString = (
+  //   svgString: string,
+  //   onComplete: (dataUrl: string, width: number, height: number) => void
+  // ) => {
+  //   const dataUrl = 'data:image/svg+xml;base64,' + btoa(svgString);
+  //   const img = new Image();
+  //   img.onload = () => {
+  //     onComplete(dataUrl, img.width, img.height);
+  //   };
+  //   img.onerror = () => {
+  //     alert("无法从 SVG 字符串加载图像。");
+  //   };
+  //   img.src = dataUrl;
+  // };
+
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
-
-    // === 核心逻辑：根据文件类型选择不同的读取方式 ===
-    if (ext === 'svg') {
-      // --- 针对 SVG 文件的特殊处理流程 ---
-
-      // a. 设置 onload 回调，它会接收到一个文本字符串
-      reader.onload = (e) => {
-        // 步骤 1: 获取 SVG 文件内容的字符串，这就是你想要的【中间变量】
-        const svgString = e.target?.result as string;
-        if (!svgString) return;
-
-        console.log("成功读取SVG为字符串:", svgString.substring(0, 100) + '...'); // 你可以在这里操作 svgString
-
-        // 步骤 2: 手动将 SVG 字符串转换为 Data URL
-        const dataUrl = 'data:image/svg+xml;base64,' + btoa(svgString);
-
-        // 步骤 3: 后续流程与原来完全相同，使用 Data URL 获取尺寸
-        const img = new Image();
-        img.onload = () => {
-          addImage(dataUrl, img.width, img.height);
-        };
-        img.src = dataUrl;
-      };
-      // b. 启动读取过程，读取为【纯文本】
-      reader.readAsText(file);
-    }
-    else if (ext === 'dxf') {
-      reader.onload = (e) => {
-        try {
-          const dxfContents = e.target?.result as string;
-          const helper = new Helper(dxfContents);
-          const generatedSvg = helper.toSVG();
-
-          // 核心：在这里调用我们的新函数！
-          // 它会处理 SVG 字符串，并最终调用 onAddImage
-          processSvgString(generatedSvg, addImage);
-
-        } catch (err) {
-          alert("解析 DXF 文件时发生错误。");
-        }
-      };
-      reader.readAsText(file);
-    }
-    else if (ext === 'plt') {
-      reader.onload = (e) => {
-        if (typeof e.target?.result === 'string') {
-          handleImportFile({
-            name: file.name,
-            ext,
-            content: e.target.result
-          });
-        }
-      };
-      reader.readAsText(file);
-    }
-    else alert('不支持的文件类型');
-
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (typeof e.target?.result === 'string') {
+        handleImportFile({
+          name: file.name,
+          ext,
+          content: e.target.result
+        });
+      }
+    };
+    reader.readAsText(file);
     event.currentTarget.value = '';
   };
-
-  const processSvgString = (
-    svgString: string,
-    onComplete: (dataUrl: string, width: number, height: number) => void
-  ) => {
-    const dataUrl = 'data:image/svg+xml;base64,' + btoa(svgString);
-    const img = new Image();
-    img.onload = () => {
-      onComplete(dataUrl, img.width, img.height);
-    };
-    img.onerror = () => {
-      alert("无法从 SVG 字符串加载图像。");
-    };
-    img.src = dataUrl;
-  };
-
-  // const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
-  //   const file = event.target.files?.[0];
-  //   if (!file) return;
-  //   const ext = file.name.split('.').pop()?.toLowerCase() || '';
-  //   const reader = new FileReader();
-  //   reader.onload = (e) => {
-  //     if (typeof e.target?.result === 'string') {
-  //       handleImportFile({
-  //         name: file.name,
-  //         ext,
-  //         content: e.target.result
-  //       });
-  //     }
-  //   };
-  //   reader.readAsText(file);
-  //   event.currentTarget.value = '';
-  // };
 
   useEffect(() => {
     (window as any).setCanvasSize = (w: number, h: number) => {
