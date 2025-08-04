@@ -487,3 +487,785 @@ export async function generateScanGCode(imageItem: ImageObject, settings: GCodeS
     imageItem.height  // canvasHeight
   );
 }
+
+/**
+ * 雕刻图层G代码生成设置
+ */
+export interface GCodeEngraveSettings {
+  feedRate?: number;        // 雕刻速度 (mm/min)
+  travelSpeed?: number;     // 移动速度 (mm/min)
+  power?: number;           // 激光功率 (0-100%)
+  passes?: number;          // 雕刻遍数
+  stepDown?: number;        // 每遍下降深度
+  pathOptimization?: boolean; // 路径优化
+  flipY?: boolean;          // Y轴反转 (适配机器坐标系)
+  canvasHeight?: number;    // 画布高度 (用于Y轴反转计算)
+}
+
+/**
+ * 应用坐标转换（包括Y轴反转）
+ * @param x X坐标
+ * @param y Y坐标  
+ * @param settings G代码设置
+ * @returns 转换后的坐标
+ */
+function transformCoordinate(x: number, y: number, settings: GCodeEngraveSettings): {x: number, y: number} {
+  let transformedY = y;
+  
+  // 如果启用Y轴反转且提供了画布高度
+  if (settings.flipY && settings.canvasHeight) {
+    transformedY = settings.canvasHeight - y;
+  }
+  
+  return {
+    x: parseFloat(x.toFixed(3)),
+    y: parseFloat(transformedY.toFixed(3))
+  };
+}
+
+/**
+ * 应用旋转变换到坐标点
+ * @param px 点的X坐标
+ * @param py 点的Y坐标
+ * @param centerX 旋转中心X坐标
+ * @param centerY 旋转中心Y坐标
+ * @param rotation 旋转角度（度数）
+ * @returns 变换后的坐标
+ */
+function rotatePoint(px: number, py: number, centerX: number, centerY: number, rotation: number): {x: number, y: number} {
+  if (rotation === 0) return { x: px, y: py };
+  
+  const rad = (rotation * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  
+  // 平移到原点
+  const dx = px - centerX;
+  const dy = py - centerY;
+  
+  // 应用旋转
+  const rotatedX = dx * cos - dy * sin;
+  const rotatedY = dx * sin + dy * cos;
+  
+  // 平移回去
+  return {
+    x: rotatedX + centerX,
+    y: rotatedY + centerY
+  };
+}
+
+/**
+ * 将矢量对象直接转换为G代码路径
+ * @param item 画布对象
+ * @param settings 雕刻设置
+ * @returns G代码路径数组
+ */
+function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): string[] {
+  const paths: string[] = [];
+  const { x = 0, y = 0 } = item;
+  const rotation = 'rotation' in item ? item.rotation || 0 : 0;
+  
+  // 激光功率设置
+  const laserPower = Math.round((settings.power || 50) * 10); // 转换为0-1000范围
+  
+  console.log(`处理对象 ${item.type} at (${x}, ${y}), rotation: ${rotation}°, Y轴${settings.flipY ? '已' : '未'}反转`);
+  if ('parameters' in item) {
+    console.log('参数:', item.parameters);
+  }
+  
+  if ('parameters' in item) {
+    switch (item.type) {
+      case CanvasItemType.RECTANGLE: {
+        const { width = 40, height = 40 } = item.parameters;
+        const w2 = width / 2;
+        const h2 = height / 2;
+        
+        // 矩形四个角点（相对于中心）
+        const corners = [
+          { x: x - w2, y: y - h2 }, // 左上
+          { x: x + w2, y: y - h2 }, // 右上  
+          { x: x + w2, y: y + h2 }, // 右下
+          { x: x - w2, y: y + h2 }, // 左下
+        ];
+        
+        // 应用旋转变换
+        const rotatedCorners = corners.map(corner => 
+          rotatePoint(corner.x, corner.y, x, y, rotation)
+        );
+        
+        // 应用坐标转换（包括Y轴反转）
+        const transformedCorners = rotatedCorners.map(corner =>
+          transformCoordinate(corner.x, corner.y, settings)
+        );
+        
+        // 生成G代码路径
+        const rectPaths = [
+          `G0 X${transformedCorners[0].x} Y${transformedCorners[0].y}`, // 移动到起点
+          `M3 S${laserPower}`,        // 开启激光
+          `G1 X${transformedCorners[1].x} Y${transformedCorners[1].y} F${settings.feedRate || 1000}`, // 上边
+          `G1 X${transformedCorners[2].x} Y${transformedCorners[2].y}`, // 右边
+          `G1 X${transformedCorners[3].x} Y${transformedCorners[3].y}`, // 下边
+          `G1 X${transformedCorners[0].x} Y${transformedCorners[0].y}`, // 左边回到起点
+          `M5`,                       // 关闭激光
+        ];
+        paths.push(...rectPaths);
+        break;
+      }
+      
+      case CanvasItemType.CIRCLE: {
+        const { radius = 20 } = item.parameters;
+        
+        // 圆形的起始点（右侧）
+        const startPoint = rotatePoint(x + radius, y, x, y, rotation);
+        const transformedStart = transformCoordinate(startPoint.x, startPoint.y, settings);
+        const transformedCenter = transformCoordinate(x, y, settings);
+        
+        // 计算I和J偏移（相对于起始点）
+        const iOffset = transformedCenter.x - transformedStart.x;
+        const jOffset = transformedCenter.y - transformedStart.y;
+        
+        const circlePaths = [
+          `G0 X${transformedStart.x} Y${transformedStart.y}`,  // 移动到起点
+          `M3 S${laserPower}`,        // 开启激光
+          `G02 X${transformedStart.x} Y${transformedStart.y} I${iOffset.toFixed(3)} J${jOffset.toFixed(3)} F${settings.feedRate || 1000}`, // 绘制整圆
+          `M5`,                       // 关闭激光
+        ];
+        paths.push(...circlePaths);
+        break;
+      }
+      
+      case CanvasItemType.LINE: {
+        const { length = 40 } = item.parameters;
+        const l2 = length / 2;
+        
+        // 直线两端点
+        const startPoint = rotatePoint(x - l2, y, x, y, rotation);
+        const endPoint = rotatePoint(x + l2, y, x, y, rotation);
+        
+        const transformedStart = transformCoordinate(startPoint.x, startPoint.y, settings);
+        const transformedEnd = transformCoordinate(endPoint.x, endPoint.y, settings);
+        
+        // 直线路径
+        const linePaths = [
+          `G0 X${transformedStart.x} Y${transformedStart.y}`,      // 移动到起点
+          `M3 S${laserPower}`,        // 开启激光
+          `G1 X${transformedEnd.x} Y${transformedEnd.y} F${settings.feedRate || 1000}`, // 绘制直线
+          `M5`,                       // 关闭激光
+        ];
+        paths.push(...linePaths);
+        break;
+      }
+      
+      case CanvasItemType.FLANGE: {
+        const {
+          outerDiameter = 120,
+          innerDiameter = 60,
+          boltCircleDiameter = 90,
+          boltHoleCount = 4,
+          boltHoleDiameter = 8
+        } = item.parameters;
+
+        const outerRadius = outerDiameter / 2;
+        const innerRadius = innerDiameter / 2;
+        const boltCircleRadius = boltCircleDiameter / 2;
+        const boltHoleRadius = boltHoleDiameter / 2;
+
+        console.log(`法兰参数 - 外径: ${outerDiameter}, 内径: ${innerDiameter}, 螺栓孔数: ${boltHoleCount}`);
+
+        // 外圆
+        const outerStart = rotatePoint(x + outerRadius, y, x, y, rotation);
+        const transformedOuterStart = transformCoordinate(outerStart.x, outerStart.y, settings);
+        const transformedCenter = transformCoordinate(x, y, settings);
+        const outerIOffset = transformedCenter.x - transformedOuterStart.x;
+        const outerJOffset = transformedCenter.y - transformedOuterStart.y;
+
+        paths.push(
+          `G0 X${transformedOuterStart.x} Y${transformedOuterStart.y}`,
+          `M3 S${laserPower}`,
+          `G02 X${transformedOuterStart.x} Y${transformedOuterStart.y} I${outerIOffset.toFixed(3)} J${outerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+          `M5`
+        );
+
+        // 内圆
+        const innerStart = rotatePoint(x + innerRadius, y, x, y, rotation);
+        const transformedInnerStart = transformCoordinate(innerStart.x, innerStart.y, settings);
+        const innerIOffset = transformedCenter.x - transformedInnerStart.x;
+        const innerJOffset = transformedCenter.y - transformedInnerStart.y;
+
+        paths.push(
+          `G0 X${transformedInnerStart.x} Y${transformedInnerStart.y}`,
+          `M3 S${laserPower}`,
+          `G02 X${transformedInnerStart.x} Y${transformedInnerStart.y} I${innerIOffset.toFixed(3)} J${innerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+          `M5`
+        );
+
+        // 螺栓孔
+        for (let i = 0; i < boltHoleCount; i++) {
+          const angle = (i / boltHoleCount) * 2 * Math.PI - Math.PI / 2;
+          const holeX = x + boltCircleRadius * Math.cos(angle);
+          const holeY = y + boltCircleRadius * Math.sin(angle);
+          
+          // 应用整体旋转
+          const rotatedHoleCenter = rotatePoint(holeX, holeY, x, y, rotation);
+          const transformedHoleCenter = transformCoordinate(rotatedHoleCenter.x, rotatedHoleCenter.y, settings);
+          const holeStart = { x: transformedHoleCenter.x + boltHoleRadius, y: transformedHoleCenter.y };
+          
+          paths.push(
+            `G0 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)}`,
+            `M3 S${laserPower}`,
+            `G02 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)} I${-boltHoleRadius} J0 F${settings.feedRate || 1000}`,
+            `M5`
+          );
+        }
+        break;
+      }
+
+      case CanvasItemType.TORUS: {
+        const { outerRadius = 60, innerRadius = 30 } = item.parameters;
+        
+        console.log(`圆环参数 - 外径: ${outerRadius * 2}, 内径: ${innerRadius * 2}`);
+        
+        // 外圆起始点（考虑旋转）
+        const outerStart = rotatePoint(x + outerRadius, y, x, y, rotation);
+        const transformedOuterStart = transformCoordinate(outerStart.x, outerStart.y, settings);
+        const transformedCenter = transformCoordinate(x, y, settings);
+        const outerIOffset = transformedCenter.x - transformedOuterStart.x;
+        const outerJOffset = transformedCenter.y - transformedOuterStart.y;
+
+        paths.push(
+          `G0 X${transformedOuterStart.x} Y${transformedOuterStart.y}`,
+          `M3 S${laserPower}`,
+          `G02 X${transformedOuterStart.x} Y${transformedOuterStart.y} I${outerIOffset.toFixed(3)} J${outerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+          `M5`
+        );
+
+        // 内圆起始点（考虑旋转）
+        const innerStart = rotatePoint(x + innerRadius, y, x, y, rotation);
+        const transformedInnerStart = transformCoordinate(innerStart.x, innerStart.y, settings);
+        const innerIOffset = transformedCenter.x - transformedInnerStart.x;
+        const innerJOffset = transformedCenter.y - transformedInnerStart.y;
+
+        paths.push(
+          `G0 X${transformedInnerStart.x} Y${transformedInnerStart.y}`,
+          `M3 S${laserPower}`,
+          `G02 X${transformedInnerStart.x} Y${transformedInnerStart.y} I${innerIOffset.toFixed(3)} J${innerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+          `M5`
+        );
+        break;
+      }
+
+      case CanvasItemType.L_BRACKET: {
+        const { width = 80, height = 80, thickness = 15 } = item.parameters;
+        const w2 = width / 2;
+        const h2 = height / 2;
+        
+        console.log(`L型支架参数 - 宽: ${width}, 高: ${height}, 厚度: ${thickness}`);
+        
+        // L型支架的关键点
+        const points = [
+          { x: x - w2, y: y - h2 },                          // 起点
+          { x: x + w2, y: y - h2 },                          // 上边终点
+          { x: x + w2, y: y - h2 + thickness },              // 右上垂直
+          { x: x - w2 + thickness, y: y - h2 + thickness },  // 内部水平
+          { x: x - w2 + thickness, y: y + h2 },              // 右下垂直
+          { x: x - w2, y: y + h2 },                          // 下边
+          { x: x - w2, y: y - h2 },                          // 回到起点
+        ];
+        
+        // 应用旋转变换
+        const rotatedPoints = points.map(point => 
+          rotatePoint(point.x, point.y, x, y, rotation)
+        );
+        
+        // 应用坐标转换（包括Y轴反转）
+        const transformedPoints = rotatedPoints.map(point =>
+          transformCoordinate(point.x, point.y, settings)
+        );
+        
+        // 生成G代码路径
+        const bracketPaths = [
+          `G0 X${transformedPoints[0].x} Y${transformedPoints[0].y}`,  // 移动到起点
+          `M3 S${laserPower}`,
+        ];
+        
+        for (let i = 1; i < transformedPoints.length; i++) {
+          bracketPaths.push(`G1 X${transformedPoints[i].x} Y${transformedPoints[i].y} F${settings.feedRate || 1000}`);
+        }
+        
+        bracketPaths.push(`M5`);
+        paths.push(...bracketPaths);
+        break;
+      }
+
+      case CanvasItemType.U_CHANNEL: {
+        const { width = 80, height = 100, thickness = 10 } = item.parameters;
+        const w2 = width / 2;
+        const h2 = height / 2;
+        
+        console.log(`U型槽参数 - 宽: ${width}, 高: ${height}, 厚度: ${thickness}`);
+        
+        // U型槽的关键点
+        const points = [
+          { x: x - w2, y: y - h2 },                          // 起点
+          { x: x + w2, y: y - h2 },                          // 上边
+          { x: x + w2, y: y + h2 },                          // 右边
+          { x: x + w2 - thickness, y: y + h2 },              // 右下水平
+          { x: x + w2 - thickness, y: y - h2 + thickness },  // 右内垂直
+          { x: x - w2 + thickness, y: y - h2 + thickness },  // 内部水平
+          { x: x - w2 + thickness, y: y + h2 },              // 左内垂直
+          { x: x - w2, y: y + h2 },                          // 左下水平
+          { x: x - w2, y: y - h2 },                          // 左边回到起点
+        ];
+        
+        // 应用旋转变换
+        const rotatedPoints = points.map(point => 
+          rotatePoint(point.x, point.y, x, y, rotation)
+        );
+        
+        // 应用坐标转换（包括Y轴反转）
+        const transformedPoints = rotatedPoints.map(point =>
+          transformCoordinate(point.x, point.y, settings)
+        );
+        
+        // 生成G代码路径
+        const channelPaths = [
+          `G0 X${transformedPoints[0].x} Y${transformedPoints[0].y}`,
+          `M3 S${laserPower}`,
+        ];
+        
+        for (let i = 1; i < transformedPoints.length; i++) {
+          channelPaths.push(`G1 X${transformedPoints[i].x} Y${transformedPoints[i].y} F${settings.feedRate || 1000}`);
+        }
+        
+        channelPaths.push(`M5`);
+        paths.push(...channelPaths);
+        break;
+      }
+
+      case CanvasItemType.RECTANGLE_WITH_HOLES: {
+        const { width = 120, height = 80, holeRadius = 8, horizontalMargin = 20, verticalMargin = 20 } = item.parameters;
+        const w2 = width / 2;
+        const h2 = height / 2;
+        
+        console.log(`带孔矩形参数 - 宽: ${width}, 高: ${height}, 孔半径: ${holeRadius}`);
+        
+        // 主矩形的四个角点
+        const rectCorners = [
+          { x: x - w2, y: y - h2 }, // 左上
+          { x: x + w2, y: y - h2 }, // 右上  
+          { x: x + w2, y: y + h2 }, // 右下
+          { x: x - w2, y: y + h2 }, // 左下
+        ];
+        
+        // 应用旋转变换到矩形
+        const rotatedRectCorners = rectCorners.map(corner => 
+          rotatePoint(corner.x, corner.y, x, y, rotation)
+        );
+        
+        // 应用坐标转换（包括Y轴反转）
+        const transformedRectCorners = rotatedRectCorners.map(corner =>
+          transformCoordinate(corner.x, corner.y, settings)
+        );
+        
+        // 生成主矩形G代码路径
+        const rectPaths = [
+          `G0 X${transformedRectCorners[0].x} Y${transformedRectCorners[0].y}`,
+          `M3 S${laserPower}`,
+          `G1 X${transformedRectCorners[1].x} Y${transformedRectCorners[1].y} F${settings.feedRate || 1000}`,
+          `G1 X${transformedRectCorners[2].x} Y${transformedRectCorners[2].y}`,
+          `G1 X${transformedRectCorners[3].x} Y${transformedRectCorners[3].y}`,
+          `G1 X${transformedRectCorners[0].x} Y${transformedRectCorners[0].y}`,
+          `M5`
+        ];
+        paths.push(...rectPaths);
+
+        // 四个角的孔位置（旋转前）
+        const holePositions = [
+          { x: x - w2 + horizontalMargin, y: y + h2 - verticalMargin },  // 左下
+          { x: x + w2 - horizontalMargin, y: y + h2 - verticalMargin },  // 右下
+          { x: x + w2 - horizontalMargin, y: y - h2 + verticalMargin },  // 右上
+          { x: x - w2 + horizontalMargin, y: y - h2 + verticalMargin },  // 左上
+        ];
+
+        // 为每个孔生成圆形路径
+        holePositions.forEach((pos, index) => {
+          // 孔中心应用旋转
+          const rotatedHoleCenter = rotatePoint(pos.x, pos.y, x, y, rotation);
+          // 孔的起始点（右侧）
+          const holeStart = transformCoordinate(rotatedHoleCenter.x + holeRadius, rotatedHoleCenter.y, settings);
+          
+          paths.push(
+            `G0 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)}`,
+            `M3 S${laserPower}`,
+            `G02 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)} I${-holeRadius} J0 F${settings.feedRate || 1000}`,
+            `M5`
+          );
+        });
+        break;
+      }
+
+      case CanvasItemType.CIRCLE_WITH_HOLES: {
+        const { radius = 50, holeRadius = 8, holeCount = 4 } = item.parameters;
+        
+        console.log(`带孔圆形参数 - 半径: ${radius}, 孔半径: ${holeRadius}, 孔数量: ${holeCount}`);
+        
+        // 主圆起始点（考虑旋转）
+        const mainCircleStart = rotatePoint(x + radius, y, x, y, rotation);
+        const transformedMainCircleStart = transformCoordinate(mainCircleStart.x, mainCircleStart.y, settings);
+        const transformedCenter = transformCoordinate(x, y, settings);
+        const mainCircleIOffset = transformedCenter.x - transformedMainCircleStart.x;
+        const mainCircleJOffset = transformedCenter.y - transformedMainCircleStart.y;
+
+        paths.push(
+          `G0 X${transformedMainCircleStart.x} Y${transformedMainCircleStart.y}`,
+          `M3 S${laserPower}`,
+          `G02 X${transformedMainCircleStart.x} Y${transformedMainCircleStart.y} I${mainCircleIOffset.toFixed(3)} J${mainCircleJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+          `M5`
+        );
+
+        // 孔的分布
+        const holeCircleRadius = radius * 0.7; // 孔的分布圆半径
+        for (let i = 0; i < holeCount; i++) {
+          const angle = (i / holeCount) * 2 * Math.PI;
+          const holeX = x + holeCircleRadius * Math.cos(angle);
+          const holeY = y + holeCircleRadius * Math.sin(angle);
+          
+          // 应用整体旋转
+          const rotatedHoleCenter = rotatePoint(holeX, holeY, x, y, rotation);
+          const transformedHoleCenter = transformCoordinate(rotatedHoleCenter.x, rotatedHoleCenter.y, settings);
+          const holeStart = { x: transformedHoleCenter.x + holeRadius, y: transformedHoleCenter.y };
+          
+          paths.push(
+            `G0 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)}`,
+            `M3 S${laserPower}`,
+            `G02 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)} I${-holeRadius} J0 F${settings.feedRate || 1000}`,
+            `M5`
+          );
+        }
+        break;
+      }
+
+      case CanvasItemType.EQUILATERAL_TRIANGLE: {
+        const { sideLength = 40 } = item.parameters;
+        const h = (sideLength * Math.sqrt(3)) / 2;
+        
+        console.log(`等边三角形参数 - 边长: ${sideLength}`);
+        
+        // 三角形三个顶点
+        const trianglePoints = [
+          { x: x - sideLength/2, y: y - h/3 },  // 左下
+          { x: x + sideLength/2, y: y - h/3 },  // 右下
+          { x: x, y: y + 2*h/3 },               // 顶点
+          { x: x - sideLength/2, y: y - h/3 },  // 回到起点
+        ];
+        
+        // 应用旋转变换
+        const rotatedTrianglePoints = trianglePoints.map(point => 
+          rotatePoint(point.x, point.y, x, y, rotation)
+        );
+        
+        // 应用坐标转换（包括Y轴反转）
+        const transformedTrianglePoints = rotatedTrianglePoints.map(point =>
+          transformCoordinate(point.x, point.y, settings)
+        );
+        
+        // 生成G代码路径
+        const trianglePaths = [
+          `G0 X${transformedTrianglePoints[0].x} Y${transformedTrianglePoints[0].y}`,
+          `M3 S${laserPower}`,
+        ];
+        
+        for (let i = 1; i < transformedTrianglePoints.length; i++) {
+          trianglePaths.push(`G1 X${transformedTrianglePoints[i].x} Y${transformedTrianglePoints[i].y} F${settings.feedRate || 1000}`);
+        }
+        
+        trianglePaths.push(`M5`);
+        paths.push(...trianglePaths);
+        break;
+      }
+
+      case CanvasItemType.ISOSCELES_RIGHT_TRIANGLE: {
+        const { cathetus = 50 } = item.parameters;
+        
+        console.log(`等腰直角三角形参数 - 直角边长: ${cathetus}`);
+        
+        // 三角形三个顶点
+        const trianglePoints = [
+          { x: x - cathetus/2, y: y + cathetus/2 },  // 左下角
+          { x: x + cathetus/2, y: y + cathetus/2 },  // 右下角
+          { x: x - cathetus/2, y: y - cathetus/2 },  // 左上角（直角顶点）
+          { x: x - cathetus/2, y: y + cathetus/2 },  // 回到起点
+        ];
+        
+        // 应用旋转变换
+        const rotatedTrianglePoints = trianglePoints.map(point => 
+          rotatePoint(point.x, point.y, x, y, rotation)
+        );
+        
+        // 应用坐标转换（包括Y轴反转）
+        const transformedTrianglePoints = rotatedTrianglePoints.map(point =>
+          transformCoordinate(point.x, point.y, settings)
+        );
+        
+        // 生成G代码路径
+        const trianglePaths = [
+          `G0 X${transformedTrianglePoints[0].x} Y${transformedTrianglePoints[0].y}`,
+          `M3 S${laserPower}`,
+        ];
+        
+        for (let i = 1; i < transformedTrianglePoints.length; i++) {
+          trianglePaths.push(`G1 X${transformedTrianglePoints[i].x} Y${transformedTrianglePoints[i].y} F${settings.feedRate || 1000}`);
+        }
+        
+        trianglePaths.push(`M5`);
+        paths.push(...trianglePaths);
+        break;
+      }
+
+      case CanvasItemType.SECTOR: {
+        const { radius = 50, startAngle = -90, sweepAngle = 90 } = item.parameters;
+        
+        console.log(`扇形参数 - 半径: ${radius}, 起始角: ${startAngle}, 扫掠角: ${sweepAngle}`);
+        
+        const startRad = ((startAngle + rotation) * Math.PI) / 180;
+        const endRad = ((startAngle + sweepAngle + rotation) * Math.PI) / 180;
+        
+        const sx = x + radius * Math.cos(startRad);
+        const sy = y + radius * Math.sin(startRad);
+        const ex = x + radius * Math.cos(endRad);
+        const ey = y + radius * Math.sin(endRad);
+        
+        // 扇形路径：中心到弧
+        const sectorPaths = [
+          `G0 X${x} Y${y}`,                           // 移动到中心
+          `M3 S${laserPower}`,
+          `G1 X${sx} Y${sy} F${settings.feedRate || 1000}`, // 直线到弧起点
+          // 这里简化处理，实际应该用G02/G03绘制弧
+          `G1 X${ex} Y${ey}`,                         // 简化为直线（实际应该是弧）
+          `G1 X${x} Y${y}`,                           // 回到中心
+          `M5`
+        ];
+        paths.push(...sectorPaths);
+        break;
+      }
+
+      case CanvasItemType.ARC: {
+        const { radius = 40, startAngle = 0, sweepAngle = 90 } = item.parameters;
+        
+        console.log(`弧形参数 - 半径: ${radius}, 起始角: ${startAngle}, 扫掠角: ${sweepAngle}`);
+        
+        const startRad = ((startAngle + rotation) * Math.PI) / 180;
+        const endRad = ((startAngle + sweepAngle + rotation) * Math.PI) / 180;
+        
+        const sx = x + radius * Math.cos(startRad);
+        const sy = y + radius * Math.sin(startRad);
+        const ex = x + radius * Math.cos(endRad);
+        const ey = y + radius * Math.sin(endRad);
+        
+        // 弧形路径
+        const arcPaths = [
+          `G0 X${sx} Y${sy}`,                         // 移动到弧起点
+          `M3 S${laserPower}`,
+          // 简化处理，实际应该用G02/G03
+          `G1 X${ex} Y${ey} F${settings.feedRate || 1000}`,
+          `M5`
+        ];
+        paths.push(...arcPaths);
+        break;
+      }
+      
+      case CanvasItemType.POLYLINE: {
+        const { seg1 = 40, seg2 = 50, seg3 = 30, angle1 = 90, angle2 = 90 } = item.parameters;
+        
+        console.log(`折线参数 - 段1: ${seg1}, 段2: ${seg2}, 段3: ${seg3}`);
+        
+        // 折线的关键点（简化处理）
+        const polylinePoints = [
+          { x: x, y: y },                         // 起点
+          { x: x + seg1, y: y },                  // 第一段终点
+          { x: x + seg1, y: y + seg2 },           // 第二段终点（垂直）
+          { x: x + seg1 + seg3, y: y + seg2 },    // 第三段终点（水平）
+        ];
+        
+        // 应用旋转变换
+        const rotatedPolylinePoints = polylinePoints.map(point => 
+          rotatePoint(point.x, point.y, x, y, rotation)
+        );
+        
+        // 应用坐标转换（包括Y轴反转）
+        const transformedPolylinePoints = rotatedPolylinePoints.map(point =>
+          transformCoordinate(point.x, point.y, settings)
+        );
+        
+        // 生成G代码路径
+        const polylinePaths = [
+          `G0 X${transformedPolylinePoints[0].x} Y${transformedPolylinePoints[0].y}`,
+          `M3 S${laserPower}`,
+        ];
+        
+        for (let i = 1; i < transformedPolylinePoints.length; i++) {
+          polylinePaths.push(`G1 X${transformedPolylinePoints[i].x} Y${transformedPolylinePoints[i].y} F${settings.feedRate || 1000}`);
+        }
+        
+        polylinePaths.push(`M5`);
+        paths.push(...polylinePaths);
+        break;
+      }
+      
+      // 为其他复杂图形添加类似的旋转支持...
+      default:
+        // 对于不支持的参数化图形，生成注释并显示参数
+        if ('type' in item) {
+          if ('parameters' in item) {
+            paths.push(`; 图形类型: ${item.type}, 参数: ${JSON.stringify((item as any).parameters)}`);
+          } else {
+            paths.push(`; 图形类型: ${item.type}`);
+          }
+        } else {
+          paths.push(`; 未知对象: ${JSON.stringify(item)}`);
+        }
+        break;
+    }
+  }
+  
+  // 处理手绘路径（应用旋转和Y轴反转）
+  if (item.type === CanvasItemType.DRAWING && 'points' in item && Array.isArray(item.points)) {
+    if (item.points.length > 1) {
+      const drawingPaths = [];
+      
+      // 对所有点应用旋转和坐标转换
+      const transformedPoints = item.points.map(point => {
+        const rotated = rotatePoint(x + point.x, y + point.y, x, y, rotation);
+        return transformCoordinate(rotated.x, rotated.y, settings);
+      });
+      
+      drawingPaths.push(`G0 X${transformedPoints[0].x} Y${transformedPoints[0].y}`); // 移动到起点
+      drawingPaths.push(`M3 S${laserPower}`); // 开启激光
+      
+      for (let i = 1; i < transformedPoints.length; i++) {
+        drawingPaths.push(`G1 X${transformedPoints[i].x} Y${transformedPoints[i].y} F${settings.feedRate || 1000}`);
+      }
+      
+      drawingPaths.push(`M5`); // 关闭激光
+      paths.push(...drawingPaths);
+    }
+  }
+  
+  // 处理文本对象（转换为注释）
+  if (item.type === CanvasItemType.TEXT && 'text' in item) {
+    const transformedPos = transformCoordinate(x, y, settings);
+    paths.push(`; 文本对象: "${item.text}" 位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
+  }
+  
+  // 处理图像对象
+  if (item.type === CanvasItemType.IMAGE) {
+    const transformedPos = transformCoordinate(x, y, settings);
+    
+    // 检查是否有矢量源数据
+    if (item.vectorSource && item.vectorSource.parsedItems && item.vectorSource.parsedItems.length > 0) {
+      // 使用矢量源数据生成G代码
+      paths.push(`; 图像对象(矢量源)位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
+      
+      // 处理矢量源中的每个对象
+      for (const vectorItem of item.vectorSource.parsedItems) {
+        // 将矢量对象的位置相对于图像对象进行偏移
+        const vectorItemWithOffset: CanvasItem = {
+          ...vectorItem,
+          x: x + (vectorItem.x || 0),
+          y: y + (vectorItem.y || 0),
+          id: `vector_${Date.now()}_${Math.random()}`, // 临时ID
+          layerId: item.layerId
+        } as CanvasItem;
+        
+        // 递归处理矢量对象
+        const vectorPaths = itemToGCodePaths(vectorItemWithOffset, settings);
+        paths.push(...vectorPaths);
+      }
+    } else {
+      // 没有矢量源数据，转换为注释
+      paths.push(`; 图像对象位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}° - 建议使用扫描图层处理`);
+    }
+  }
+  
+  // 处理组合对象
+  if (item.type === 'GROUP' && 'children' in item && Array.isArray(item.children)) {
+    const transformedPos = transformCoordinate(x, y, settings);
+    paths.push(`; 开始组合对象 位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
+    for (const child of item.children) {
+      // 递归处理子对象，并相对于父对象的位置进行偏移
+      const childItem = {
+        ...child,
+        x: x + (child.x || 0),
+        y: y + (child.y || 0)
+      } as CanvasItem;
+      const childPaths = itemToGCodePaths(childItem, settings);
+      paths.push(...childPaths);
+    }
+    paths.push(`; 结束组合对象`);
+  }
+  
+  return paths;
+}
+
+/**
+ * 为雕刻图层生成G代码
+ * @param layer 雕刻图层
+ * @param items 画布中的所有项目
+ * @param settings 雕刻设置
+ * @returns 生成的G代码字符串
+ */
+export async function generateEngraveGCode(
+  layer: Layer,
+  items: CanvasItem[],
+  settings: GCodeEngraveSettings = {}
+): Promise<string> {
+  // 获取属于该图层的所有对象（不再过滤图像）
+  const layerItems = items.filter(item => item.layerId === layer.id);
+  
+  if (layerItems.length === 0) {
+    throw new Error('图层中没有对象');
+  }
+
+  const gcode: string[] = [];
+  
+  // G代码文件头
+  gcode.push(
+    'G21 ; Set units to mm',
+    'G90 ; Use absolute positioning',
+    'G0 Z1 ; Raise to safe height',
+    `G0 X0 Y0 F${settings.travelSpeed || 3000} ; Move to origin`,
+    ''
+  );
+
+  // 统计支持的对象数量
+  let supportedItemsCount = 0;
+
+  // 为每个对象生成G代码路径
+  for (const item of layerItems) {
+    const itemPaths = itemToGCodePaths(item, settings);
+    if (itemPaths.length > 0) {
+      gcode.push(`; Object: ${item.type} at (${item.x}, ${item.y})`);
+      gcode.push(...itemPaths);
+      gcode.push('');
+      
+      // 统计实际生成了G代码路径的对象（不包括纯注释）
+      if (itemPaths.some(path => !path.startsWith(';'))) {
+        supportedItemsCount++;
+      }
+    }
+  }
+
+  // G代码文件尾
+  gcode.push(
+    'M5 ; Ensure laser is off',
+    'G0 Z1 ; Raise to safe height', 
+    'G0 X0 Y0 ; Return to origin',
+    'M30 ; Program end'
+  );
+
+  // 添加统计信息
+  gcode.unshift(`; 雕刻图层: ${layer.name}`);
+  gcode.unshift(`; 总对象数: ${layerItems.length}, 支持雕刻的对象数: ${supportedItemsCount}`);
+
+  return gcode.join('\n');
+}

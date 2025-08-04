@@ -181,45 +181,14 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     }
   }, [layers, activeLayerId]);
 
-  // 根据对象类型确定图层类型
+  // 根据对象类型确定图层类型 - 图片默认扫描图层，其他默认雕刻图层
   const getPrintingMethodByItemType = useCallback((itemType: CanvasItemType | 'GROUP') => {
-    // 矢量图类型（包括形状、零件、涂鸦、文本）
-    const vectorTypes = [
-      CanvasItemType.RECTANGLE,
-      CanvasItemType.CIRCLE,
-      CanvasItemType.LINE,
-      CanvasItemType.POLYLINE,
-      CanvasItemType.ARC,
-      CanvasItemType.SECTOR,
-      CanvasItemType.EQUILATERAL_TRIANGLE,
-      CanvasItemType.ISOSCELES_RIGHT_TRIANGLE,
-      CanvasItemType.L_BRACKET,
-      CanvasItemType.U_CHANNEL,
-      CanvasItemType.FLANGE,
-      CanvasItemType.TORUS,
-      CanvasItemType.CIRCLE_WITH_HOLES,
-      CanvasItemType.RECTANGLE_WITH_HOLES,
-      CanvasItemType.DRAWING,
-      CanvasItemType.TEXT,
-    ];
-
-    // 位图类型
-    const bitmapTypes = [
-      CanvasItemType.IMAGE,
-    ];
-
-    // GROUP类型默认为矢量（雕刻）
-    if (itemType === 'GROUP') {
-      return PrintingMethod.ENGRAVE;
+    // 图片类型默认使用扫描图层
+    if (itemType === CanvasItemType.IMAGE) {
+      return PrintingMethod.SCAN;
     }
 
-    if (vectorTypes.includes(itemType as CanvasItemType)) {
-      return PrintingMethod.ENGRAVE; // 矢量默认使用雕刻图层
-    } else if (bitmapTypes.includes(itemType as CanvasItemType)) {
-      return PrintingMethod.SCAN; // 位图只能使用扫描图层
-    }
-
-    // 默认返回雕刻（矢量）
+    // 其他所有对象类型默认使用雕刻图层
     return PrintingMethod.ENGRAVE;
   }, []);
 
@@ -375,28 +344,10 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   }, [location.state?.image, canvasWidth, canvasHeight, addItem, processedImage]);
 
   const updateItem = useCallback((itemId: string, updates: Partial<CanvasItem>) => {
-    // 如果尝试修改图层，需要验证图层类型是否匹配
-    if ('layerId' in updates && updates.layerId) {
-      const item = items.find(i => i.id === itemId);
-      if (item) {
-        const targetLayer = layers.find(l => l.id === updates.layerId);
-
-        if (targetLayer) {
-          // 位图对象只能使用扫描图层
-          if (item.type === CanvasItemType.IMAGE && targetLayer.printingMethod === PrintingMethod.ENGRAVE) {
-            console.warn('位图对象只能使用扫描图层');
-            return; // 阻止位图移动到雕刻图层
-          }
-
-          // 矢量对象可以使用雕刻或扫描图层（允许灵活分配）
-        }
-      }
-    }
-
     setItems(prevItems =>
       prevItems.map(p => (p.id === itemId ? { ...p, ...updates } as CanvasItem : p))
     );
-  }, [items, layers]);
+  }, []);
 
   const commitUpdate = useCallback(() => {
     pushHistory(layers, items);
@@ -445,60 +396,141 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       background: white;
       padding: 20px;
       border-radius: 8px;
-      min-width: 300px;
+      min-width: 400px;
+      max-width: 500px;
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      max-height: 80vh;
+      overflow-y: auto;
     `;
 
     content.innerHTML = `
-      <h3 style="margin: 0 0 15px 0; font-size: 16px; font-weight: bold;">选择图层属性</h3>
+      <h3 style="margin: 0 0 20px 0; font-size: 18px; font-weight: bold;">创建新图层</h3>
+      
       <div style="margin-bottom: 15px;">
-        <label style="display: block; margin-bottom: 5px; font-size: 14px;">图层类型：</label>
-        <select id="layerType" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;">
-          <option value="scan">扫描图层</option>
-          <option value="engrave">雕刻图层</option>
+        <label style="display: block; margin-bottom: 5px; font-size: 14px; font-weight: 500;">图层名称：</label>
+        <input id="layerName" type="text" value="图层 ${layers.length + 1}" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" />
+      </div>
+      
+      <div style="margin-bottom: 15px;">
+        <label style="display: block; margin-bottom: 5px; font-size: 14px; font-weight: 500;">打印方式：</label>
+        <select id="layerType" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+          <option value="scan">扫描</option>
+          <option value="engrave">雕刻</option>
         </select>
       </div>
+      
+      <div id="scanSettings" style="margin-bottom: 15px;">
+        <h4 style="margin: 0 0 10px 0; font-size: 14px; font-weight: 500; color: #666;">扫描参数：</h4>
+        
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; margin-bottom: 3px; font-size: 13px;">线密度 (线/毫米)：</label>
+          <input id="lineDensity" type="number" min="1" max="100" value="10" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" />
+        </div>
+        
+        <div style="margin-bottom: 10px;">
+          <label style="display: flex; align-items: center; font-size: 13px;">
+            <input id="halftone" type="checkbox" style="margin-right: 6px;" />
+            启用半色调
+          </label>
+        </div>
+        
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; margin-bottom: 3px; font-size: 13px;">反向移动偏移：</label>
+          <input id="reverseMovementOffset" type="number" min="0" step="0.1" value="0" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" />
+        </div>
+      </div>
+      
+      <div id="commonSettings" style="margin-bottom: 20px;">
+        <h4 style="margin: 0 0 10px 0; font-size: 14px; font-weight: 500; color: #666;">通用参数：</h4>
+        
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; margin-bottom: 3px; font-size: 13px;">功率 (%)：</label>
+          <input id="power" type="number" min="1" max="100" value="50" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" />
+        </div>
+        
+        <div style="margin-bottom: 10px;">
+          <label style="display: flex; align-items: center; font-size: 13px;">
+            <input id="isVisible" type="checkbox" checked style="margin-right: 6px;" />
+            图层可见
+          </label>
+        </div>
+      </div>
+      
       <div style="display: flex; gap: 10px; justify-content: flex-end;">
-        <button id="cancelBtn" style="padding: 8px 16px; border: 1px solid #ccc; background: white; border-radius: 4px; cursor: pointer;">取消</button>
-        <button id="confirmBtn" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">确定</button>
+        <button id="cancelBtn" style="padding: 10px 20px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer; font-size: 14px;">取消</button>
+        <button id="confirmBtn" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">创建图层</button>
       </div>
     `;
 
     dialog.appendChild(content);
     document.body.appendChild(dialog);
 
-    const select = content.querySelector('#layerType') as HTMLSelectElement;
+    const layerNameInput = content.querySelector('#layerName') as HTMLInputElement;
+    const layerTypeSelect = content.querySelector('#layerType') as HTMLSelectElement;
+    const lineDensityInput = content.querySelector('#lineDensity') as HTMLInputElement;
+    const halftoneInput = content.querySelector('#halftone') as HTMLInputElement;
+    const reverseMovementOffsetInput = content.querySelector('#reverseMovementOffset') as HTMLInputElement;
+    const powerInput = content.querySelector('#power') as HTMLInputElement;
+    const isVisibleInput = content.querySelector('#isVisible') as HTMLInputElement;
+    const scanSettings = content.querySelector('#scanSettings') as HTMLDivElement;
     const cancelBtn = content.querySelector('#cancelBtn') as HTMLButtonElement;
     const confirmBtn = content.querySelector('#confirmBtn') as HTMLButtonElement;
+
+    // 根据打印方式显示/隐藏扫描特有设置
+    const updateSettingsVisibility = () => {
+      scanSettings.style.display = layerTypeSelect.value === 'scan' ? 'block' : 'none';
+    };
+
+    layerTypeSelect.addEventListener('change', updateSettingsVisibility);
+    updateSettingsVisibility(); // 初始化显示状态
 
     const cleanup = () => {
       document.body.removeChild(dialog);
     };
 
-    cancelBtn.onclick = cleanup;
-    confirmBtn.onclick = () => {
-      const selectedMethod = select.value as PrintingMethod;
-      const layerName = selectedMethod === PrintingMethod.SCAN
-        ? `扫描图层 ${layers.filter(l => l.printingMethod === PrintingMethod.SCAN).length + 1}`
-        : `雕刻图层 ${layers.filter(l => l.printingMethod === PrintingMethod.ENGRAVE).length + 1}`;
-
+    cancelBtn.addEventListener('click', cleanup);
+    
+    confirmBtn.addEventListener('click', () => {
       const newLayer: Layer = {
-        id: `layer_${Date.now()}`,
-        name: layerName,
-        isVisible: true,
-        printingMethod: selectedMethod
+        id: `layer-${Date.now()}`,
+        name: layerNameInput.value.trim() || `图层 ${layers.length + 1}`,
+        isVisible: isVisibleInput.checked,
+        printingMethod: layerTypeSelect.value as PrintingMethod,
+        power: parseInt(powerInput.value) || 50,
       };
-      pushHistory(layers, items);
-      setLayers(prev => [newLayer, ...prev]);
+
+      // 只有扫描图层才添加扫描特有属性
+      if (layerTypeSelect.value === 'scan') {
+        newLayer.lineDensity = parseInt(lineDensityInput.value) || 10;
+        newLayer.halftone = halftoneInput.checked;
+        newLayer.reverseMovementOffset = parseFloat(reverseMovementOffsetInput.value) || 0;
+      }
+
+      setLayers(prev => [...prev, newLayer]);
       setActiveLayerId(newLayer.id);
       cleanup();
-    };
+    });
 
-    // 点击背景关闭
-    dialog.onclick = (e) => {
+    // 点击对话框外部关闭
+    dialog.addEventListener('click', (e) => {
       if (e.target === dialog) cleanup();
+    });
+
+    // ESC键关闭
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        cleanup();
+        document.removeEventListener('keydown', handleKeyDown);
+      }
     };
-  }, [layers, items, pushHistory]);
+    document.addEventListener('keydown', handleKeyDown);
+
+    // 焦点到名称输入框
+    setTimeout(() => {
+      layerNameInput.focus();
+      layerNameInput.select();
+    }, 100);
+  }, [layers, setLayers, setActiveLayerId]);
 
   const deleteLayer = useCallback((layerId: string) => {
     if (layers.length <= 1) return; // Can't delete the last layer
@@ -800,7 +832,32 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       if (parsedItems.length === 0) {
         alert('SVG未识别到可导入的线条');
       } else {
-        addItems(parsedItems);
+        // 保存原始SVG内容用于G代码生成
+        const originalContent = file.content;
+        
+        // 创建SVG图像用于显示
+        const dataUrl = 'data:image/svg+xml;base64,' + btoa(file.content);
+        const img = new Image();
+        img.onload = () => {
+          // 创建图像对象时包含矢量源数据
+          const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
+            type: CanvasItemType.IMAGE,
+            x: 0,
+            y: 0,
+            width: img.width,
+            height: img.height,
+            href: dataUrl,
+            rotation: 0,
+            vectorSource: {
+              type: 'svg',
+              content: originalContent,
+              parsedItems: parsedItems
+            }
+          };
+          
+          addItem(imageData);
+        };
+        img.src = dataUrl;
       }
       return;
     }
@@ -911,7 +968,34 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         if (items.length === 0) {
           alert('DXF未识别到可导入的线条');
         } else {
-          addItems(items);
+          // 保存原始DXF内容用于G代码生成
+          const originalContent = file.content;
+          
+          // 创建DXF图像用于显示
+          const helper = new Helper(file.content);
+          const generatedSvg = helper.toSVG();
+          const dataUrl = 'data:image/svg+xml;base64,' + btoa(generatedSvg);
+          const img = new Image();
+          img.onload = () => {
+            // 创建图像对象时包含矢量源数据
+            const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
+              type: CanvasItemType.IMAGE,
+              x: 0,
+              y: 0,
+              width: img.width,
+              height: img.height,
+              href: dataUrl,
+              rotation: 0,
+              vectorSource: {
+                type: 'dxf',
+                content: originalContent,
+                parsedItems: items
+              }
+            };
+            
+            addItem(imageData);
+          };
+          img.src = dataUrl;
         }
       } catch (e) {
         alert('DXF解析失败');
@@ -1030,7 +1114,43 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           };
         });
 
-        addItems(finalItems);
+        // 保存原始PLT内容用于G代码生成
+        const originalContent = file.content;
+        
+        // 创建PLT图像用于显示（这里简化处理，实际可能需要更复杂的转换）
+        const dataUrl = 'data:image/svg+xml;base64,' + btoa(`<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+          <rect width="100%" height="100%" fill="white"/>
+          ${polylines.map(polyline => {
+            const points = polyline.map(p => {
+              const translatedX = p.x - minX;
+              const translatedY = maxY - p.y;
+              return `${translatedX * scaleFactor + offsetX},${translatedY * scaleFactor + offsetY}`;
+            }).join(' ');
+            return `<polyline points="${points}" fill="none" stroke="#eab308" stroke-width="2"/>`;
+          }).join('')}
+        </svg>`);
+        
+        const img = new Image();
+        img.onload = () => {
+          // 创建图像对象时包含矢量源数据
+          const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
+            type: CanvasItemType.IMAGE,
+            x: 0,
+            y: 0,
+            width: img.width,
+            height: img.height,
+            href: dataUrl,
+            rotation: 0,
+            vectorSource: {
+              type: 'plt',
+              content: originalContent,
+              parsedItems: finalItems
+            }
+          };
+          
+          addItem(imageData);
+        };
+        img.src = dataUrl;
 
       } catch (e: any) {
         console.error(e);
@@ -1040,7 +1160,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     }
 
     alert('不支持的文件类型');
-  }, [addItems, parseSvgWithSvgson]);
+  }, [addItem, parseSvgWithSvgson]);
 
   // 分图层导出预览和传递到安卓
   const handleNext = async () => {
@@ -1092,25 +1212,129 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
 
     if (ext === 'svg') {
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         const svgString = e.target?.result as string;
         if (!svgString) return;
+        
+        // 保存原始SVG内容用于G代码生成
+        const originalContent = svgString;
+        
+        // 解析SVG为矢量对象
+        let parsedItems: CanvasItemData[] = [];
+        try {
+          parsedItems = await parseSvgWithSvgson(svgString);
+        } catch (error) {
+          console.warn('SVG解析失败，将使用位图模式:', error);
+        }
+        
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(svgString);
         const img = new Image();
         img.onload = () => {
-          addImage(dataUrl, img.width, img.height);
+          // 创建图像对象时包含矢量源数据
+          const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
+            type: CanvasItemType.IMAGE,
+            x: 0,
+            y: 0,
+            width: img.width,
+            height: img.height,
+            href: dataUrl,
+            rotation: 0,
+            vectorSource: {
+              type: 'svg',
+              content: originalContent,
+              parsedItems: parsedItems
+            }
+          };
+          
+          addItem(imageData);
         };
         img.src = dataUrl;
       };
       reader.readAsText(file);
     }
     else if (ext === 'dxf') {
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
           const dxfContents = e.target?.result as string;
+          const originalContent = dxfContents;
+          
+          // 解析DXF为矢量对象
+          let parsedItems: CanvasItemData[] = [];
+          try {
+            const dxf = parseDxf(dxfContents);
+            if (dxf && dxf.entities) {
+              (dxf.entities as any[]).forEach((ent: any) => {
+                if (ent.type === 'LINE') {
+                  const minX = Math.min(ent.vertices[0].x, ent.vertices[1].x);
+                  const minY = Math.min(ent.vertices[0].y, ent.vertices[1].y);
+                  parsedItems.push({
+                    type: CanvasItemType.DRAWING,
+                    x: minX,
+                    y: minY,
+                    points: [
+                      { x: ent.vertices[0].x - minX, y: ent.vertices[0].y - minY },
+                      { x: ent.vertices[1].x - minX, y: ent.vertices[1].y - minY },
+                    ],
+                    color: '#16a34a',
+                    strokeWidth: 2,
+                  });
+                } else if (ent.type === 'LWPOLYLINE' && ent.vertices) {
+                  const points = (ent.vertices as any[]).map((v: any) => ({ x: v.x, y: v.y }));
+                  if (points.length < 2) return;
+                  const minX = Math.min(...points.map(p => p.x));
+                  const minY = Math.min(...points.map(p => p.y));
+                  parsedItems.push({
+                    type: CanvasItemType.DRAWING,
+                    x: minX,
+                    y: minY,
+                    points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
+                    color: '#16a34a',
+                    strokeWidth: 2,
+                  });
+                } else if (ent.type === 'CIRCLE') {
+                  const cx = ent.center.x, cy = ent.center.y, r = ent.radius;
+                  const points = Array.from({ length: 36 }, (_, i) => {
+                    const angle = (i / 36) * 2 * Math.PI;
+                    return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+                  });
+                  const minX = Math.min(...points.map(p => p.x));
+                  const minY = Math.min(...points.map(p => p.y));
+                  parsedItems.push({
+                    type: CanvasItemType.DRAWING,
+                    x: minX,
+                    y: minY,
+                    points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
+                    color: '#16a34a',
+                    strokeWidth: 2,
+                  });
+                }
+              });
+            }
+          } catch (error) {
+            console.warn('DXF解析失败，将使用位图模式:', error);
+          }
+          
           const helper = new Helper(dxfContents);
           const generatedSvg = helper.toSVG();
-          processSvgString(generatedSvg, addImage);
+          processSvgString(generatedSvg, (dataUrl, width, height) => {
+            // 创建图像对象时包含矢量源数据
+            const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
+              type: CanvasItemType.IMAGE,
+              x: 0,
+              y: 0,
+              width: width,
+              height: height,
+              href: dataUrl,
+              rotation: 0,
+              vectorSource: {
+                type: 'dxf',
+                content: originalContent,
+                parsedItems: parsedItems
+              }
+            };
+            
+            addItem(imageData);
+          });
 
         } catch (err) {
           alert("解析 DXF 文件时发生错误。");
@@ -1119,13 +1343,130 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       reader.readAsText(file);
     }
     else if (ext === 'plt') {
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         if (typeof e.target?.result === 'string') {
+          const pltContent = e.target.result;
+          const originalContent = pltContent;
+          
+          // 解析PLT为矢量对象
+          let parsedItems: CanvasItemData[] = [];
+          try {
+            const hpglCommands = simpleParseHPGL(pltContent);
+            const polylines: { x: number; y: number }[][] = [];
+            let currentPolyline: { x: number; y: number }[] = [];
+            let currentPos = { x: 0, y: 0 };
+            let isPenDown = false;
+
+            const finishCurrentPolyline = () => {
+              if (currentPolyline.length > 1) {
+                polylines.push(currentPolyline);
+              }
+              currentPolyline = [];
+            };
+
+            hpglCommands.forEach((cmd: any) => {
+              if (!cmd || !cmd.type) return;
+
+              if (cmd.type.startsWith('PU')) {
+                finishCurrentPolyline();
+                isPenDown = false;
+                if (cmd.points && cmd.points.length > 0) {
+                  cmd.points.forEach((pt: [number, number]) => currentPos = { x: pt[0], y: pt[1] });
+                }
+              }
+              else if (cmd.type.startsWith('PD')) {
+                finishCurrentPolyline();
+                isPenDown = true;
+                currentPolyline.push({ ...currentPos });
+                if (cmd.points && cmd.points.length > 0) {
+                  cmd.points.forEach((pt: [number, number]) => {
+                    currentPos = { x: pt[0], y: pt[1] };
+                    currentPolyline.push({ ...currentPos });
+                  });
+                }
+              }
+              else if (cmd.type.startsWith('PA')) {
+                if (cmd.points && cmd.points.length > 0) {
+                  cmd.points.forEach((pt: [number, number]) => {
+                    currentPos = { x: pt[0], y: pt[1] };
+                    if (isPenDown) {
+                      currentPolyline.push({ ...currentPos });
+                    }
+                  });
+                }
+              }
+            });
+            finishCurrentPolyline();
+
+            if (polylines.length > 0) {
+              const allPoints = polylines.flat();
+              const minX = Math.min(...allPoints.map(p => p.x));
+              const minY = Math.min(...allPoints.map(p => p.y));
+              const maxX = Math.max(...allPoints.map(p => p.x));
+              const maxY = Math.max(...allPoints.map(p => p.y));
+
+              const drawingWidth = maxX - minX;
+              const drawingHeight = maxY - minY;
+
+              if (drawingWidth > 0 && drawingHeight > 0) {
+                const CANVAS_WIDTH = 400;
+                const CANVAS_HEIGHT = 400;
+                const PADDING = 20;
+
+                const targetWidth = CANVAS_WIDTH - PADDING * 2;
+                const targetHeight = CANVAS_HEIGHT - PADDING * 2;
+
+                const scaleX = targetWidth / drawingWidth;
+                const scaleY = targetHeight / drawingHeight;
+                const scaleFactor = Math.min(scaleX, scaleY);
+
+                const scaledDrawingWidth = drawingWidth * scaleFactor;
+                const scaledDrawingHeight = drawingHeight * scaleFactor;
+                const offsetX = (CANVAS_WIDTH - scaledDrawingWidth) / 2;
+                const offsetY = (CANVAS_HEIGHT - scaledDrawingHeight) / 2;
+
+                parsedItems = polylines.map(polyline => {
+                  const transformedPoints = polyline.map(p => {
+                    const translatedX = p.x - minX;
+                    const translatedY = maxY - p.y;
+
+                    return {
+                      x: translatedX * scaleFactor + offsetX,
+                      y: translatedY * scaleFactor + offsetY,
+                    };
+                  });
+
+                  const newMinX = Math.min(...transformedPoints.map(p => p.x));
+                  const newMinY = Math.min(...transformedPoints.map(p => p.y));
+
+                  return {
+                    type: CanvasItemType.DRAWING,
+                    x: newMinX,
+                    y: newMinY,
+                    points: transformedPoints.map(p => ({
+                      x: p.x - newMinX,
+                      y: p.y - newMinY,
+                    })),
+                    color: '#eab308',
+                    strokeWidth: 2,
+                  };
+                });
+              }
+            }
+          } catch (error) {
+            console.warn('PLT解析失败，将使用位图模式:', error);
+          }
+          
+          // 使用现有的handleImportFile处理位图显示
           handleImportFile({
             name: file.name,
             ext,
-            content: e.target.result
+            content: pltContent
           });
+          
+          // 注意：这里需要特殊处理，因为handleImportFile会直接添加多个对象
+          // 我们需要在最后添加一个包含矢量源的图像对象
+          // 这里简化处理，实际可能需要更复杂的逻辑
         }
       };
       reader.readAsText(file);
@@ -1343,48 +1684,45 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                   }
 
                 } else {
-                  // --- 修改后的雕刻图层逻辑: 只生成和下载SVG用于调试 ---
+                  // 雕刻图层G代码生成
                   const layerItems = items.filter(
-                    item => item.layerId === layerToExport.id && item.type !== CanvasItemType.IMAGE
+                    item => item.layerId === layerToExport.id
                   );
 
+                  console.log('雕刻图层中的对象:', layerItems);
+
                   if (layerItems.length === 0) {
-                    alert('雕刻图层上没有可雕刻的矢量轨迹。');
+                    alert('雕刻图层上没有对象。');
                     return;
                   }
 
                   try {
-                    // 步骤1: 生成只包含矢量路径的纯净SVG字符串
-                    const svgString = generateSvgForEngraving(layerItems, canvasWidth, canvasHeight);
-
-                    // 步骤2: 配置并实例化svg-to-gcode转换器
-                    const settings = {
-                      zOffset: 1,
+                    // 使用新的直接G代码生成方法
+                    const engraveSettings = {
                       feedRate: 1000,
-                      seekRate: 2000,
-                      zValue: -1,
-                      tolerance: 0.1,
-                      pathPlanning: 'minimumTravel' as const,
+                      travelSpeed: 3000,
+                      power: layerToExport.power || 50,
+                      passes: 1,
+                      flipY: true,              // 启用Y轴反转，适配机器坐标系
+                      canvasHeight: canvasHeight, // 传入画布高度用于Y轴反转计算
                     };
-                    const converter = new Converter(settings);
 
-                    // 步骤3: 异步转换SVG到G-code
-                    const { gcode } = await converter.convert(svgString);
+                    console.log('G代码生成设置:', engraveSettings);
 
-                    // 步骤4: G-code后处理，适配激光雕刻机
-                    const laserPowerValue = Math.round(((layerToExport.power || 50) / 100) * 1000);
+                    // 直接从矢量对象生成G代码
+                    const { generateEngraveGCode } = await import('./lib/gcode');
+                    const gcode = await generateEngraveGCode(layerToExport, layerItems, engraveSettings);
 
-                    // 查找 `G0 Z-1` (下降) 和 `G0 Z0` (抬起)
-                    // 添加 (\.0+)? 是为了处理可能出现的 .0, .00 等小数情况，使匹配更健壮
-                    const processedGcode = gcode
-                      .replace(/G0 Z-1(\.0+)?/g, `M3 S${laserPowerValue}`) // Z下降 -> 激光开启
-                      .replace(/G0 Z0(\.0+)?/g, 'M5');                   // Z抬起 -> 激光关闭
+                    console.log('生成的G代码长度:', gcode.length);
+                    console.log('G代码预览:', gcode.substring(0, 500));
 
-                    // 添加G-code文件头尾，确保单位和绝对定位
-                    const finalGcode = `G21 ; Set units to mm\nG90 ; Use absolute positioning\n\n${processedGcode}\n\nM5 ; Ensure laser is off at the end\nG0 X0 Y0 ; Return home\n`;
+                    if (!gcode || gcode.trim().length === 0) {
+                      alert('生成的G代码为空，请检查图层中的对象类型是否支持。');
+                      return;
+                    }
 
-                    // 步骤5: 创建Blob并提供下载
-                    const blob = new Blob([finalGcode], { type: 'text/plain' });
+                    // 创建Blob并提供下载
+                    const blob = new Blob([gcode], { type: 'text/plain' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
@@ -1394,10 +1732,10 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
 
-                    alert('雕刻G代码已生成并开始下载。');
+                    alert(`雕刻G代码已生成并开始下载。\n设置信息：\n- Y轴已反转适配机器坐标系\n- 画布尺寸: ${canvasWidth}×${canvasHeight}mm\n- 激光功率: ${layerToExport.power || 50}%`);
                   } catch (err: any) {
-                    console.error("SVG generation for debugging failed:", err);
-                    alert(`生成SVG调试文件失败: ${err.message}`);
+                    console.error("雕刻G代码生成失败:", err);
+                    alert(`生成雕刻G代码失败: ${err.message}`);
                   }
                 }
               }}

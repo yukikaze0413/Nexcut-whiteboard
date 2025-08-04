@@ -1,6 +1,17 @@
 import React from 'react';
 import { Layer, PrintingMethod, CanvasItem, CanvasItemType } from '../types';
 import PartRenderer from './renderers/PartRenderer';
+import CanvasItemRenderer from './renderers/CanvasItemRenderer';
+
+interface LayerSettingsPanelProps {
+  layers: Layer[];
+  selectedLayerId: string | null;
+  onSelectLayer: (layerId: string) => void;
+  onUpdateLayer: (layerId: string, updates: Partial<Layer>) => void;
+  items: CanvasItem[];
+  canvasWidth: number;
+  canvasHeight: number;
+}
 
 // 帮助函数：根据类型获取中文名称
 const getTypeName = (type: CanvasItemType | 'GROUP'): string => {
@@ -29,10 +40,11 @@ const getTypeName = (type: CanvasItemType | 'GROUP'): string => {
 
 // 新组件: 渲染雕刻图层的轨迹列表
 const EngravingTrajectoryList: React.FC<{ layer: Layer; items: CanvasItem[] }> = ({ layer, items }) => {
-  const layerItems = items.filter(item => item.layerId === layer.id && item.type !== CanvasItemType.IMAGE);
+  // 显示图层中的所有对象，不再过滤图像类型
+  const layerItems = items.filter(item => item.layerId === layer.id);
 
   if (layerItems.length === 0) {
-    return <p className="text-sm text-gray-500 text-center py-4">该图层没有可雕刻的矢量轨迹。</p>;
+    return <p className="text-sm text-gray-500 text-center py-4">该图层没有对象。</p>;
   }
   
   return (
@@ -43,7 +55,9 @@ const EngravingTrajectoryList: React.FC<{ layer: Layer; items: CanvasItem[] }> =
           <div className="text-xs text-gray-600">ID：{getTypeName(item.type)}{index + 1}</div>
           <div className="text-xs text-gray-600">坐标：x: {Math.round(item.x)}, y: {Math.round(item.y)}</div>
           {'parameters' in item && item.parameters && (
-            <div className="text-xs text-gray-600 break-all">参数：{Object.entries(item.parameters).map(([k, v]) => `${k}: ${v}`).join(', ')}</div>
+            <div className="text-xs text-gray-600 mt-1">
+              参数：{Object.entries(item.parameters).map(([key, value]) => `${key}: ${value}`).join(', ')}
+            </div>
           )}
         </div>
       ))}
@@ -51,7 +65,7 @@ const EngravingTrajectoryList: React.FC<{ layer: Layer; items: CanvasItem[] }> =
   );
 };
 
-// 重构后的预览组件，可同时用于扫描和雕刻图层
+// 重构后的预览组件，使用与主画布相同的渲染方式
 const LayerPreview: React.FC<{
   layer: Layer;
   items: CanvasItem[];
@@ -59,63 +73,19 @@ const LayerPreview: React.FC<{
   canvasHeight: number;
 }> = ({ layer, items, canvasWidth, canvasHeight }) => {
   
-  let layerItems = items.filter(item => item.layerId === layer.id);
-
-  // 雕刻图层预览不应显示位图
-  if (layer.printingMethod === PrintingMethod.ENGRAVE) {
-      layerItems = layerItems.filter(item => item.type !== CanvasItemType.IMAGE);
-  }
+  // 显示图层中的所有对象，不再根据打印方法进行过滤
+  const layerItems = items.filter(item => item.layerId === layer.id);
 
   return (
     <svg width={200} height={200} viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} className="border rounded-md bg-white">
-      {layerItems.map(item => {
-        const type = String(item.type);
-        if (type === CanvasItemType.DRAWING && 'points' in item && Array.isArray(item.points)) {
-          const transform = `translate(${item.x || 0},${item.y || 0}) rotate(${item.rotation || 0})`;
-          return (
-            <polyline
+      {layerItems.map(item => (
+        <g 
               key={item.id}
-              points={item.points.map((p: any) => `${p.x},${p.y}`).join(' ')}
-              stroke={'color' in item ? (item.color || '#2563eb') : '#2563eb'}
-              strokeWidth={'strokeWidth' in item ? (item.strokeWidth || 2) : 2}
-              fill={'fillColor' in item ? (item.fillColor || 'none') : 'none'}
-              transform={transform}
-            />
-          );
-        }
-        if (type === CanvasItemType.TEXT && 'fontSize' in item && 'color' in item) {
-          return (
-            <text
-              key={item.id}
-              x={item.x}
-              y={item.y}
-              fontSize={item.fontSize}
-              fill={item.color}
-              textAnchor="middle" 
-              alignmentBaseline="middle"
-              transform={'rotation' in item && item.rotation ? `rotate(${item.rotation},${item.x},${item.y})` : undefined}
-            >{('text' in item ? item.text : '')}</text>
-          );
-        }
-        if (type === CanvasItemType.IMAGE && 'width' in item && 'height' in item && 'href' in item) {
-          return (
-            <image
-              key={item.id}
-              x={item.x}
-              y={item.y}
-              width={item.width}
-              height={item.height}
-              href={item.href}
-              transform={'rotation' in item && item.rotation ? `rotate(${item.rotation},${item.x + item.width/2},${item.y + item.height/2})` : undefined}
-            />
-          );
-        }
-        // 使用 PartRenderer 统一渲染所有基于参数的零件
-        if ('parameters' in item && type !== CanvasItemType.TEXT && type !== CanvasItemType.IMAGE && type !== CanvasItemType.DRAWING) {
-          return <PartRenderer key={item.id} part={item as any} isSelected={false} />;
-        }
-        return null;
-      })}
+          transform={`translate(${'x' in item ? item.x : 0}, ${'y' in item ? item.y : 0})`}
+        >
+          <CanvasItemRenderer item={item} isSelected={false} />
+        </g>
+      ))}
     </svg>
   );
 };

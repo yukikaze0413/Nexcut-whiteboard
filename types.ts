@@ -109,6 +109,12 @@ export interface ImageObject {
   href: string; // data URL
   rotation: number;
   layerId: string;
+  // 新增：原始矢量数据，用于G代码生成
+  vectorSource?: {
+    type: 'svg' | 'dxf' | 'plt';
+    content: string; // 原始文件内容
+    parsedItems?: CanvasItemData[]; // 解析后的矢量对象
+  };
 }
 
 export interface GroupObject {

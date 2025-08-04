@@ -397,32 +397,6 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
     const handleLayerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
       if (!selectedItem) return;
       
-      // 检查目标图层类型是否匹配
-      const targetLayer = layers.find(l => l.id === e.target.value);
-      if (targetLayer) {
-        // 根据对象类型确定应该的图层类型
-        const isVectorType = [
-          'RECTANGLE', 'CIRCLE', 'LINE', 'POLYLINE', 'ARC', 'SECTOR',
-          'EQUILATERAL_TRIANGLE', 'ISOSCELES_RIGHT_TRIANGLE',
-          'L_BRACKET', 'U_CHANNEL', 'FLANGE', 'TORUS',
-          'CIRCLE_WITH_HOLES', 'RECTANGLE_WITH_HOLES',
-          'DRAWING', 'TEXT', 'GROUP'
-        ].includes(selectedItem.type);
-        
-        const isBitmapType = ['IMAGE'].includes(selectedItem.type);
-        
-        // 位图只能使用扫描图层
-        if (isBitmapType && targetLayer.printingMethod === PrintingMethod.ENGRAVE) {
-          alert('位图对象只能使用扫描图层');
-          return;
-        }
-        
-        // 矢量对象可以使用雕刻或扫描图层
-        if (isVectorType && targetLayer.printingMethod === PrintingMethod.SCAN) {
-          // 允许矢量对象使用扫描图层（用于特殊需求）
-        }
-      }
-      
       onUpdateItem(selectedItem.id, { layerId: e.target.value });
       onCommitUpdate();
     };
@@ -445,40 +419,14 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
                     onChange={handleLayerChange}
                     className="w-full bg-white text-gray-900 rounded-md p-2 border border-gray-300 focus:ring-teal-500 focus:border-teal-500"
                   >
-                    {layers
-                      .filter(layer => {
-                        // 位图对象只显示扫描图层
-                        if (selectedItem.type === CanvasItemType.IMAGE) {
-                          return layer.printingMethod === PrintingMethod.SCAN;
-                        }
-                        // 其他对象显示所有图层
-                        return true;
-                      })
-                      .map(layer => (
+                    {layers.map(layer => (
                         <option key={layer.id} value={layer.id}>
                           {layer.name} ({layer.printingMethod === 'scan' ? '扫描' : '雕刻'})
                         </option>
                       ))}
                   </select>
                   <p className="text-xs text-gray-500 mt-1">
-                    {(() => {
-                      const isVectorType = [
-                        'RECTANGLE', 'CIRCLE', 'LINE', 'POLYLINE', 'ARC', 'SECTOR',
-                        'EQUILATERAL_TRIANGLE', 'ISOSCELES_RIGHT_TRIANGLE',
-                        'L_BRACKET', 'U_CHANNEL', 'FLANGE', 'TORUS',
-                        'CIRCLE_WITH_HOLES', 'RECTANGLE_WITH_HOLES',
-                        'DRAWING', 'TEXT', 'GROUP'
-                      ].includes(selectedItem.type);
-                      
-                      const isBitmapType = ['IMAGE'].includes(selectedItem.type);
-                      
-                      if (isVectorType) {
-                        return '矢量对象可以使用雕刻或扫描图层';
-                      } else if (isBitmapType) {
-                        return '位图对象只能使用扫描图层';
-                      }
-                      return '';
-                    })()}
+                    选择对象所属的图层，不同图层可以设置不同的打印参数。
                   </p>
                   <p className="text-xs text-gray-400 mt-1">
                     图层属性在创建后不可修改
