@@ -40,7 +40,20 @@ const DrawingRenderer: React.FC<DrawingRendererProps> = ({ drawing, isSelected }
   }
 
   // 原始路径
-  const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  // const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const minDistance = 1.414; // 最小距离阈值
+  const d = points.map((p, i) => {
+  if (i === 0) {
+    // 第一个点总是使用 M 命令
+    return `M ${p.x} ${p.y}`;
+  } else {
+    // 计算当前点与前一个点的距离
+    const prev = points[i - 1];
+    const distance = Math.sqrt(Math.pow(p.x - prev.x, 2) + Math.pow(p.y - prev.y, 2));
+    // 距离大于阈值时使用 M 命令，否则使用 L 命令
+    return `${distance > minDistance ? 'M' : 'L'} ${p.x} ${p.y}`;
+  }
+}).join(' ');
 
   return (
     <g transform={`translate(${x},${y})`}>

@@ -503,7 +503,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       // 处理path
       if (node.name === 'path' && node.attributes.d) {
         // 只采样有填充的 path
-        if (!node.attributes.fill || node.attributes.fill === 'none') return items;
+        // if (node.attributes.fill === 'none') return items;
         const d = node.attributes.d;
         try {
           const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -528,9 +528,9 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 x: minX,
                 y: minY,
                 points: absPoints.map(p => ({ x: p.x - minX, y: p.y - minY })),
-                fillColor: node.attributes.fill,
-                strokeWidth: Number(node.attributes['stroke-width']) || 0,
-                color: '',
+                fillColor: (!node.attributes.fill)? "black" : node.attributes.fill,
+                strokeWidth: Number(node.attributes['stroke-width']) || 1,
+                color: node.attributes.stroke,
               });
             }
           }
