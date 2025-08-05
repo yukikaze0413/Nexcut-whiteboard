@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import type { CanvasItem, CanvasItemData, PartType, Layer, Part, ImageObject, Point } from './types';
+import type { CanvasItem, CanvasItemData, PartType, Layer, Part, ImageObject } from './types';
 import { CanvasItemType, ToolType, PrintingMethod } from './types';
 import { PART_LIBRARY, BASIC_SHAPES } from './constants';
 import Toolbar from './components/Toolbar';
@@ -96,7 +96,7 @@ function itemToSvgElement(item: CanvasItem): string {
     return `<g ${groupTransform}>${childrenSvg}</g>`;
   }
 
-  const transform = `transform="translate(${item.x || 0}, ${item.y || 0}) rotate(${item.rotation || 0})"`;
+  const transform = `transform="translate(${item.x || 0}, ${item.y || 0}) rotate(${('rotation' in item ? item.rotation : 0) || 0})"`;
 
   if ('parameters' in item) {
     switch (item.type) {
@@ -120,7 +120,7 @@ function itemToSvgElement(item: CanvasItem): string {
 
   if (item.type === CanvasItemType.DRAWING && 'points' in item && Array.isArray(item.points) && item.points.length > 1) {
     const pointsStr = item.points.map(p => `${p.x},${p.y}`).join(' ');
-    const drawingTransform = `transform="translate(${item.x || 0}, ${item.y || 0}) rotate(${item.rotation || 0})"`;
+    const drawingTransform = `transform="translate(${item.x || 0}, ${item.y || 0}) rotate(${('rotation' in item ? item.rotation : 0) || 0})"`;
     return `<polyline points="${pointsStr}" ${stroke} ${drawingTransform} />`;
   }
 
@@ -1605,6 +1605,215 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     img.src = dataUrl;
   };
 
+  // 生成单个图层的G代码
+  const generateSingleLayerGCode = async (layer: Layer, fileName: string) => {
+    if (layer.printingMethod === PrintingMethod.SCAN) {
+      const layerImageItems = items.filter(item =>
+        item.layerId === layer.id && item.type === CanvasItemType.IMAGE
+      );
+
+      if (layerImageItems.length === 0) {
+        alert('扫描图层上没有需要处理的图片。');
+        return;
+      }
+
+      const settings: GCodeScanSettings = {
+        lineDensity: 1 / (layer.lineDensity || 10),
+        isHalftone: !!layer.halftone,
+        negativeImage: false,
+        hFlipped: false,
+        vFlipped: false,
+        minPower: 0,
+        maxPower: 255,
+        burnSpeed: 1000,
+        travelSpeed: 6000,
+        overscanDist: layer.reverseMovementOffset ?? 3,
+      };
+
+      try {
+        const gcode = await generatePlatformScanGCode(
+          layer,
+          items,
+          canvasWidth,
+          canvasHeight,
+          settings,
+          canvasWidth,
+          canvasHeight
+        );
+
+        downloadGCode(gcode, `${fileName}_${layer.name.replace(/\s+/g, '_')}.nc`);
+        alert('平台扫描G代码已生成并开始下载。');
+      } catch (error) {
+        console.error("G代码生成失败:", error);
+        alert(`G代码生成失败: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+    } else {
+      // 雕刻图层G代码生成
+      const layerItems = items.filter(
+        item => item.layerId === layer.id
+      );
+
+      console.log('雕刻图层中的对象:', layerItems);
+
+      if (layerItems.length === 0) {
+        alert('雕刻图层上没有对象。');
+        return;
+      }
+
+      try {
+        // 使用新的直接G代码生成方法
+        const engraveSettings = {
+          feedRate: 1000,
+          travelSpeed: 3000,
+          power: layer.power || 50,
+          passes: 1,
+          flipY: true,              // 启用Y轴反转，适配机器坐标系
+          canvasHeight: canvasHeight, // 传入画布高度用于Y轴反转计算
+        };
+
+        console.log('G代码生成设置:', engraveSettings);
+
+        // 直接从矢量对象生成G代码
+        const { generateEngraveGCode } = await import('./lib/gcode');
+        const gcode = await generateEngraveGCode(layer, layerItems, engraveSettings);
+
+        console.log('生成的G代码长度:', gcode.length);
+        console.log('G代码预览:', gcode.substring(0, 500));
+
+        if (!gcode || gcode.trim().length === 0) {
+          alert('生成的G代码为空，请检查图层中的对象类型是否支持。');
+          return;
+        }
+
+        downloadGCode(gcode, `${fileName}_${layer.name.replace(/\s+/g, '_')}.nc`);
+        alert(`雕刻G代码已生成并开始下载。\n设置信息：\n- Y轴已反转适配机器坐标系\n- 画布尺寸: ${canvasWidth}×${canvasHeight}mm\n- 激光功率: ${layer.power || 50}%`);
+      } catch (err: any) {
+        console.error("雕刻G代码生成失败:", err);
+        alert(`生成雕刻G代码失败: ${err.message}`);
+      }
+    }
+  };
+
+  // 合并所有图层的G代码
+  const generateMergedGCode = async (fileName: string) => {
+    const allGCodeParts: string[] = [];
+    let hasValidLayer = false;
+
+    // 添加文件头注释
+    allGCodeParts.push(`; 合并G代码文件 - ${fileName}`);
+    allGCodeParts.push(`; 生成时间: ${new Date().toLocaleString()}`);
+    allGCodeParts.push(`; 画布尺寸: ${canvasWidth}×${canvasHeight}mm`);
+    allGCodeParts.push('');
+
+    // 遍历所有图层
+    for (const layer of layers) {
+      const layerItems = items.filter(item => item.layerId === layer.id);
+      
+      if (layerItems.length === 0) {
+        continue; // 跳过空图层
+      }
+
+      hasValidLayer = true;
+
+      // 添加图层分隔注释
+      allGCodeParts.push(`; ========================================`);
+      allGCodeParts.push(`; 图层: ${layer.name}`);
+      allGCodeParts.push(`; 打印方式: ${layer.printingMethod === PrintingMethod.SCAN ? '扫描' : '雕刻'}`);
+      allGCodeParts.push(`; ========================================`);
+
+      try {
+        if (layer.printingMethod === PrintingMethod.SCAN) {
+          const layerImageItems = layerItems.filter(item => item.type === CanvasItemType.IMAGE);
+          
+          if (layerImageItems.length > 0) {
+            const settings: GCodeScanSettings = {
+              lineDensity: 1 / (layer.lineDensity || 10),
+              isHalftone: !!layer.halftone,
+              negativeImage: false,
+              hFlipped: false,
+              vFlipped: false,
+              minPower: 0,
+              maxPower: 255,
+              burnSpeed: 1000,
+              travelSpeed: 6000,
+              overscanDist: layer.reverseMovementOffset ?? 3,
+            };
+
+            const gcode = await generatePlatformScanGCode(
+              layer,
+              items,
+              canvasWidth,
+              canvasHeight,
+              settings,
+              canvasWidth,
+              canvasHeight
+            );
+
+            allGCodeParts.push(gcode);
+          }
+        } else {
+          // 雕刻图层
+          const engraveSettings = {
+            feedRate: 1000,
+            travelSpeed: 3000,
+            power: layer.power || 50,
+            passes: 1,
+            flipY: true,
+            canvasHeight: canvasHeight,
+          };
+
+          const { generateEngraveGCode } = await import('./lib/gcode');
+          const gcode = await generateEngraveGCode(layer, layerItems, engraveSettings);
+
+          if (gcode && gcode.trim().length > 0) {
+            allGCodeParts.push(gcode);
+          }
+        }
+
+        // 添加图层结束分隔
+        allGCodeParts.push('');
+        allGCodeParts.push('; 图层结束');
+        allGCodeParts.push('');
+
+      } catch (error) {
+        console.error(`图层 ${layer.name} G代码生成失败:`, error);
+        allGCodeParts.push(`; 错误: 图层 ${layer.name} G代码生成失败`);
+        allGCodeParts.push('');
+      }
+    }
+
+    if (!hasValidLayer) {
+      alert('没有找到包含对象的图层。');
+      return;
+    }
+
+    // 添加文件结束注释
+    allGCodeParts.push('; ========================================');
+    allGCodeParts.push('; 文件结束');
+    allGCodeParts.push('; ========================================');
+
+    // 合并所有G代码
+    const mergedGCode = allGCodeParts.join('\n');
+
+    // 下载合并后的文件
+    downloadGCode(mergedGCode, `${fileName}.nc`);
+    alert(`合并G代码已生成并开始下载。\n包含 ${layers.filter(l => items.some(item => item.layerId === l.id)).length} 个图层。`);
+  };
+
+  // 下载G代码文件的辅助函数
+  const downloadGCode = (gcode: string, fileName: string) => {
+    const blob = new Blob([gcode], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   useEffect(() => {
     (window as any).setCanvasSize = (w: number, h: number) => {
       setCanvasWidth(w);
@@ -1741,117 +1950,106 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             <button
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm font-medium"
               onClick={async () => {
-                const layerToExport = layers.find(l => l.id === selectedLayerId);
-                if (!layerToExport) {
-                  alert('请先选择一个图层');
-                  return;
-                }
+                // 创建文件名输入对话框
+                const dialog = document.createElement('div');
+                dialog.style.cssText = `
+                  position: fixed;
+                  top: 0;
+                  left: 0;
+                  width: 100%;
+                  height: 100%;
+                  background: rgba(0, 0, 0, 0.5);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  z-index: 10000;
+                `;
 
-                if (layerToExport.printingMethod === PrintingMethod.SCAN) {
-                  const layerImageItems = items.filter(item =>
-                    item.layerId === layerToExport.id && item.type === CanvasItemType.IMAGE
-                  );
+                const content = document.createElement('div');
+                content.style.cssText = `
+                  background: white;
+                  padding: 20px;
+                  border-radius: 8px;
+                  min-width: 400px;
+                  max-width: 500px;
+                  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                `;
 
-                  if (layerImageItems.length === 0) {
-                    alert('扫描图层上没有需要处理的图片。');
-                    return;
-                  }
+                content.innerHTML = `
+                  <h3 style="margin: 0 0 20px 0; font-size: 18px; font-weight: bold;">生成G代码</h3>
+                  
+                  <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-size: 14px; font-weight: 500;">文件名：</label>
+                    <input id="fileName" type="text" value="激光雕刻项目" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" />
+                    <div style="margin-top: 5px; font-size: 12px; color: #666;">文件将以 .nc 格式保存</div>
+                  </div>
+                  
+                  <div style="margin-bottom: 20px;">
+                    <label style="display: flex; align-items: center; font-size: 14px;">
+                      <input id="mergeAllLayers" type="checkbox" checked style="margin-right: 8px;" />
+                      合并所有图层的G代码为一个文件
+                    </label>
+                  </div>
+                  
+                  <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button id="cancelBtn" style="padding: 10px 20px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer; font-size: 14px;">取消</button>
+                    <button id="confirmBtn" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">生成</button>
+                  </div>
+                `;
 
-                  const settings: GCodeScanSettings = {
-                    lineDensity: 1 / (layerToExport.lineDensity || 10),
-                    isHalftone: !!layerToExport.halftone,
-                    negativeImage: false,
-                    hFlipped: false,
-                    vFlipped: false,
-                    minPower: 0,
-                    maxPower: 255,
-                    burnSpeed: 1000,
-                    travelSpeed: 6000,
-                    overscanDist: layerToExport.reverseMovementOffset ?? 3,
-                  };
+                dialog.appendChild(content);
+                document.body.appendChild(dialog);
 
-                  try {
-                    const gcode = await generatePlatformScanGCode(
-                      layerToExport,
-                      items,
-                      canvasWidth,
-                      canvasHeight,
-                      settings,
-                      canvasWidth,
-                      canvasHeight
-                    );
+                const fileNameInput = content.querySelector('#fileName') as HTMLInputElement;
+                const mergeAllLayersInput = content.querySelector('#mergeAllLayers') as HTMLInputElement;
+                const cancelBtn = content.querySelector('#cancelBtn') as HTMLButtonElement;
+                const confirmBtn = content.querySelector('#confirmBtn') as HTMLButtonElement;
 
-                    const blob = new Blob([gcode], { type: 'text/plain' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${layerToExport.name.replace(/\s+/g, '_') || 'platform_scan'}.gcode`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
+                const cleanup = () => {
+                  document.body.removeChild(dialog);
+                };
 
-                    alert('平台扫描G代码已生成并开始下载。');
-                  } catch (error) {
-                    console.error("G代码生成失败:", error);
-                    alert(`G代码生成失败: ${error instanceof Error ? error.message : String(error)}`);
-                  }
+                cancelBtn.addEventListener('click', cleanup);
 
-                } else {
-                  // 雕刻图层G代码生成
-                  const layerItems = items.filter(
-                    item => item.layerId === layerToExport.id
-                  );
+                confirmBtn.addEventListener('click', async () => {
+                  const fileName = fileNameInput.value.trim() || '激光雕刻项目';
+                  const mergeAllLayers = mergeAllLayersInput.checked;
+                  
+                  cleanup();
 
-                  console.log('雕刻图层中的对象:', layerItems);
-
-                  if (layerItems.length === 0) {
-                    alert('雕刻图层上没有对象。');
-                    return;
-                  }
-
-                  try {
-                    // 使用新的直接G代码生成方法
-                    const engraveSettings = {
-                      feedRate: 1000,
-                      travelSpeed: 3000,
-                      power: layerToExport.power || 50,
-                      passes: 1,
-                      flipY: true,              // 启用Y轴反转，适配机器坐标系
-                      canvasHeight: canvasHeight, // 传入画布高度用于Y轴反转计算
-                    };
-
-                    console.log('G代码生成设置:', engraveSettings);
-
-                    // 直接从矢量对象生成G代码
-                    const { generateEngraveGCode } = await import('./lib/gcode');
-                    const gcode = await generateEngraveGCode(layerToExport, layerItems, engraveSettings);
-
-                    console.log('生成的G代码长度:', gcode.length);
-                    console.log('G代码预览:', gcode.substring(0, 500));
-
-                    if (!gcode || gcode.trim().length === 0) {
-                      alert('生成的G代码为空，请检查图层中的对象类型是否支持。');
+                  if (mergeAllLayers) {
+                    // 合并所有图层的G代码
+                    await generateMergedGCode(fileName);
+                  } else {
+                    // 只生成选中图层的G代码
+                    const layerToExport = layers.find(l => l.id === selectedLayerId);
+                    if (!layerToExport) {
+                      alert('请先选择一个图层');
                       return;
                     }
-
-                    // 创建Blob并提供下载
-                    const blob = new Blob([gcode], { type: 'text/plain' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${layerToExport.name.replace(/\s+/g, '_') || 'engrave'}.gcode`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-
-                    alert(`雕刻G代码已生成并开始下载。\n设置信息：\n- Y轴已反转适配机器坐标系\n- 画布尺寸: ${canvasWidth}×${canvasHeight}mm\n- 激光功率: ${layerToExport.power || 50}%`);
-                  } catch (err: any) {
-                    console.error("雕刻G代码生成失败:", err);
-                    alert(`生成雕刻G代码失败: ${err.message}`);
+                    await generateSingleLayerGCode(layerToExport, fileName);
                   }
-                }
+                });
+
+                // 点击对话框外部关闭
+                dialog.addEventListener('click', (e) => {
+                  if (e.target === dialog) cleanup();
+                });
+
+                // ESC键关闭
+                const handleKeyDown = (e: KeyboardEvent) => {
+                  if (e.key === 'Escape') {
+                    cleanup();
+                    document.removeEventListener('keydown', handleKeyDown);
+                  }
+                };
+                document.addEventListener('keydown', handleKeyDown);
+
+                // 焦点到文件名输入框
+                setTimeout(() => {
+                  fileNameInput.focus();
+                  fileNameInput.select();
+                }, 100);
               }}
             >
               生成G代码
