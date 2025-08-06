@@ -7,7 +7,7 @@ interface TextRendererProps {
 }
 
 const TextRenderer: React.FC<TextRendererProps> = ({ textObject, isSelected }) => {
-  const { text, fontSize, color, rotation } = textObject;
+  const { text, fontSize, color } = textObject;
   const textRef = useRef<SVGTextElement>(null);
   const [bbox, setBbox] = useState<DOMRect | null>(null);
 
@@ -16,13 +16,11 @@ const TextRenderer: React.FC<TextRendererProps> = ({ textObject, isSelected }) =
       setBbox(textRef.current.getBBox());
     }
   }, [text, fontSize]);
-  
+
   const ENLARGE = 8;
-  
-  console.log('TextRenderer rotation value:', rotation);
 
   return (
-    <g transform={`translate(0,0) rotate(${rotation})`}>
+    <g>
       <text
         ref={textRef}
         x="0"

@@ -12,9 +12,8 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
   const strokeWidth = isSelected ? 2 : 1;
   const fillColor = 'none';
 
-  const { parameters, rotation } = part;
-  const transform = `rotate(${rotation})`;
-  
+  const { parameters } = part;
+
   const HITBOX_STROKE_WIDTH = 20;
 
   const renderWithHitbox = <T extends SVGElement>(visual: React.ReactElement<React.SVGProps<T>>, hitbox?: React.ReactElement) => {
@@ -23,9 +22,9 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
         stroke: "transparent",
         strokeWidth: HITBOX_STROKE_WIDTH
     });
-    
+
     return (
-        <g transform={transform}>
+        <g>
             {hitboxElement}
             {React.cloneElement(visual, { style: { pointerEvents: 'none' } })}
         </g>

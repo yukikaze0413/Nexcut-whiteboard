@@ -75,9 +75,9 @@ async function createPlatformImage(
       img.crossOrigin = "anonymous";
       img.onload = () => {
         // 1. 计算图像在前端画布中的左上角坐标
-        //    item.x, item.y 已经是左上角坐标，不需要再计算
-        const itemTopLeftX_canvas = item.x;
-        const itemTopLeftY_canvas = item.y;
+        //    item.x, item.y 现在是中心坐标，需要转换为左上角坐标
+        const itemTopLeftX_canvas = item.x - item.width / 2;
+        const itemTopLeftY_canvas = item.y - item.height / 2;
 
         // 2. 将前端画布的坐标和尺寸，按比例转换到平台画布（像素单位）
         const destX_pixels = itemTopLeftX_canvas * scaleX;
@@ -1169,11 +1169,18 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
 
         // 处理矢量源中的每个对象
         for (const vectorItem of item.vectorSource.parsedItems) {
-          // 将矢量对象的位置相对于图像对象进行偏移
+          // 先应用图像对象的旋转到矢量子对象的位置
+          const vectorX = vectorItem.x || 0;
+          const vectorY = vectorItem.y || 0;
+          const rotatedPos = rotatePoint(x + vectorX, y + vectorY, x, y, rotation);
+
+          // 将矢量对象的位置相对于图像对象进行变换，并传递旋转角度
           const vectorItemWithOffset: CanvasItem = {
             ...vectorItem,
-            x: x + (vectorItem.x || 0),
-            y: y + (vectorItem.y || 0),
+            x: rotatedPos.x,
+            y: rotatedPos.y,
+            // 将图像对象的旋转角度传递给矢量子对象
+            rotation: rotation + (('rotation' in vectorItem ? vectorItem.rotation : 0) || 0),
             id: `vector_${Date.now()}_${Math.random()}`, // 临时ID
             layerId: item.layerId
           } as CanvasItem;
@@ -1193,11 +1200,18 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
     const transformedPos = transformCoordinate(x, y, settings);
     paths.push(`; 开始组合对象 位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
     for (const child of item.children) {
-      // 递归处理子对象，并相对于父对象的位置进行偏移
+      // 先应用组合对象的旋转到子对象的位置
+      const childX = child.x || 0;
+      const childY = child.y || 0;
+      const rotatedPos = rotatePoint(x + childX, y + childY, x, y, rotation);
+
+      // 递归处理子对象，并相对于父对象的位置进行变换，同时传递旋转角度
       const childItem = {
         ...child,
-        x: x + (child.x || 0),
-        y: y + (child.y || 0)
+        x: rotatedPos.x,
+        y: rotatedPos.y,
+        // 将组合对象的旋转角度传递给子对象
+        rotation: rotation + (('rotation' in child ? child.rotation : 0) || 0)
       } as CanvasItem;
       const childPaths = itemToGCodePaths(childItem, settings);
       paths.push(...childPaths);

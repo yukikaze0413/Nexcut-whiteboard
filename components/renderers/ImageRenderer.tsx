@@ -13,14 +13,12 @@ const ENLARGE = 8;
 const ImageRenderer: React.FC<ImageRendererProps> = ({ imageObject, isSelected }) => {
   const { width, height, href } = imageObject;
 
-
-
   return (
-    <g >
+    <g>
       {isSelected && (
         <rect
-          x={-ENLARGE / 2}
-          y={-ENLARGE / 2}
+          x={-width / 2 - ENLARGE / 2}
+          y={-height / 2 - ENLARGE / 2}
           width={width + ENLARGE}
           height={height + ENLARGE}
           fill="none"
@@ -32,8 +30,8 @@ const ImageRenderer: React.FC<ImageRendererProps> = ({ imageObject, isSelected }
       )}
       <image
         href={href}
-        x={0}
-        y={0}
+        x={-width / 2}
+        y={-height / 2}
         width={width}
         height={height}
       />

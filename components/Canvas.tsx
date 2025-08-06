@@ -359,13 +359,18 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
             segments.forEach(segPoints => {
               if (segPoints.length > 1) {
                 const minX = Math.min(...segPoints.map(p => p.x));
+                const maxX = Math.max(...segPoints.map(p => p.x));
                 const minY = Math.min(...segPoints.map(p => p.y));
+                const maxY = Math.max(...segPoints.map(p => p.y));
+                const centerX = (minX + maxX) / 2;
+                const centerY = (minY + maxY) / 2;
                 newItems.push({
                   ...item,
                   id: `item_${Date.now()}_${Math.random()}`,
-                  x: minX,
-                  y: minY,
-                  points: segPoints.map(p => ({ x: p.x - minX, y: p.y - minY })),
+                  x: centerX,
+                  y: centerY,
+                  points: segPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY })),
+                  rotation: item.rotation || 0,
                 });
               }
             });
@@ -401,14 +406,19 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
     if (drawingState && drawingState.points.length > 1) {
       const { points } = drawingState;
       const minX = Math.min(...points.map(p => p.x));
+      const maxX = Math.max(...points.map(p => p.x));
       const minY = Math.min(...points.map(p => p.y));
+      const maxY = Math.max(...points.map(p => p.y));
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
       onAddItem({
         type: CanvasItemType.DRAWING,
-        x: minX,
-        y: minY,
-        points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
+        x: centerX,
+        y: centerY,
+        points: points.map(p => ({ x: p.x - centerX, y: p.y - centerY })),
         color: '#f472b6', // pink-400
         strokeWidth: 4,
+        rotation: 0,
       } as Omit<Drawing, 'id' | 'layerId'>);
     }
     if (eraserState) {
@@ -470,10 +480,9 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
                 layer.isVisible && (
                     <g key={layer.id} data-layer-id={layer.id}>
                         {items.filter(item => item.layerId === layer.id).map(item => (
-                            <g 
-                                key={item.id} 
-                                // gxx: avoid two times <g>  the other <g> is in components/renders/imageRender.tsx
-                                transform={`translate(${'x' in item ? item.x : 0}, ${'y' in item ? item.y : 0})`}
+                            <g
+                                key={item.id}
+                                transform={`translate(${'x' in item ? item.x : 0}, ${'y' in item ? item.y : 0}) rotate(${'rotation' in item ? item.rotation || 0 : 0})`}
                                 data-item-id={item.id}
                                 className={activeTool === ToolType.SELECT ? 'cursor-pointer' : ''}
                             >

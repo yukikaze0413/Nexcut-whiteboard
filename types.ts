@@ -83,6 +83,7 @@ export interface Drawing {
   points: { x: number; y: number }[]; // Relative to x, y
   color: string;
   strokeWidth: number;
+  rotation: number;
   layerId: string;
   fillColor?: string; // 新增，支持SVG填充
 }
