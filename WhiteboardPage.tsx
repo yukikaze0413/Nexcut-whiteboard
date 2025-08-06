@@ -2260,7 +2260,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 </button>
                 <input
                   type="file"
-                  accept=".dxf,.svg,.plt"
+                  // accept=".dxf,.svg,.plt"
+                  accept='image/svg+xml,.dxf,.plt,application/octet-stream'
                   style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', opacity: 0, zIndex: 10, cursor: 'pointer' }}
                   onChange={handleImport}
                 />
