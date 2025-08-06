@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:https": "vite --https",
-    "build": "tsc && vite build",
+    "build": " vite build",
     "preview": "vite preview",
     "preview:https": "vite preview --https"
   },

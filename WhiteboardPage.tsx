@@ -174,6 +174,9 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null); // 图层设置界面选中
   const [processedImage, setProcessedImage] = useState<string | null>(null); // 跟踪已处理的图片
 
+  // 添加G代码生成进度弹窗状态
+  const [isGeneratingGCode, setIsGeneratingGCode] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState('');
 
   // 初始化activeLayerId
   useEffect(() => {
@@ -1607,30 +1610,37 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
   // 生成单个图层的G代码
   const generateSingleLayerGCode = async (layer: Layer, fileName: string) => {
-    if (layer.printingMethod === PrintingMethod.SCAN) {
-      const layerImageItems = items.filter(item =>
-        item.layerId === layer.id && item.type === CanvasItemType.IMAGE
-      );
+    // 显示生成进度弹窗
+    setIsGeneratingGCode(true);
+    setGenerationProgress('正在生成G代码...');
 
-      if (layerImageItems.length === 0) {
-        alert('扫描图层上没有需要处理的图片。');
-        return;
-      }
+    try {
+      if (layer.printingMethod === PrintingMethod.SCAN) {
+        const layerImageItems = items.filter(item =>
+          item.layerId === layer.id && item.type === CanvasItemType.IMAGE
+        );
 
-      const settings: GCodeScanSettings = {
-        lineDensity: 1 / (layer.lineDensity || 10),
-        isHalftone: !!layer.halftone,
-        negativeImage: false,
-        hFlipped: false,
-        vFlipped: false,
-        minPower: 0,
-        maxPower: 255,
-        burnSpeed: 1000,
-        travelSpeed: 6000,
-        overscanDist: layer.reverseMovementOffset ?? 3,
-      };
+        if (layerImageItems.length === 0) {
+          setIsGeneratingGCode(false);
+          alert('扫描图层上没有需要处理的图片。');
+          return;
+        }
 
-      try {
+        setGenerationProgress('正在生成平台扫描G代码...');
+
+        const settings: GCodeScanSettings = {
+          lineDensity: 1 / (layer.lineDensity || 10),
+          isHalftone: !!layer.halftone,
+          negativeImage: false,
+          hFlipped: false,
+          vFlipped: false,
+          minPower: 0,
+          maxPower: 255,
+          burnSpeed: 1000,
+          travelSpeed: 6000,
+          overscanDist: layer.reverseMovementOffset ?? 3,
+        };
+
         const gcode = await generatePlatformScanGCode(
           layer,
           items,
@@ -1641,27 +1651,27 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           canvasHeight
         );
 
+        setGenerationProgress('正在保存文件...');
         downloadGCode(gcode, `${fileName}_${layer.name.replace(/\s+/g, '_')}.nc`);
-        alert('平台扫描G代码已生成并开始下载。');
-      } catch (error) {
-        console.error("G代码生成失败:", error);
-        alert(`G代码生成失败: ${error instanceof Error ? error.message : String(error)}`);
-      }
+        
+        // 关闭弹窗
+        setIsGeneratingGCode(false);
+      } else {
+        // 雕刻图层G代码生成
+        const layerItems = items.filter(
+          item => item.layerId === layer.id
+        );
 
-    } else {
-      // 雕刻图层G代码生成
-      const layerItems = items.filter(
-        item => item.layerId === layer.id
-      );
+        console.log('雕刻图层中的对象:', layerItems);
 
-      console.log('雕刻图层中的对象:', layerItems);
+        if (layerItems.length === 0) {
+          setIsGeneratingGCode(false);
+          alert('雕刻图层上没有对象。');
+          return;
+        }
 
-      if (layerItems.length === 0) {
-        alert('雕刻图层上没有对象。');
-        return;
-      }
+        setGenerationProgress('正在生成雕刻G代码...');
 
-      try {
         // 使用新的直接G代码生成方法
         const engraveSettings = {
           feedRate: 1000,
@@ -1682,127 +1692,198 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         console.log('G代码预览:', gcode.substring(0, 500));
 
         if (!gcode || gcode.trim().length === 0) {
+          setIsGeneratingGCode(false);
           alert('生成的G代码为空，请检查图层中的对象类型是否支持。');
           return;
         }
 
+        setGenerationProgress('正在保存文件...');
         downloadGCode(gcode, `${fileName}_${layer.name.replace(/\s+/g, '_')}.nc`);
-        alert(`雕刻G代码已生成并开始下载。\n设置信息：\n- Y轴已反转适配机器坐标系\n- 画布尺寸: ${canvasWidth}×${canvasHeight}mm\n- 激光功率: ${layer.power || 50}%`);
-      } catch (err: any) {
-        console.error("雕刻G代码生成失败:", err);
-        alert(`生成雕刻G代码失败: ${err.message}`);
+        
+        // 关闭弹窗
+        setIsGeneratingGCode(false);
       }
+    } catch (error) {
+      console.error("G代码生成失败:", error);
+      setIsGeneratingGCode(false);
+      alert(`G代码生成失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
   // 合并所有图层的G代码
   const generateMergedGCode = async (fileName: string) => {
-    const allGCodeParts: string[] = [];
-    let hasValidLayer = false;
+    // 显示生成进度弹窗
+    setIsGeneratingGCode(true);
+    setGenerationProgress('正在生成合并G代码...');
 
-    // 添加文件头注释
-    allGCodeParts.push(`; 合并G代码文件 - ${fileName}`);
-    allGCodeParts.push(`; 生成时间: ${new Date().toLocaleString()}`);
-    allGCodeParts.push(`; 画布尺寸: ${canvasWidth}×${canvasHeight}mm`);
-    allGCodeParts.push('');
+    try {
+      const allGCodeParts: string[] = [];
+      let hasValidLayer = false;
 
-    // 遍历所有图层
-    for (const layer of layers) {
-      const layerItems = items.filter(item => item.layerId === layer.id);
-      
-      if (layerItems.length === 0) {
-        continue; // 跳过空图层
-      }
+      // 添加文件头注释
+      allGCodeParts.push(`; 合并G代码文件 - ${fileName}`);
+      allGCodeParts.push(`; 生成时间: ${new Date().toLocaleString()}`);
+      allGCodeParts.push(`; 画布尺寸: ${canvasWidth}×${canvasHeight}mm`);
+      allGCodeParts.push('');
 
-      hasValidLayer = true;
-
-      // 添加图层分隔注释
-      allGCodeParts.push(`; ========================================`);
-      allGCodeParts.push(`; 图层: ${layer.name}`);
-      allGCodeParts.push(`; 打印方式: ${layer.printingMethod === PrintingMethod.SCAN ? '扫描' : '雕刻'}`);
-      allGCodeParts.push(`; ========================================`);
-
-      try {
-        if (layer.printingMethod === PrintingMethod.SCAN) {
-          const layerImageItems = layerItems.filter(item => item.type === CanvasItemType.IMAGE);
-          
-          if (layerImageItems.length > 0) {
-            const settings: GCodeScanSettings = {
-              lineDensity: 1 / (layer.lineDensity || 10),
-              isHalftone: !!layer.halftone,
-              negativeImage: false,
-              hFlipped: false,
-              vFlipped: false,
-              minPower: 0,
-              maxPower: 255,
-              burnSpeed: 1000,
-              travelSpeed: 6000,
-              overscanDist: layer.reverseMovementOffset ?? 3,
-            };
-
-            const gcode = await generatePlatformScanGCode(
-              layer,
-              items,
-              canvasWidth,
-              canvasHeight,
-              settings,
-              canvasWidth,
-              canvasHeight
-            );
-
-            allGCodeParts.push(gcode);
-          }
-        } else {
-          // 雕刻图层
-          const engraveSettings = {
-            feedRate: 1000,
-            travelSpeed: 3000,
-            power: layer.power || 50,
-            passes: 1,
-            flipY: true,
-            canvasHeight: canvasHeight,
-          };
-
-          const { generateEngraveGCode } = await import('./lib/gcode');
-          const gcode = await generateEngraveGCode(layer, layerItems, engraveSettings);
-
-          if (gcode && gcode.trim().length > 0) {
-            allGCodeParts.push(gcode);
-          }
+      // 遍历所有图层
+      for (const layer of layers) {
+        const layerItems = items.filter(item => item.layerId === layer.id);
+        
+        if (layerItems.length === 0) {
+          continue; // 跳过空图层
         }
 
-        // 添加图层结束分隔
-        allGCodeParts.push('');
-        allGCodeParts.push('; 图层结束');
-        allGCodeParts.push('');
+        hasValidLayer = true;
 
-      } catch (error) {
-        console.error(`图层 ${layer.name} G代码生成失败:`, error);
-        allGCodeParts.push(`; 错误: 图层 ${layer.name} G代码生成失败`);
-        allGCodeParts.push('');
+        // 更新进度信息
+        setGenerationProgress(`正在处理图层: ${layer.name}...`);
+
+        // 添加图层分隔注释
+        allGCodeParts.push(`; ========================================`);
+        allGCodeParts.push(`; 图层: ${layer.name}`);
+        allGCodeParts.push(`; 打印方式: ${layer.printingMethod === PrintingMethod.SCAN ? '扫描' : '雕刻'}`);
+        allGCodeParts.push(`; ========================================`);
+
+        try {
+          if (layer.printingMethod === PrintingMethod.SCAN) {
+            const layerImageItems = layerItems.filter(item => item.type === CanvasItemType.IMAGE);
+            
+            if (layerImageItems.length > 0) {
+              const settings: GCodeScanSettings = {
+                lineDensity: 1 / (layer.lineDensity || 10),
+                isHalftone: !!layer.halftone,
+                negativeImage: false,
+                hFlipped: false,
+                vFlipped: false,
+                minPower: 0,
+                maxPower: 255,
+                burnSpeed: 1000,
+                travelSpeed: 6000,
+                overscanDist: layer.reverseMovementOffset ?? 3,
+              };
+
+              const gcode = await generatePlatformScanGCode(
+                layer,
+                items,
+                canvasWidth,
+                canvasHeight,
+                settings,
+                canvasWidth,
+                canvasHeight
+              );
+
+              allGCodeParts.push(gcode);
+            }
+          } else {
+            // 雕刻图层
+            const engraveSettings = {
+              feedRate: 1000,
+              travelSpeed: 3000,
+              power: layer.power || 50,
+              passes: 1,
+              flipY: true,
+              canvasHeight: canvasHeight,
+            };
+
+            const { generateEngraveGCode } = await import('./lib/gcode');
+            const gcode = await generateEngraveGCode(layer, layerItems, engraveSettings);
+
+            if (gcode && gcode.trim().length > 0) {
+              allGCodeParts.push(gcode);
+            }
+          }
+
+          // 添加图层结束分隔
+          allGCodeParts.push('');
+          allGCodeParts.push('; 图层结束');
+          allGCodeParts.push('');
+
+        } catch (error) {
+          console.error(`图层 ${layer.name} G代码生成失败:`, error);
+          allGCodeParts.push(`; 错误: 图层 ${layer.name} G代码生成失败`);
+          allGCodeParts.push('');
+        }
       }
+
+      if (!hasValidLayer) {
+        setIsGeneratingGCode(false);
+        alert('没有找到包含对象的图层。');
+        return;
+      }
+
+      // 添加文件结束注释
+      allGCodeParts.push('; ========================================');
+      allGCodeParts.push('; 文件结束');
+      allGCodeParts.push('; ========================================');
+
+      // 合并所有G代码
+      const mergedGCode = allGCodeParts.join('\n');
+
+      setGenerationProgress('正在保存文件...');
+      // 下载合并后的文件
+      downloadGCode(mergedGCode, `${fileName}.nc`);
+      
+      // 关闭弹窗
+      setIsGeneratingGCode(false);
+    } catch (error) {
+      console.error("合并G代码生成失败:", error);
+      setIsGeneratingGCode(false);
+      alert(`合并G代码生成失败: ${error instanceof Error ? error.message : String(error)}`);
     }
+  };
 
-    if (!hasValidLayer) {
-      alert('没有找到包含对象的图层。');
-      return;
+  // 检测当前运行平台
+  const detectPlatform = () => {
+    const userAgent = navigator.userAgent.toLowerCase();
+    if (window.Android && typeof window.Android.saveBlobFile === 'function') {
+      return 'android';
+    } else if (window.iOS && typeof window.iOS.saveBlobFile === 'function') {
+      return 'ios';
+    } else if (/iphone|ipad|ipod/.test(userAgent)) {
+      return 'ios_browser';
+    } else if (/android/.test(userAgent)) {
+      return 'android_browser';
+    } else {
+      return 'web';
     }
-
-    // 添加文件结束注释
-    allGCodeParts.push('; ========================================');
-    allGCodeParts.push('; 文件结束');
-    allGCodeParts.push('; ========================================');
-
-    // 合并所有G代码
-    const mergedGCode = allGCodeParts.join('\n');
-
-    // 下载合并后的文件
-    downloadGCode(mergedGCode, `${fileName}.nc`);
-    alert(`合并G代码已生成并开始下载。\n包含 ${layers.filter(l => items.some(item => item.layerId === l.id)).length} 个图层。`);
   };
 
   // 下载G代码文件的辅助函数
   const downloadGCode = (gcode: string, fileName: string) => {
+    const platform = detectPlatform();
+    
+    // 检查是否在原生移动应用环境中
+    if (platform === 'android' && window.Android && typeof window.Android.saveBlobFile === 'function') {
+      // 在 Android 原生环境中，直接通过 Android 接口保存文件
+      try {
+        // 将 G-code 字符串转换为 base64
+        const base64 = btoa(unescape(encodeURIComponent(gcode)));
+        window.Android.saveBlobFile(base64, fileName, 'text/plain');
+      } catch (error) {
+        console.error('Android保存文件失败:', error);
+        // 如果 Android 接口失败，回退到浏览器下载方式
+        fallbackDownload(gcode, fileName);
+      }
+    } else if (platform === 'ios' && window.iOS && typeof window.iOS.saveBlobFile === 'function') {
+      // 在 iOS 原生环境中，直接通过 iOS 接口保存文件
+      try {
+        // 将 G-code 字符串转换为 base64
+        const base64 = btoa(unescape(encodeURIComponent(gcode)));
+        window.iOS.saveBlobFile(base64, fileName, 'text/plain');
+      } catch (error) {
+        console.error('iOS保存文件失败:', error);
+        // 如果 iOS 接口失败，回退到浏览器下载方式
+        fallbackDownload(gcode, fileName);
+      }
+    } else {
+      // 在浏览器环境中，使用传统的 blob URL 方式
+      fallbackDownload(gcode, fileName);
+    }
+  };
+
+  // 浏览器环境下的下载方式（回退方案）
+  const fallbackDownload = (gcode: string, fileName: string) => {
     const blob = new Blob([gcode], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1824,9 +1905,30 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       addImage(href, width, height);
     };
 
-    if (window.Android && typeof window.Android.getPlatformSize === 'function') {
-      try {
-        const size = window.Android.getPlatformSize();
+    // 检测并设置画布大小 - 支持Android和iOS
+    const setPlatformCanvasSize = () => {
+      let size: any = null;
+      
+      // 尝试从Android获取画布大小
+      if (window.Android && typeof window.Android.getPlatformSize === 'function') {
+        try {
+          size = window.Android.getPlatformSize();
+        } catch (e) {
+          console.error('Android获取画布大小失败:', e);
+        }
+      }
+      
+      // 如果Android没有获取到，尝试从iOS获取
+      if (!size && window.iOS && typeof window.iOS.getPlatformSize === 'function') {
+        try {
+          size = window.iOS.getPlatformSize();
+        } catch (e) {
+          console.error('iOS获取画布大小失败:', e);
+        }
+      }
+      
+      // 处理获取到的大小数据
+      if (size) {
         let obj: any = size;
         if (typeof size === 'string') {
           try {
@@ -1839,9 +1941,10 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           setCanvasWidth(Number(obj.width));
           setCanvasHeight(Number(obj.height));
         }
-      } catch (e) {
       }
-    }
+    };
+    
+    setPlatformCanvasSize();
     return () => {
       delete (window as any).setCanvasSize;
       delete (window as any).addImageToCanvas;
@@ -2260,19 +2363,39 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           </div>
         </div>
       )}
+
+      {/* G代码生成进度弹窗 */}
+      {isGeneratingGCode && (
+        <div className="fixed inset-0 flex items-center justify-center z-[100] pointer-events-none">
+          <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl pointer-events-auto">
+            <div className="flex items-center justify-center mb-4">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500"></div>
+            </div>
+            <h3 className="text-lg font-semibold text-center mb-2">正在生成G代码</h3>
+            <p className="text-gray-600 text-center text-sm">{generationProgress}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 
 
 };
 
-// 声明window.Android类型
+// 声明window.Android和window.iOS类型
 declare global {
   interface Window {
     Android?: {
       onNextStep?: (data: string) => void;
       saveTempFile?: (base64: string, fileName: string) => string; // 新增保存临时文件接口
       getPlatformSize?: () => string | { width: number | string; height: number | string }; // 新增获取画布大小接口
+      saveBlobFile?: (base64: string, fileName: string, mimeType: string) => void; // 新增保存文件接口
+    };
+    iOS?: {
+      onNextStep?: (data: string) => void;
+      saveTempFile?: (base64: string, fileName: string) => string; // iOS保存临时文件接口
+      getPlatformSize?: () => string | { width: number | string; height: number | string }; // iOS获取画布大小接口
+      saveBlobFile?: (base64: string, fileName: string, mimeType: string) => void; // iOS保存文件接口
     };
   }
 }
