@@ -37,7 +37,7 @@ export const BASIC_SHAPES: PartDefinition[] = [
     type: CanvasItemType.SECTOR,
     name: '扇形',
     icon: <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M12 12H22A10 10 0 0 1 12 22V12z"/></svg>,
-    defaultParameters: { radius: 50, startAngle: 0, sweepAngle: 90 },
+    defaultParameters: { radius: 50, startAngle: -90, sweepAngle: 90 },
   },
   {
     type: CanvasItemType.EQUILATERAL_TRIANGLE,
