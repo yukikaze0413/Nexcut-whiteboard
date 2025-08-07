@@ -78,7 +78,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
     startDistance: number;
     startViewBox: { x: number; y: number; width: number; height: number };
     isPinching: boolean;
-    centerPoint?: { x: number; y: number }; // 新增：记录缩放中心点
+    centerPoint: { x: number; y: number }; // 缩放中心点
   }>(null);
   
   // 新增：缩放结束后的冷却期状态
@@ -87,6 +87,9 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
 
   const [viewBox, setViewBox] = useState({ x: 0, y: 0 });
   const [canvasSize, setCanvasSize] = useState({ width: canvasWidth, height: canvasHeight });
+
+  // 缩放控制状态
+  const [zoomLevel, setZoomLevel] = useState(1); // 缩放级别，1为100%
 
    useEffect(() => {
     const resizeObserver = new ResizeObserver(() => {
@@ -115,110 +118,30 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
     };
   }, []);
 
-  // 计算两指距离
-  function getTouchDistance(touches: TouchList) {
-    const dx = touches[0].clientX - touches[1].clientX;
-    const dy = touches[0].clientY - touches[1].clientY;
-    return Math.sqrt(dx * dx + dy * dy);
-  }
+  // 缩放控制函数
+  const handleZoomChange = useCallback((newZoomLevel: number) => {
+    const clampedZoom = Math.max(0.1, Math.min(5, newZoomLevel));
+    setZoomLevel(clampedZoom);
 
-  // 监听touch事件
-  useEffect(() => {
-    const container = svgContainerRef.current;
-    if (!container) return;
+    // 计算新的画布尺寸（缩放是相对于原始尺寸）
+    const newWidth = canvasWidth / clampedZoom;
+    const newHeight = canvasHeight / clampedZoom;
 
-    function handleTouchStart(e: TouchEvent) {
-      if (e.touches.length === 2) {
-        // 清除任何现有的冷却期
-        if (cooldownTimeoutRef.current) {
-          clearTimeout(cooldownTimeoutRef.current);
-          cooldownTimeoutRef.current = null;
-        }
-        setPinchCooldown(false);
-        
-        // 记录初始距离和viewBox
-        const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-        const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-        
-        setPinchState({
-          startDistance: getTouchDistance(e.touches),
-          startViewBox: { x: viewBox.x, y: viewBox.y, width: canvasSize.width, height: canvasSize.height },
-          isPinching: true,
-          centerPoint: { x: centerX, y: centerY }, // 记录缩放中心点
-        });
-      } else if (e.touches.length === 1) {
-        // 单指触摸时清除缩放状态，确保不会意外触发缩放
-        setPinchState(null);
-      }
-    }
+    // 保持视图中心不变
+    const currentCenterX = viewBox.x + canvasSize.width / 2;
+    const currentCenterY = viewBox.y + canvasSize.height / 2;
 
-    function handleTouchMove(e: TouchEvent) {
-      if (pinchState && pinchState.isPinching && e.touches.length === 2) {
-        e.preventDefault(); // 禁止页面滚动
-        const newDistance = getTouchDistance(e.touches);
-        
-        // 添加缩放阻尼，降低灵敏度
-        const distanceRatio = newDistance / pinchState.startDistance;
-        const dampedScale = 1 + (distanceRatio - 1) * 0.2; // 进一步降低缩放灵敏度到20%
-        
-        // 添加防抖：只有当缩放变化足够大时才更新
-        const scaleChange = Math.abs(dampedScale - 1);
-        if (scaleChange < 0.05) return; // 忽略小于5%的缩放变化
-        
-        // 限制缩放比例
-        const scale = Math.max(0.2, Math.min(5, dampedScale));
-        
-        // 计算新的viewBox尺寸
-        const newWidth = pinchState.startViewBox.width / scale;
-        const newHeight = pinchState.startViewBox.height / scale;
-        
-        // 计算缩放中心在SVG坐标系中的位置
-        if (svgRef.current && pinchState.centerPoint) {
-          const CTM = svgRef.current.getScreenCTM();
-          if (CTM) {
-            const pt = new DOMPoint(pinchState.centerPoint.x, pinchState.centerPoint.y);
-            const svgPoint = pt.matrixTransform(CTM.inverse());
-            
-            // 以触摸中心为缩放中心
-            const centerX = svgPoint.x;
-            const centerY = svgPoint.y;
-            
-            setViewBox({
-              x: centerX - newWidth / 2,
-              y: centerY - newHeight / 2,
-            });
-            setCanvasSize({ width: newWidth, height: newHeight });
-          }
-        }
-      }
-    }
+    setViewBox({
+      x: currentCenterX - newWidth / 2,
+      y: currentCenterY - newHeight / 2,
+    });
+    setCanvasSize({ width: newWidth, height: newHeight });
+  }, [canvasWidth, canvasHeight, viewBox, canvasSize]);
 
-          function handleTouchEnd(e: TouchEvent) {
-        if (e.touches.length < 2 && pinchState?.isPinching) {
-          // 从双指缩放过渡到单指或无触摸时，启动冷却期
-          setPinchState(null);
-          setPinchCooldown(true);
-          
-          // 300ms后清除冷却期，允许正常的拖拽操作
-          cooldownTimeoutRef.current = setTimeout(() => {
-            setPinchCooldown(false);
-            cooldownTimeoutRef.current = null;
-          }, 300);
-        }
-      }
-
-    container.addEventListener('touchstart', handleTouchStart, { passive: false });
-    container.addEventListener('touchmove', handleTouchMove, { passive: false });
-    container.addEventListener('touchend', handleTouchEnd, { passive: false });
-    container.addEventListener('touchcancel', handleTouchEnd, { passive: false });
-    return () => {
-      container.removeEventListener('touchstart', handleTouchStart);
-      container.removeEventListener('touchmove', handleTouchMove);
-      container.removeEventListener('touchend', handleTouchEnd);
-      container.removeEventListener('touchcancel', handleTouchEnd);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [svgRef, viewBox, canvasSize, pinchState]);
+  // 禁用双指缩放，改用滑动标尺控制
+  // useEffect(() => {
+  //   // 双指缩放功能已禁用
+  // }, []);
 
   const getPointerPosition = (event: React.PointerEvent | React.MouseEvent): { x: number; y: number } => {
     if (!svgRef.current) return { x: 0, y: 0 };
@@ -454,7 +377,7 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
             ref={svgRef} 
             width="100%" 
             height="100%"
-            viewBox={`${viewBox.x} ${viewBox.y} ${canvasWidth} ${canvasHeight}`}
+            viewBox={`${viewBox.x} ${viewBox.y} ${canvasSize.width} ${canvasSize.height}`}
             style={{ touchAction: 'none' }}
           >
             <defs>
@@ -462,7 +385,14 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
                 <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(209, 213, 219, 0.7)" strokeWidth="0.5"/>
               </pattern>
             </defs>
-            <rect x="0" y="0" width="100%" height="100%" fill="url(#grid)" />
+            {/* 背景格子 - 覆盖整个可视区域 */}
+            <rect
+              x={viewBox.x - 1000}
+              y={viewBox.y - 1000}
+              width={canvasSize.width + 2000}
+              height={canvasSize.height + 2000}
+              fill="url(#grid)"
+            />
             
             <rect 
               x="0" 
@@ -516,14 +446,76 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
             )}
           </svg>
           <button
-              onClick={() => setViewBox({ x: 0, y: 0 })}
+              onClick={() => {
+                setViewBox({ x: 0, y: 0 });
+                setZoomLevel(1);
+                setCanvasSize({ width: canvasWidth, height: canvasHeight });
+              }}
               className="absolute bottom-4 left-4 z-10 bg-white p-2 rounded-full shadow-md text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
-              title="回到原点"
+              title="回到原点并重置缩放"
           >
             <img src={pointicon} alt="回零" className="h-5 w-5" />
                   <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 10l-4.95-4.95z" clipRule="evenodd" />
                   <path d="M5.75 3a.75.75 0 00-1.5 0v3.5A.75.75 0 005 7.25H8.5a.75.75 0 000-1.5H5.75V3z" />
           </button>
+
+          {/* 缩放控制标尺 - 垂直布局 */}
+          <div className="absolute bottom-4 right-4 z-10 bg-white p-3 rounded-lg shadow-md">
+            <div className="flex flex-col items-center space-y-3">
+              <button
+                onClick={() => handleZoomChange(zoomLevel + 0.1)}
+                className="w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded text-gray-600 text-lg font-bold"
+                title="放大"
+              >
+                +
+              </button>
+              <div className="relative flex flex-col items-center">
+                <input
+                  type="range"
+                  min="0.1"
+                  max="5"
+                  step="0.1"
+                  value={zoomLevel}
+                  onChange={(e) => handleZoomChange(parseFloat(e.target.value))}
+                  className="h-32 w-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider-vertical"
+                  style={{
+                    writingMode: 'bt-lr',
+                    WebkitAppearance: 'slider-vertical',
+                    background: `linear-gradient(to top, #3b82f6 0%, #3b82f6 ${((zoomLevel - 0.1) / (5 - 0.1)) * 100}%, #e5e7eb ${((zoomLevel - 0.1) / (5 - 0.1)) * 100}%, #e5e7eb 100%)`
+                  }}
+                />
+                <style jsx>{`
+                  .slider-vertical::-webkit-slider-thumb {
+                    appearance: none;
+                    height: 16px;
+                    width: 16px;
+                    border-radius: 50%;
+                    background: #3b82f6;
+                    cursor: pointer;
+                    border: 2px solid #ffffff;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                  }
+                  .slider-vertical::-moz-range-thumb {
+                    height: 16px;
+                    width: 16px;
+                    border-radius: 50%;
+                    background: #3b82f6;
+                    cursor: pointer;
+                    border: 2px solid #ffffff;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                  }
+                `}</style>
+              </div>
+              <button
+                onClick={() => handleZoomChange(zoomLevel - 0.1)}
+                className="w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded text-gray-600 text-lg font-bold"
+                title="缩小"
+              >
+                −
+              </button>
+              <span className="text-xs text-gray-500 font-medium">{Math.round(zoomLevel * 100)}%</span>
+            </div>
+          </div>
         </div>
     </div>
   );
