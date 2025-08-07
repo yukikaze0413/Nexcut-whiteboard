@@ -433,6 +433,43 @@ const HomePage: React.FC = () => {
       const edges = new window.cv.Mat();
       window.cv.cvtColor(src, gray, window.cv.COLOR_RGBA2GRAY, 0);
       window.cv.Canny(gray, edges, threshold1, threshold2);
+      
+      // 打印边缘检测数据
+      console.log('=== OpenCV Canny边缘检测数据 ===');
+      console.log('图像尺寸:', width, 'x', height);
+      console.log('Canny阈值:', threshold1, threshold2);
+      console.log('边缘Mat尺寸:', edges.rows, 'x', edges.cols);
+      console.log('边缘Mat类型:', edges.type());
+      console.log('边缘Mat深度:', edges.depth());
+      console.log('边缘Mat通道数:', edges.channels());
+      
+      // 获取边缘数据
+      const edgeData = new Uint8Array(edges.data);
+      console.log('边缘数据总长度:', edgeData.length);
+      console.log('边缘数据前100个像素值:', Array.from(edgeData.slice(0, 100)));
+      
+      // 统计边缘像素数量
+      let edgePixelCount = 0;
+      let totalPixels = edgeData.length;
+      for (let i = 0; i < edgeData.length; i++) {
+        if (edgeData[i] > 0) {
+          edgePixelCount++;
+        }
+      }
+      console.log('边缘像素数量:', edgePixelCount);
+      console.log('总像素数量:', totalPixels);
+      console.log('边缘像素占比:', ((edgePixelCount / totalPixels) * 100).toFixed(2) + '%');
+      
+      // 打印边缘数据的统计信息
+      const nonZeroValues = Array.from(edgeData).filter(val => val > 0);
+      if (nonZeroValues.length > 0) {
+        const min = Math.min(...nonZeroValues);
+        const max = Math.max(...nonZeroValues);
+        const avg = nonZeroValues.reduce((sum, val) => sum + val, 0) / nonZeroValues.length;
+        console.log('边缘像素值范围:', min, '-', max);
+        console.log('边缘像素平均值:', avg.toFixed(2));
+      }
+      
       // 反色，让线条变白，背景变黑
       window.cv.bitwise_not(edges, edges);
       // Canny输出是单通道，需要转回4通道显示
@@ -481,6 +518,20 @@ const HomePage: React.FC = () => {
     });
   }
 
+  // 将base64图像转换为二进制数据用于potrace
+  function base64ToBinary(base64: string): Uint8Array {
+    // 移除data:image/png;base64,前缀
+    const base64Data = base64.replace(/^data:image\/[a-z]+;base64,/, '');
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+
+
   // 重置到原始图片：恢复图片到最初状态
   const resetToOriginal = () => {
     if (originalImage) {
@@ -498,8 +549,6 @@ const HomePage: React.FC = () => {
       navigate('/whiteboard');
     }
   };
-
-
 
   // 页面加载时根据路由state显示裁剪结果
   useEffect(() => {
@@ -703,6 +752,8 @@ const HomePage: React.FC = () => {
         </div>
       </div>
 
+
+
       {/* 下一步按钮区域 */}
       <div className="bg-white border-t border-gray-200 px-4 py-3">
         <div className="flex justify-center items-center">
@@ -730,4 +781,4 @@ const HomePage: React.FC = () => {
   );
 };
 
-export default HomePage;
+export default HomePage; 
