@@ -72,6 +72,9 @@ function getGroupBoundingBox(items: CanvasItemData[]): { minX: number, minY: num
   return { minX, minY, maxX, maxY };
 }
 
+/// 8.7
+
+
 // ==========================================================
 // SVG and G-code Generation Helpers for Engraving
 // ==========================================================
@@ -598,6 +601,31 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   // svgson + svg.js递归解析SVG节点
   const parseSvgWithSvgson = useCallback(async (svgContent: string): Promise<CanvasItemData[]> => {
     const svgJson = await parseSvgson(svgContent);
+
+    // +++ 新增辅助函数：从transform字符串解析scale +++
+    const parseScaleFromTransform = (transformString: string | undefined): { scaleX: number, scaleY: number } => {
+      if (!transformString) {
+        return { scaleX: 1, scaleY: 1 };
+      }
+
+      const scaleMatch = transformString.match(/scale\(([^)]+)\)/);
+      if (scaleMatch && scaleMatch[1]) {
+        const values = scaleMatch[1].trim().split(/\s+|,/);
+        if (values.length === 1) {
+          const scaleValue = parseFloat(values[0]);
+          // SVG规范: scale(x) 等同于 scale(x, x)
+          return { scaleX: scaleValue, scaleY: scaleValue };
+        }
+        if (values.length >= 2) {
+          const scaleX = parseFloat(values[0]);
+          const scaleY = parseFloat(values[1]);
+          return { scaleX, scaleY };
+        }
+      }
+
+      return { scaleX: 1, scaleY: 1 };
+    };
+
     // 获取viewBox和缩放
     let viewBox: number[] = [0, 0, 0, 0];
     let scaleX = 1, scaleY = 1;
@@ -612,7 +640,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     // 递归处理
     function walk(node: any, parentTransform: DOMMatrix, items: CanvasItemData[] = []) {
       // 跳过无关元素
-      const skipTags = ['defs', 'clipPath', 'mask', 'marker', 'symbol', 'use', 'style', 'title'];
+      const skipTags = ['defs', 'clipPath', 'mask', 'marker', 'symbol', 'use', 'style', 'title', 'desc'];
       if (skipTags.includes(node.name)) return items;
 
       // 合并transform
@@ -627,6 +655,9 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           currentTransform.multiplySelf(ctm);
         }
       }
+
+      // +++ 新增：解析当前节点的 scale +++
+      const scaleInfo = parseScaleFromTransform(node.attributes.transform);
 
       // 处理path
       if (node.name === 'path' && node.attributes.d) {
@@ -659,16 +690,81 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 type: CanvasItemType.DRAWING,
                 x: centerX,
                 y: centerY,
-                points: absPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY })),
+                points: absPoints.map(p => ({ x: (p.x - centerX) * scaleInfo.scaleX, y: (p.y - centerY) * scaleInfo.scaleY })),
                 fillColor: node.attributes.fill,
                 strokeWidth: Number(node.attributes['stroke-width']) || 0,
                 color: '',
                 rotation: 0,
+                scaleX: scaleInfo.scaleX, // <--- 新增
+                scaleY: scaleInfo.scaleY, // <--- 新增
               });
             }
           }
         } catch (e) { }
       }
+
+      // // 8.7
+      // if (node.name === 'path' && node.attributes.d) {
+      //   // 因为svgo已经处理过，这里我们假设路径有意义（即有描边或填充）
+      //   // 并且所有坐标都已是绝对坐标。
+      //   const d = node.attributes.d;
+
+      //   // 一个 <path> 元素可能包含多个独立的子路径，它们都由 "M" 指令开始。
+      //   // 我们需要将它们分割成独立的对象。
+      //   // 正则表达式 /(?=[M])/ 会在每个 "M" (MoveTo) 指令前进行分割。
+      //   const subPathsD = d.trim().split(/(?=[M])/).filter(s => s.trim());
+
+      //   // 遍历每一个独立的子路径
+      //   for (const subPath of subPathsD) {
+      //     if (!subPath) continue;
+
+      //     try {
+      //       const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      //       const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      //       tempPath.setAttribute('d', subPath);
+      //       tempSvg.appendChild(tempPath);
+      //       const totalLength = tempPath.getTotalLength();
+
+      //       if (totalLength > 0) {
+      //         // 对子路径进行采样，得到一系列点
+      //         const sampleCount = Math.max(Math.floor(totalLength / 2), 64); // 调整采样密度
+      //         const absPoints: { x: number; y: number }[] = [];
+
+      //         for (let i = 0; i <= sampleCount; i++) {
+      //           const len = (i / sampleCount) * totalLength;
+      //           const pt = tempPath.getPointAtLength(len);
+
+      //           // 应用从根元素到当前 <path> 元素累积的所有变换
+      //           const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+
+      //           // 应用 viewBox 的缩放
+      //           absPoints.push({ x: transformedPt.x * scaleX, y: transformedPt.y * scaleY });
+      //         }
+
+      //         if (absPoints.length >= 2) {
+      //           const minX = Math.min(...absPoints.map(p => p.x));
+      //           const minY = Math.min(...absPoints.map(p => p.y));
+
+      //           // 创建一个新的 DRAWING 对象
+      //           items.push({
+      //             type: CanvasItemType.DRAWING,
+      //             x: minX,
+      //             y: minY,
+      //             points: absPoints.map(p => ({ x: p.x - minX, y: p.y - minY })),
+      //             // 继承颜色和描边属性
+      //             color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+      //             strokeWidth: Number(node.attributes['stroke-width']) || 2,
+      //             fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+      //             rotation: 0,
+      //           });
+      //         }
+      //       }
+      //     } catch (e) {
+      //       console.error("Error processing a sub-path:", subPath, e);
+      //     }
+      //   }
+      // }
+
       // 处理rect
       else if (node.name === 'rect') {
         const x = Number(node.attributes.x);
@@ -689,6 +785,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
           strokeWidth: Number(node.attributes['stroke-width']) || 2,
           fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+          scaleX: scaleInfo.scaleX, // <--- 新增
+          scaleY: scaleInfo.scaleY, // <--- 新增
         });
         if (drawing) items.push(drawing);
       }
@@ -707,6 +805,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
           strokeWidth: Number(node.attributes['stroke-width']) || 2,
           fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+          scaleX: scaleInfo.scaleX, // <--- 新增
+          scaleY: scaleInfo.scaleY, // <--- 新增
         });
         if (drawing) items.push(drawing);
       }
@@ -726,6 +826,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
           strokeWidth: Number(node.attributes['stroke-width']) || 2,
           fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+          scaleX: scaleInfo.scaleX, // <--- 新增
+          scaleY: scaleInfo.scaleY, // <--- 新增
         });
         if (drawing) items.push(drawing);
       }
@@ -742,6 +844,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         const drawing = createCenterCoordinateDrawing(pts, {
           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
           strokeWidth: Number(node.attributes['stroke-width']) || 2,
+          scaleX: scaleInfo.scaleX, // <--- 新增
+          scaleY: scaleInfo.scaleY, // <--- 新增
         });
         if (drawing) items.push(drawing);
       }
@@ -762,6 +866,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             color: node.attributes.stroke || node.attributes.fill || '#2563eb',
             strokeWidth: Number(node.attributes['stroke-width']) || 2,
             fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+            scaleX: scaleInfo.scaleX, // <--- 新增
+            scaleY: scaleInfo.scaleY, // <--- 新增
           });
           if (drawing) items.push(drawing);
         }
@@ -778,6 +884,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             color: node.attributes.stroke || node.attributes.fill || '#2563eb',
             strokeWidth: Number(node.attributes['stroke-width']) || 2,
             fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+            scaleX: scaleInfo.scaleX, // <--- 新增
+            scaleY: scaleInfo.scaleY, // <--- 新增
           });
           if (drawing) items.push(drawing);
         }
@@ -822,6 +930,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         height: groupHeight,
         rotation: 0,
         children,
+
       }];
     }
     return items;
@@ -1251,22 +1360,46 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
         // 保存原始SVG内容用于G代码生成
         const originalContent = svgo.optimize(svgString, {
-           plugins: [
-          // 使用 SVGO 的默认插件集，这已经能完成大部分优化工作
-          {
-            name: 'preset-default',
-            params: {
-              overrides: {
-                // 您的解析器需要 <g> 标签来处理变换，所以不要合并它们
-                collapseGroups: false, 
-              },
+          plugins: [
+            // 默认插件集合（大部分优化功能都包含）
+            {
+              name: 'preset-default',
+              params: {
+                overrides: {
+                  // 配置 convertPathData
+                  convertPathData: {
+                    applyTransforms: false,
+                    makeAbsolute: true,
+                  },
+                  // 如果你要确保 convertTransform 被启用，不在这里禁用它
+                }
+              }
             },
-          },
-          'removeStyleElement', // 移除 <style> 标签，因为解析器不处理它
-          'removeScripts', // 移除 <script> 标签，保证安全
-          'cleanupIds', // 清理无用的ID
-        ],
+
+            // 单独添加 convertTransform 插件并配置参数（不需要 active）
+            {
+              name: 'convertTransform',
+              params: {
+                convertToShorts: true,
+                floatPrecision: 3,
+              }
+            },
+
+            // 可选：将图形（如 circle）转换为 path 以简化处理
+            {
+              name: 'convertShapeToPath',
+            },
+
+            // 其它优化插件
+            'convertStyleToAttrs',
+            'removeStyleElement',
+            'removeScripts',
+            'cleanupIds',
+            'removeEmptyText',
+          ]
         }).data;
+
+        console.log(originalContent);
 
         // 解析SVG为矢量对象
         let parsedItems: CanvasItemData[] = [];
@@ -1307,25 +1440,48 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         const dxfString = e.target?.result as string;
         if (!dxfString) return;
 
-        // 保存原始SVG内容用于G代码生成
         const originalContent = svgo.optimize(new Helper(dxfString).toSVG(), {
-           plugins: [
-          // 使用 SVGO 的默认插件集，这已经能完成大部分优化工作
-          {
-            name: 'preset-default',
-            params: {
-              overrides: {
-                // 您的解析器需要 <g> 标签来处理变换，所以不要合并它们
-                collapseGroups: false, 
-              },
+          plugins: [
+            // 默认插件集合（大部分优化功能都包含）
+            {
+              name: 'preset-default',
+              params: {
+                overrides: {
+                  // 配置 convertPathData
+                  convertPathData: {
+                    applyTransforms: false,
+                    makeAbsolute: true,
+                  },
+                  // 如果你要确保 convertTransform 被启用，不在这里禁用它
+                }
+              }
             },
-          },
-          'removeStyleElement', // 移除 <style> 标签，因为解析器不处理它
-          'removeScripts', // 移除 <script> 标签，保证安全
-          'cleanupIds', // 清理无用的ID
-        ],
+
+            // 单独添加 convertTransform 插件并配置参数（不需要 active）
+            {
+              name: 'convertTransform',
+              params: {
+                convertToShorts: true,
+                floatPrecision: 3,
+              }
+            },
+
+            // 可选：将图形（如 circle）转换为 path 以简化处理
+            {
+              name: 'convertShapeToPath',
+            },
+
+            // 其它优化插件
+            'convertStyleToAttrs',
+            'removeStyleElement',
+            'removeScripts',
+            'cleanupIds',
+            'removeEmptyText',
+          ]
         }).data;
-        //console.log(originalContent);
+
+
+        console.log(originalContent);
 
         // 解析SVG为矢量对象
         let parsedItems: CanvasItemData[] = [];
@@ -1632,7 +1788,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
         setGenerationProgress('正在保存文件...');
         downloadGCode(gcode, `${fileName}_${layer.name.replace(/\s+/g, '_')}.nc`);
-        
+
         // 关闭弹窗
         setIsGeneratingGCode(false);
       } else {
@@ -1678,7 +1834,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
         setGenerationProgress('正在保存文件...');
         downloadGCode(gcode, `${fileName}_${layer.name.replace(/\s+/g, '_')}.nc`);
-        
+
         // 关闭弹窗
         setIsGeneratingGCode(false);
       }
@@ -1708,7 +1864,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       // 遍历所有图层
       for (const layer of layers) {
         const layerItems = items.filter(item => item.layerId === layer.id);
-        
+
         if (layerItems.length === 0) {
           continue; // 跳过空图层
         }
@@ -1727,7 +1883,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         try {
           if (layer.printingMethod === PrintingMethod.SCAN) {
             const layerImageItems = layerItems.filter(item => item.type === CanvasItemType.IMAGE);
-            
+
             if (layerImageItems.length > 0) {
               const settings: GCodeScanSettings = {
                 lineDensity: 1 / (layer.lineDensity || 10),
@@ -1802,7 +1958,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       setGenerationProgress('正在保存文件...');
       // 下载合并后的文件
       downloadGCode(mergedGCode, `${fileName}.nc`);
-      
+
       // 关闭弹窗
       setIsGeneratingGCode(false);
     } catch (error) {
@@ -1831,7 +1987,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   // 下载G代码文件的辅助函数
   const downloadGCode = (gcode: string, fileName: string) => {
     const platform = detectPlatform();
-    
+
     // 检查是否在原生移动应用环境中
     if (platform === 'android' && window.Android && typeof window.Android.saveBlobFile === 'function') {
       // 在 Android 原生环境中，直接通过 Android 接口保存文件
@@ -1887,7 +2043,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     // 检测并设置画布大小 - 支持Android和iOS
     const setPlatformCanvasSize = () => {
       let size: any = null;
-      
+
       // 尝试从Android获取画布大小
       if (window.Android && typeof window.Android.getPlatformSize === 'function') {
         try {
@@ -1896,7 +2052,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           console.error('Android获取画布大小失败:', e);
         }
       }
-      
+
       // 如果Android没有获取到，尝试从iOS获取
       if (!size && window.iOS && typeof window.iOS.getPlatformSize === 'function') {
         try {
@@ -1905,7 +2061,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           console.error('iOS获取画布大小失败:', e);
         }
       }
-      
+
       // 处理获取到的大小数据
       if (size) {
         let obj: any = size;
@@ -1922,7 +2078,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         }
       }
     };
-    
+
     setPlatformCanvasSize();
     return () => {
       delete (window as any).setCanvasSize;
@@ -2096,7 +2252,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 confirmBtn.addEventListener('click', async () => {
                   const fileName = fileNameInput.value.trim() || '激光雕刻项目';
                   const mergeAllLayers = mergeAllLayersInput.checked;
-                  
+
                   cleanup();
 
                   if (mergeAllLayers) {

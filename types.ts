@@ -73,19 +73,23 @@ export interface Part {
   parameters: PartParameters;
   rotation: number;
   layerId: string;
+  scaleX?: number; // <--- 新增
+  scaleY?: number; // <--- 新增
 }
 
 export interface Drawing {
-  id:string;
+  id: string;
   type: CanvasItemType.DRAWING;
   x: number;
   y: number;
-  points: { x: number; y: number }[]; // Relative to x, y
+  points: { x: number; y: number }[];
   color: string;
   strokeWidth: number;
   rotation: number;
   layerId: string;
-  fillColor?: string; // 新增，支持SVG填充
+  fillColor?: string;
+  scaleX?: number; // <--- 新增
+  scaleY?: number; // <--- 新增
 }
 
 export interface TextObject {
@@ -98,6 +102,8 @@ export interface TextObject {
   color: string;
   rotation: number;
   layerId: string;
+  scaleX?: number; // <--- 新增
+  scaleY?: number; // <--- 新增
 }
 
 export interface ImageObject {
@@ -107,10 +113,11 @@ export interface ImageObject {
   y: number;
   width: number;
   height: number;
-  href: string; // data URL
+  href: string;
   rotation: number;
   layerId: string;
-  // 新增：原始矢量数据，用于G代码生成
+  scaleX?: number; // <--- 新增
+  scaleY?: number; // <--- 新增
   vectorSource?: {
     type: 'svg' | 'dxf' | 'plt';
     content: string; // 原始文件内容
@@ -123,16 +130,20 @@ export interface GroupObject {
   type: 'GROUP';
   x: number;
   y: number;
-  width: number; // 新增
-  height: number; // 新增
-  rotation: number; // 新增
+  width: number;
+  height: number;
+  rotation: number;
   children: CanvasItem[];
   layerId: string;
+  scaleX?: number; // <--- 新增
+  scaleY?: number; // <--- 新增
 }
+
 
 export type CanvasItem = Part | Drawing | TextObject | ImageObject | GroupObject;
 
-export type CanvasItemData = 
+// CanvasItemData 也将自动继承这些可选属性
+export type CanvasItemData =
   | Omit<Part, 'id' | 'layerId'>
   | Omit<Drawing, 'id' | 'layerId'>
   | Omit<TextObject, 'id' | 'layerId'>

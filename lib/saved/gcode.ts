@@ -581,19 +581,21 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
   }
 
   if ('parameters' in item) {
-    /// 官方零件
     switch (item.type) {
       case CanvasItemType.RECTANGLE: {
         const { width = 40, height = 40 } = item.parameters;
-        const w2 = width / 2;
-        const h2 = height / 2;
-
-        // 矩形四个角点（相对于中心）
+        // +++ 应用缩放 +++
+        const scaledWidth = width * scaleX;
+        const scaledHeight = height * scaleY;
+        const w2 = scaledWidth / 2;
+        const h2 = scaledHeight / 2;
+        
+        // 后续计算将自动使用缩放后的尺寸
         const corners = [
-          { x: x - w2, y: y - h2 }, // 左上
-          { x: x + w2, y: y - h2 }, // 右上  
-          { x: x + w2, y: y + h2 }, // 右下
-          { x: x - w2, y: y + h2 }, // 左下
+          { x: x - w2, y: y - h2 },
+          { x: x + w2, y: y - h2 },
+          { x: x + w2, y: y + h2 },
+          { x: x - w2, y: y + h2 },
         ];
 
         // 应用旋转变换
@@ -620,12 +622,21 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         break;
       }
 
-
       case CanvasItemType.CIRCLE: {
         const { radius = 20 } = item.parameters;
 
-        // 圆形的起始点（右侧）
-        const startPoint = rotatePoint(x + radius, y, x, y, rotation);
+        // +++ 应用缩放 +++
+        // 警告：非均匀缩放会将圆形变为椭圆，G02/G03不支持。
+        // 我们在此采用 scaleX 作为基准，并假设 scaleY 接近它。
+        // 在更复杂的实现中，需要将椭圆转换为多段线。
+        // if (Math.abs(scaleX - scaleY) > 0.01) {
+        //     console.warn(`非均匀缩放 (${scaleX}, ${scaleY}) 应用于圆形，G-code将近似为圆形。`);
+        // }
+        const scaledRadius = radius * Math.abs(scaleX);
+
+        // +++ 使用 scaledRadius 进行计算 +++
+        const startPoint = rotatePoint(x + radius * scaleX, y, x, y, rotation);
+
         const transformedStart = transformCoordinate(startPoint.x, startPoint.y, settings);
         const transformedCenter = transformCoordinate(x, y, settings);
 
@@ -642,6 +653,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         paths.push(...circlePaths);
         break;
       }
+
       case CanvasItemType.LINE: {
         const { length = 40 } = item.parameters;
         const l2 = length / 2;
@@ -1135,20 +1147,15 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         break;
     }
   }
-  /// 官方零件结束
 
   // 处理手绘路径（应用旋转和Y轴反转）
   if (item.type === CanvasItemType.DRAWING && 'points' in item && Array.isArray(item.points)) {
     if (item.points.length > 1) {
       const drawingPaths = [];
-      console.log(`原始坐标(${x}, ${y}) 中心坐标(${item.x}, ${item.y}) scaleX: ${scaleX}, scaleY: ${scaleY}`);
-      const transformedPoints = item.points.map(point => {
-        // +++ 在应用旋转之前，先对相对坐标点进行缩放 +++
-        const scaledPointX = (point.x) * scaleX + x;
-        const scaledPointY = (point.y) * scaleY + y;
 
-        // 使用缩放后的点进行旋转
-        const rotated = rotatePoint(scaledPointX, scaledPointY, x, y, rotation);
+      // 对所有点应用旋转和坐标转换
+      const transformedPoints = item.points.map(point => {
+        const rotated = rotatePoint(x + point.x, y + point.y, x, y, rotation);
         return transformCoordinate(rotated.x, rotated.y, settings);
       });
 
