@@ -12,9 +12,8 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
   const strokeWidth = isSelected ? 2 : 1;
   const fillColor = 'none';
 
-  const { parameters, rotation } = part;
-  const transform = `rotate(${rotation})`;
-  
+  const { parameters } = part;
+
   const HITBOX_STROKE_WIDTH = 20;
 
   const renderWithHitbox = <T extends SVGElement>(visual: React.ReactElement<React.SVGProps<T>>, hitbox?: React.ReactElement) => {
@@ -23,9 +22,9 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
         stroke: "transparent",
         strokeWidth: HITBOX_STROKE_WIDTH
     });
-    
+
     return (
-        <g transform={transform}>
+        <g>
             {hitboxElement}
             {React.cloneElement(visual, { style: { pointerEvents: 'none' } })}
         </g>
@@ -106,7 +105,7 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
       return renderWithHitbox(polyline);
     }
     case CanvasItemType.ARC: {
-      const { radius = 50, startAngle = -90, sweepAngle = 180 } = parameters;
+      const { radius = 50, startAngle = 0, sweepAngle = 120 } = parameters;
       if (radius <= 0) return null;
 
       const startRad = (startAngle * Math.PI) / 180;
@@ -135,6 +134,8 @@ const PartRenderer: React.FC<PartRendererProps> = ({ part, isSelected }) => {
       const { radius = 50, startAngle = -90, sweepAngle = 90 } = parameters;
       if (radius <= 0) return null;
 
+      // 注意：这里不需要加rotation，因为SVG的transform会处理旋转
+      // 保持与G代码生成逻辑一致的角度计算方式
       const startRad = (startAngle * Math.PI) / 180;
       const endRad = ((startAngle + sweepAngle) * Math.PI) / 180;
 

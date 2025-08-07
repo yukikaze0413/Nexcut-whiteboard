@@ -77,6 +77,30 @@ function getGroupBoundingBox(items: CanvasItemData[]): { minX: number, minY: num
 // ==========================================================
 
 /**
+ * 辅助函数：创建使用中心坐标的绘图对象
+ */
+function createCenterCoordinateDrawing(points: { x: number; y: number }[], attributes: any = {}): any {
+  if (points.length < 2) return null;
+  const minX = Math.min(...points.map(p => p.x));
+  const maxX = Math.max(...points.map(p => p.x));
+  const minY = Math.min(...points.map(p => p.y));
+  const maxY = Math.max(...points.map(p => p.y));
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  return {
+    type: CanvasItemType.DRAWING,
+    x: centerX,
+    y: centerY,
+    points: points.map(p => ({ x: p.x - centerX, y: p.y - centerY })),
+    color: attributes.color || '#2563eb',
+    strokeWidth: attributes.strokeWidth || 2,
+    rotation: attributes.rotation || 0,
+    fillColor: attributes.fillColor,
+    ...attributes
+  };
+}
+
+/**
  * Converts a single CanvasItem to an SVG element string.
  * @param item The canvas item to convert.
  * @returns An SVG element as a string.
@@ -296,8 +320,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
     addItem({
       type: CanvasItemType.IMAGE,
-      x: canvasWidth / 2 - newWidth / 2, // 图片左上角，使图片中心在画布中心
-      y: canvasHeight / 2 - newHeight / 2,
+      x: canvasWidth / 2, // 图片中心坐标
+      y: canvasHeight / 2,
       href,
       width: newWidth,
       height: newHeight,
@@ -335,8 +359,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
         addItem({
           type: CanvasItemType.IMAGE,
-          x: canvasWidth / 2 - newWidth / 2, // 图片左上角，使图片中心在画布中心
-          y: canvasHeight / 2 - newHeight / 2,
+          x: canvasWidth / 2, // 图片中心坐标
+          y: canvasHeight / 2,
           href: location.state.image,
           width: newWidth,
           height: newHeight,
@@ -626,15 +650,20 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             }
             if (absPoints.length >= 2) {
               const minX = Math.min(...absPoints.map(p => p.x));
+              const maxX = Math.max(...absPoints.map(p => p.x));
               const minY = Math.min(...absPoints.map(p => p.y));
+              const maxY = Math.max(...absPoints.map(p => p.y));
+              const centerX = (minX + maxX) / 2;
+              const centerY = (minY + maxY) / 2;
               items.push({
                 type: CanvasItemType.DRAWING,
-                x: minX,
-                y: minY,
-                points: absPoints.map(p => ({ x: p.x - minX, y: p.y - minY })),
+                x: centerX,
+                y: centerY,
+                points: absPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY })),
                 fillColor: node.attributes.fill,
                 strokeWidth: Number(node.attributes['stroke-width']) || 0,
                 color: '',
+                rotation: 0,
               });
             }
           }
@@ -656,17 +685,12 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           const tpt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
           return { x: tpt.x * scaleX, y: tpt.y * scaleY };
         });
-        const minX = Math.min(...pts.map((p: { x: number, y: number }) => p.x));
-        const minY = Math.min(...pts.map((p: { x: number, y: number }) => p.y));
-        items.push({
-          type: CanvasItemType.DRAWING,
-          x: minX,
-          y: minY,
-          points: pts.map((p: { x: number, y: number }) => ({ x: p.x - minX, y: p.y - minY })),
+        const drawing = createCenterCoordinateDrawing(pts, {
           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
           strokeWidth: Number(node.attributes['stroke-width']) || 2,
           fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
         });
+        if (drawing) items.push(drawing);
       }
       // 处理circle
       else if (node.name === 'circle') {
@@ -679,17 +703,12 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           const pt = new DOMPoint(cx + r * Math.cos(angle), cy + r * Math.sin(angle)).matrixTransform(currentTransform);
           return { x: pt.x * scaleX, y: pt.y * scaleY };
         });
-        const minX = Math.min(...pts.map((p: { x: number, y: number }) => p.x));
-        const minY = Math.min(...pts.map((p: { x: number, y: number }) => p.y));
-        items.push({
-          type: CanvasItemType.DRAWING,
-          x: minX,
-          y: minY,
-          points: pts.map((p: { x: number, y: number }) => ({ x: p.x - minX, y: p.y - minY })),
+        const drawing = createCenterCoordinateDrawing(pts, {
           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
           strokeWidth: Number(node.attributes['stroke-width']) || 2,
           fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
         });
+        if (drawing) items.push(drawing);
       }
       // 处理ellipse
       else if (node.name === 'ellipse') {
@@ -703,17 +722,12 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           const pt = new DOMPoint(cx + rx * Math.cos(angle), cy + ry * Math.sin(angle)).matrixTransform(currentTransform);
           return { x: pt.x * scaleX, y: pt.y * scaleY };
         });
-        const minX = Math.min(...pts.map((p: { x: number, y: number }) => p.x));
-        const minY = Math.min(...pts.map((p: { x: number, y: number }) => p.y));
-        items.push({
-          type: CanvasItemType.DRAWING,
-          x: minX,
-          y: minY,
-          points: pts.map((p: { x: number, y: number }) => ({ x: p.x - minX, y: p.y - minY })),
+        const drawing = createCenterCoordinateDrawing(pts, {
           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
           strokeWidth: Number(node.attributes['stroke-width']) || 2,
           fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
         });
+        if (drawing) items.push(drawing);
       }
       // 处理line
       else if (node.name === 'line') {
@@ -725,16 +739,11 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           new DOMPoint(x1, y1).matrixTransform(currentTransform),
           new DOMPoint(x2, y2).matrixTransform(currentTransform),
         ].map(pt => ({ x: pt.x * scaleX, y: pt.y * scaleY }));
-        const minX = Math.min(...pts.map((p: { x: number, y: number }) => p.x));
-        const minY = Math.min(...pts.map((p: { x: number, y: number }) => p.y));
-        items.push({
-          type: CanvasItemType.DRAWING,
-          x: minX,
-          y: minY,
-          points: pts.map((p: { x: number, y: number }) => ({ x: p.x - minX, y: p.y - minY })),
+        const drawing = createCenterCoordinateDrawing(pts, {
           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
           strokeWidth: Number(node.attributes['stroke-width']) || 2,
         });
+        if (drawing) items.push(drawing);
       }
       // 处理polygon
       else if (node.name === 'polygon' && node.attributes.points) {
@@ -749,17 +758,12 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           if (pts.length < 2 || pts[0].x !== pts[pts.length - 1].x || pts[0].y !== pts[pts.length - 1].y) {
             points = [...pts, pts[0]];
           }
-          const minX = Math.min(...points.map((p: { x: number, y: number }) => p.x));
-          const minY = Math.min(...points.map((p: { x: number, y: number }) => p.y));
-          items.push({
-            type: CanvasItemType.DRAWING,
-            x: minX,
-            y: minY,
-            points: points.map((p: { x: number, y: number }) => ({ x: p.x - minX, y: p.y - minY })),
+          const drawing = createCenterCoordinateDrawing(points, {
             color: node.attributes.stroke || node.attributes.fill || '#2563eb',
             strokeWidth: Number(node.attributes['stroke-width']) || 2,
             fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
           });
+          if (drawing) items.push(drawing);
         }
       }
       // 处理polyline
@@ -770,17 +774,12 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           return { x: pt.x * scaleX, y: pt.y * scaleY };
         });
         if (pts.length >= 2) {
-          const minX = Math.min(...pts.map((p: { x: number, y: number }) => p.x));
-          const minY = Math.min(...pts.map((p: { x: number, y: number }) => p.y));
-          items.push({
-            type: CanvasItemType.DRAWING,
-            x: minX,
-            y: minY,
-            points: pts.map((p: { x: number, y: number }) => ({ x: p.x - minX, y: p.y - minY })),
+          const drawing = createCenterCoordinateDrawing(pts, {
             color: node.attributes.stroke || node.attributes.fill || '#2563eb',
             strokeWidth: Number(node.attributes['stroke-width']) || 2,
             fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
           });
+          if (drawing) items.push(drawing);
         }
       }
 
@@ -848,8 +847,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           // 创建图像对象时包含矢量源数据
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
-            x: 0,
-            y: 0,
+            x: canvasWidth / 2,
+            y: canvasHeight / 2,
             width: img.width,
             height: img.height,
             href: dataUrl,
@@ -1024,8 +1023,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           // 创建图像对象时包含矢量源数据
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
-            x: 0,
-            y: 0,
+            x: canvasWidth / 2,
+            y: canvasHeight / 2,
             width: img.width,
             height: img.height,
             href: dataUrl,
@@ -1139,20 +1138,10 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             };
           });
 
-          const newMinX = Math.min(...transformedPoints.map(p => p.x));
-          const newMinY = Math.min(...transformedPoints.map(p => p.y));
-
-          return {
-            type: CanvasItemType.DRAWING,
-            x: newMinX,
-            y: newMinY,
-            points: transformedPoints.map(p => ({
-              x: p.x - newMinX,
-              y: p.y - newMinY,
-            })),
+          return createCenterCoordinateDrawing(transformedPoints, {
             color: '#eab308',
             strokeWidth: 2,
-          };
+          });
         });
 
         // 保存原始PLT内容用于G代码生成
@@ -1176,8 +1165,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           // 创建图像对象时包含矢量源数据
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
-            x: 0,
-            y: 0,
+            x: canvasWidth / 2,
+            y: canvasHeight / 2,
             width: img.width,
             height: img.height,
             href: dataUrl,
@@ -1293,8 +1282,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           // 创建图像对象时包含矢量源数据
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
-            x: 0,
-            y: 0,
+            x: canvasWidth / 2,
+            y: canvasHeight / 2,
             width: img.width,
             height: img.height,
             href: dataUrl,
@@ -1352,8 +1341,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           // 创建图像对象时包含矢量源数据
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
-            x: 0,
-            y: 0,
+            x: canvasWidth / 2,
+            y: canvasHeight / 2,
             width: img.width,
             height: img.height,
             href: dataUrl,
@@ -1553,20 +1542,10 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                     };
                   });
 
-                  const newMinX = Math.min(...transformedPoints.map(p => p.x));
-                  const newMinY = Math.min(...transformedPoints.map(p => p.y));
-
-                  return {
-                    type: CanvasItemType.DRAWING,
-                    x: newMinX,
-                    y: newMinY,
-                    points: transformedPoints.map(p => ({
-                      x: p.x - newMinX,
-                      y: p.y - newMinY,
-                    })),
+                  return createCenterCoordinateDrawing(transformedPoints, {
                     color: '#eab308',
                     strokeWidth: 2,
-                  };
+                  });
                 });
               }
             }
@@ -2281,7 +2260,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 </button>
                 <input
                   type="file"
-                  accept=".dxf,.svg,.plt"
+                  // accept=".dxf,.svg,.plt"
+                  accept='image/svg+xml,.dxf,.plt,application/octet-stream'
                   style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', opacity: 0, zIndex: 10, cursor: 'pointer' }}
                   onChange={handleImport}
                 />

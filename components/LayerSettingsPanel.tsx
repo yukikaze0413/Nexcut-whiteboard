@@ -79,9 +79,9 @@ const LayerPreview: React.FC<{
   return (
     <svg width={200} height={200} viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} className="border rounded-md bg-white">
       {layerItems.map(item => (
-        <g 
+        <g
               key={item.id}
-          transform={`translate(${'x' in item ? item.x : 0}, ${'y' in item ? item.y : 0})`}
+          transform={`translate(${'x' in item ? item.x : 0}, ${'y' in item ? item.y : 0}) rotate(${'rotation' in item ? item.rotation || 0 : 0})`}
         >
           <CanvasItemRenderer item={item} isSelected={false} />
         </g>

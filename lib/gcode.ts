@@ -75,9 +75,9 @@ async function createPlatformImage(
       img.crossOrigin = "anonymous";
       img.onload = () => {
         // 1. 计算图像在前端画布中的左上角坐标
-        //    item.x, item.y 已经是左上角坐标，不需要再计算
-        const itemTopLeftX_canvas = item.x;
-        const itemTopLeftY_canvas = item.y;
+        //    item.x, item.y 现在是中心坐标，需要转换为左上角坐标
+        const itemTopLeftX_canvas = item.x - item.width / 2;
+        const itemTopLeftY_canvas = item.y - item.height / 2;
 
         // 2. 将前端画布的坐标和尺寸，按比例转换到平台画布（像素单位）
         const destX_pixels = itemTopLeftX_canvas * scaleX;
@@ -625,10 +625,13 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const iOffset = transformedCenter.x - transformedStart.x;
         const jOffset = transformedCenter.y - transformedStart.y;
 
+        // 当Y轴反转时，圆的方向也要反转
+        const circleCommand = settings.flipY ? 'G03' : 'G02';
+
         const circlePaths = [
           `G0 X${transformedStart.x} Y${transformedStart.y}`,  // 移动到起点
           `M3 S${laserPower}`,        // 开启激光
-          `G02 X${transformedStart.x} Y${transformedStart.y} I${iOffset.toFixed(3)} J${jOffset.toFixed(3)} F${settings.feedRate || 1000}`, // 绘制整圆
+          `${circleCommand} X${transformedStart.x} Y${transformedStart.y} I${iOffset.toFixed(3)} J${jOffset.toFixed(3)} F${settings.feedRate || 1000}`, // 绘制整圆
           `M5`,                       // 关闭激光
         ];
         paths.push(...circlePaths);
@@ -680,10 +683,13 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const outerIOffset = transformedCenter.x - transformedOuterStart.x;
         const outerJOffset = transformedCenter.y - transformedOuterStart.y;
 
+        // 当Y轴反转时，圆的方向也要反转
+        const outerCircleCommand = settings.flipY ? 'G03' : 'G02';
+
         paths.push(
           `G0 X${transformedOuterStart.x} Y${transformedOuterStart.y}`,
           `M3 S${laserPower}`,
-          `G02 X${transformedOuterStart.x} Y${transformedOuterStart.y} I${outerIOffset.toFixed(3)} J${outerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+          `${outerCircleCommand} X${transformedOuterStart.x} Y${transformedOuterStart.y} I${outerIOffset.toFixed(3)} J${outerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
           `M5`
         );
 
@@ -693,10 +699,13 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const innerIOffset = transformedCenter.x - transformedInnerStart.x;
         const innerJOffset = transformedCenter.y - transformedInnerStart.y;
 
+        // 当Y轴反转时，圆的方向也要反转
+        const innerCircleCommand = settings.flipY ? 'G03' : 'G02';
+
         paths.push(
           `G0 X${transformedInnerStart.x} Y${transformedInnerStart.y}`,
           `M3 S${laserPower}`,
-          `G02 X${transformedInnerStart.x} Y${transformedInnerStart.y} I${innerIOffset.toFixed(3)} J${innerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+          `${innerCircleCommand} X${transformedInnerStart.x} Y${transformedInnerStart.y} I${innerIOffset.toFixed(3)} J${innerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
           `M5`
         );
 
@@ -711,10 +720,13 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           const transformedHoleCenter = transformCoordinate(rotatedHoleCenter.x, rotatedHoleCenter.y, settings);
           const holeStart = { x: transformedHoleCenter.x + boltHoleRadius, y: transformedHoleCenter.y };
 
+          // 当Y轴反转时，圆的方向也要反转
+          const holeCircleCommand = settings.flipY ? 'G03' : 'G02';
+
           paths.push(
             `G0 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)}`,
             `M3 S${laserPower}`,
-            `G02 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)} I${-boltHoleRadius} J0 F${settings.feedRate || 1000}`,
+            `${holeCircleCommand} X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)} I${-boltHoleRadius} J0 F${settings.feedRate || 1000}`,
             `M5`
           );
         }
@@ -733,10 +745,13 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const outerIOffset = transformedCenter.x - transformedOuterStart.x;
         const outerJOffset = transformedCenter.y - transformedOuterStart.y;
 
+        // 当Y轴反转时，圆的方向也要反转
+        const outerCircleCommand = settings.flipY ? 'G03' : 'G02';
+
         paths.push(
           `G0 X${transformedOuterStart.x} Y${transformedOuterStart.y}`,
           `M3 S${laserPower}`,
-          `G02 X${transformedOuterStart.x} Y${transformedOuterStart.y} I${outerIOffset.toFixed(3)} J${outerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+          `${outerCircleCommand} X${transformedOuterStart.x} Y${transformedOuterStart.y} I${outerIOffset.toFixed(3)} J${outerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
           `M5`
         );
 
@@ -746,10 +761,13 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const innerIOffset = transformedCenter.x - transformedInnerStart.x;
         const innerJOffset = transformedCenter.y - transformedInnerStart.y;
 
+        // 当Y轴反转时，圆的方向也要反转
+        const innerCircleCommand = settings.flipY ? 'G03' : 'G02';
+
         paths.push(
           `G0 X${transformedInnerStart.x} Y${transformedInnerStart.y}`,
           `M3 S${laserPower}`,
-          `G02 X${transformedInnerStart.x} Y${transformedInnerStart.y} I${innerIOffset.toFixed(3)} J${innerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+          `${innerCircleCommand} X${transformedInnerStart.x} Y${transformedInnerStart.y} I${innerIOffset.toFixed(3)} J${innerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
           `M5`
         );
         break;
@@ -895,10 +913,13 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           // 孔的起始点（右侧）
           const holeStart = transformCoordinate(rotatedHoleCenter.x + holeRadius, rotatedHoleCenter.y, settings);
 
+          // 当Y轴反转时，圆的方向也要反转
+          const holeCircleCommand = settings.flipY ? 'G03' : 'G02';
+
           paths.push(
             `G0 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)}`,
             `M3 S${laserPower}`,
-            `G02 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)} I${-holeRadius} J0 F${settings.feedRate || 1000}`,
+            `${holeCircleCommand} X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)} I${-holeRadius} J0 F${settings.feedRate || 1000}`,
             `M5`
           );
         });
@@ -917,10 +938,13 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const mainCircleIOffset = transformedCenter.x - transformedMainCircleStart.x;
         const mainCircleJOffset = transformedCenter.y - transformedMainCircleStart.y;
 
+        // 当Y轴反转时，圆的方向也要反转
+        const mainCircleCommand = settings.flipY ? 'G03' : 'G02';
+
         paths.push(
           `G0 X${transformedMainCircleStart.x} Y${transformedMainCircleStart.y}`,
           `M3 S${laserPower}`,
-          `G02 X${transformedMainCircleStart.x} Y${transformedMainCircleStart.y} I${mainCircleIOffset.toFixed(3)} J${mainCircleJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+          `${mainCircleCommand} X${transformedMainCircleStart.x} Y${transformedMainCircleStart.y} I${mainCircleIOffset.toFixed(3)} J${mainCircleJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
           `M5`
         );
 
@@ -936,10 +960,13 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           const transformedHoleCenter = transformCoordinate(rotatedHoleCenter.x, rotatedHoleCenter.y, settings);
           const holeStart = { x: transformedHoleCenter.x + holeRadius, y: transformedHoleCenter.y };
 
+          // 当Y轴反转时，圆的方向也要反转
+          const holeCircleCommand = settings.flipY ? 'G03' : 'G02';
+
           paths.push(
             `G0 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)}`,
             `M3 S${laserPower}`,
-            `G02 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)} I${-holeRadius} J0 F${settings.feedRate || 1000}`,
+            `${holeCircleCommand} X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)} I${-holeRadius} J0 F${settings.feedRate || 1000}`,
             `M5`
           );
         }
@@ -1026,49 +1053,89 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
       case CanvasItemType.SECTOR: {
         const { radius = 50, startAngle = -90, sweepAngle = 90 } = item.parameters;
 
+        console.log(`处理对象 SECTOR at (${x}, ${y}), rotation: ${rotation}°`);
         console.log(`扇形参数 - 半径: ${radius}, 起始角: ${startAngle}, 扫掠角: ${sweepAngle}`);
 
+        // 应用旋转到角度
         const startRad = ((startAngle + rotation) * Math.PI) / 180;
         const endRad = ((startAngle + sweepAngle + rotation) * Math.PI) / 180;
 
+        // 计算弧的起点和终点（相对于扇形中心）
         const sx = x + radius * Math.cos(startRad);
         const sy = y + radius * Math.sin(startRad);
         const ex = x + radius * Math.cos(endRad);
         const ey = y + radius * Math.sin(endRad);
 
-        // 扇形路径：中心到弧
+        // 应用坐标变换（包括Y轴反转）
+        const centerTransformed = transformCoordinate(x, y, settings);
+        const startTransformed = transformCoordinate(sx, sy, settings);
+        const endTransformed = transformCoordinate(ex, ey, settings);
+
+        // 计算弧的中心点（用于G02/G03命令）
+        const centerOffsetX = centerTransformed.x - startTransformed.x;
+        const centerOffsetY = centerTransformed.y - startTransformed.y;
+
+        // 判断弧的方向（顺时针还是逆时针）
+        // 注意：当Y轴反转时，弧的方向也会反转
+        let isClockwise = sweepAngle < 0;
+        if (settings.flipY) {
+          isClockwise = !isClockwise; // Y轴反转时，弧的方向也要反转
+        }
+        const arcCommand = isClockwise ? 'G02' : 'G03';
+
+        // 扇形路径：中心 -> 弧起点 -> 弧线 -> 中心
         const sectorPaths = [
-          `G0 X${x} Y${y}`,                           // 移动到中心
+          `G0 X${centerTransformed.x.toFixed(3)} Y${centerTransformed.y.toFixed(3)}`, // 移动到中心
           `M3 S${laserPower}`,
-          `G1 X${sx} Y${sy} F${settings.feedRate || 1000}`, // 直线到弧起点
-          // 这里简化处理，实际应该用G02/G03绘制弧
-          `G1 X${ex} Y${ey}`,                         // 简化为直线（实际应该是弧）
-          `G1 X${x} Y${y}`,                           // 回到中心
+          `G1 X${startTransformed.x.toFixed(3)} Y${startTransformed.y.toFixed(3)} F${settings.feedRate || 1000}`, // 直线到弧起点
+          `${arcCommand} X${endTransformed.x.toFixed(3)} Y${endTransformed.y.toFixed(3)} I${centerOffsetX.toFixed(3)} J${centerOffsetY.toFixed(3)}`, // 弧线到终点
+          `G1 X${centerTransformed.x.toFixed(3)} Y${centerTransformed.y.toFixed(3)}`, // 回到中心
           `M5`
         ];
+        console.log(`生成的扇形G代码路径:`, sectorPaths);
         paths.push(...sectorPaths);
+        console.log(`当前paths数组长度: ${paths.length}`);
         break;
       }
 
       case CanvasItemType.ARC: {
-        const { radius = 40, startAngle = 0, sweepAngle = 90 } = item.parameters;
+        const { radius = 50, startAngle = 0, sweepAngle = 120 } = item.parameters;
 
+        console.log(`处理对象 ARC at (${x}, ${y}), rotation: ${rotation}°`);
         console.log(`弧形参数 - 半径: ${radius}, 起始角: ${startAngle}, 扫掠角: ${sweepAngle}`);
 
+        // 应用旋转到角度
         const startRad = ((startAngle + rotation) * Math.PI) / 180;
         const endRad = ((startAngle + sweepAngle + rotation) * Math.PI) / 180;
 
+        // 计算弧的起点和终点（相对于弧中心）
         const sx = x + radius * Math.cos(startRad);
         const sy = y + radius * Math.sin(startRad);
         const ex = x + radius * Math.cos(endRad);
         const ey = y + radius * Math.sin(endRad);
 
+        // 应用坐标变换（包括Y轴反转）
+        const centerTransformed = transformCoordinate(x, y, settings);
+        const startTransformed = transformCoordinate(sx, sy, settings);
+        const endTransformed = transformCoordinate(ex, ey, settings);
+
+        // 计算弧的中心点偏移（用于G02/G03命令）
+        const centerOffsetX = centerTransformed.x - startTransformed.x;
+        const centerOffsetY = centerTransformed.y - startTransformed.y;
+
+        // 判断弧的方向（顺时针还是逆时针）
+        // 注意：当Y轴反转时，弧的方向也会反转
+        let isClockwise = sweepAngle < 0;
+        if (settings.flipY) {
+          isClockwise = !isClockwise; // Y轴反转时，弧的方向也要反转
+        }
+        const arcCommand = isClockwise ? 'G02' : 'G03';
+
         // 弧形路径
         const arcPaths = [
-          `G0 X${sx} Y${sy}`,                         // 移动到弧起点
+          `G0 X${startTransformed.x.toFixed(3)} Y${startTransformed.y.toFixed(3)}`, // 移动到弧起点
           `M3 S${laserPower}`,
-          // 简化处理，实际应该用G02/G03
-          `G1 X${ex} Y${ey} F${settings.feedRate || 1000}`,
+          `${arcCommand} X${endTransformed.x.toFixed(3)} Y${endTransformed.y.toFixed(3)} I${centerOffsetX.toFixed(3)} J${centerOffsetY.toFixed(3)} F${settings.feedRate || 1000}`, // 弧线到终点
           `M5`
         ];
         paths.push(...arcPaths);
@@ -1164,16 +1231,85 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
 
     // 检查是否有矢量源数据
     if (item.vectorSource && item.vectorSource.parsedItems && item.vectorSource.parsedItems.length > 0) {
+      // 调试信息：检查原始尺寸数据
+      console.log('G代码生成 - 图像对象调试信息:', {
+        itemWidth: item.width,
+        itemHeight: item.height,
+        hasOriginalDimensions: !!item.vectorSource.originalDimensions,
+        originalDimensions: item.vectorSource.originalDimensions,
+        vectorSourceType: item.vectorSource.type,
+        parsedItemsCount: item.vectorSource.parsedItems.length
+      });
+
+      // 计算缩放比例：画布显示大小 vs 原始文件大小
+      let scaleX = 1;
+      let scaleY = 1;
+
+      if (item.vectorSource.originalDimensions) {
+        const originalWidth = item.vectorSource.originalDimensions.viewBox.width || item.vectorSource.originalDimensions.width;
+        const originalHeight = item.vectorSource.originalDimensions.viewBox.height || item.vectorSource.originalDimensions.height;
+
+        console.log('原始尺寸计算:', {
+          originalWidth,
+          originalHeight,
+          itemWidth: item.width,
+          itemHeight: item.height
+        });
+
+        if (originalWidth > 0 && originalHeight > 0) {
+          scaleX = item.width / originalWidth;
+          scaleY = item.height / originalHeight;
+          console.log('计算得到的缩放比例:', { scaleX, scaleY });
+        } else {
+          console.warn('原始尺寸无效，使用默认缩放比例 1:1');
+        }
+      } else {
+        console.warn('缺少原始尺寸信息，使用默认缩放比例 1:1');
+      }
+
       // 使用矢量源数据生成G代码
       paths.push(`; 图像对象(矢量源)位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
+      paths.push(`; 缩放比例: X=${scaleX.toFixed(3)}, Y=${scaleY.toFixed(3)}`);
+      paths.push(`; 原始尺寸: ${item.vectorSource.originalDimensions?.viewBox.width || 'unknown'} × ${item.vectorSource.originalDimensions?.viewBox.height || 'unknown'}`);
+      paths.push(`; 显示尺寸: ${item.width} × ${item.height}`);
 
         // 处理矢量源中的每个对象
         for (const vectorItem of item.vectorSource.parsedItems) {
-          // 将矢量对象的位置相对于图像对象进行偏移
+          // 应用缩放到矢量子对象的位置
+          const scaledVectorX = (vectorItem.x || 0) * scaleX;
+          const scaledVectorY = (vectorItem.y || 0) * scaleY;
+
+          // 先应用图像对象的旋转到矢量子对象的位置
+          const rotatedPos = rotatePoint(x + scaledVectorX, y + scaledVectorY, x, y, rotation);
+
+          // 创建缩放后的矢量对象
+          let scaledVectorItem = { ...vectorItem };
+
+          // 如果是绘图对象，缩放其点坐标
+          if ('points' in scaledVectorItem && Array.isArray(scaledVectorItem.points)) {
+            scaledVectorItem.points = scaledVectorItem.points.map(point => ({
+              x: point.x * scaleX,
+              y: point.y * scaleY
+            }));
+          }
+
+          // 如果是参数化对象，缩放其参数
+          if ('parameters' in scaledVectorItem && scaledVectorItem.parameters) {
+            const params = { ...scaledVectorItem.parameters };
+            if ('width' in params) params.width = params.width * scaleX;
+            if ('height' in params) params.height = params.height * scaleY;
+            if ('radius' in params) params.radius = params.radius * Math.min(scaleX, scaleY);
+            if ('length' in params) params.length = params.length * scaleX;
+            scaledVectorItem.parameters = params;
+          }
+
+          // 将矢量对象的位置相对于图像对象进行变换，并传递旋转角度
           const vectorItemWithOffset: CanvasItem = {
-            ...vectorItem,
-            x: x + (vectorItem.x || 0),
-            y: y + (vectorItem.y || 0),
+            ...scaledVectorItem,
+            x: rotatedPos.x,
+            y: rotatedPos.y,
+            // 将图像对象的旋转角度传递给矢量子对象
+            rotation: rotation + (('rotation' in vectorItem ? vectorItem.rotation : 0) || 0),
             id: `vector_${Date.now()}_${Math.random()}`, // 临时ID
             layerId: item.layerId
           } as CanvasItem;
@@ -1193,11 +1329,18 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
     const transformedPos = transformCoordinate(x, y, settings);
     paths.push(`; 开始组合对象 位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
     for (const child of item.children) {
-      // 递归处理子对象，并相对于父对象的位置进行偏移
+      // 先应用组合对象的旋转到子对象的位置
+      const childX = child.x || 0;
+      const childY = child.y || 0;
+      const rotatedPos = rotatePoint(x + childX, y + childY, x, y, rotation);
+
+      // 递归处理子对象，并相对于父对象的位置进行变换，同时传递旋转角度
       const childItem = {
         ...child,
-        x: x + (child.x || 0),
-        y: y + (child.y || 0)
+        x: rotatedPos.x,
+        y: rotatedPos.y,
+        // 将组合对象的旋转角度传递给子对象
+        rotation: rotation + (('rotation' in child ? child.rotation : 0) || 0)
       } as CanvasItem;
       const childPaths = itemToGCodePaths(childItem, settings);
       paths.push(...childPaths);
