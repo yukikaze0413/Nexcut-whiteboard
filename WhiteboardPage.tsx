@@ -196,7 +196,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
   const [step, setStep] = useState(1); // 新增步骤状态
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null); // 图层设置界面选中
-  const [processedImage, setProcessedImage] = useState<string | null>(null); // 跟踪已处理的图片
+  const [processedImage, setProcessedImage] = useState<string | null>(null);
+  const [processedLocationState, setProcessedLocationState] = useState<any>(null); // 跟踪已处理的图片
 
   // 添加G代码生成进度弹窗状态
   const [isGeneratingGCode, setIsGeneratingGCode] = useState(false);
@@ -329,10 +330,91 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     } as Omit<ImageObject, 'id' | 'layerId'>);
   }, [addItem, canvasWidth, canvasHeight]);
 
-  // 处理从路由传递的图片数据
+  // 处理从路由传递的图片数据 - 分离处理location.state的变化
   useEffect(() => {
+    // 检查是否已经处理过这个location.state，避免重复处理
+    if (processedLocationState === location.state) {
+      return;
+    }
+
+    // 处理线框提取和矢量化的数据
+    if (location.state?.hasVectorData) {
+      console.log('接收到矢量图数据:', location.state);
+      
+      // 标记已处理
+      setProcessedLocationState(location.state);
+      
+      // 创建单一ImageObject：显示线框位图，但包含原始矢量数据用于G代码生成
+      if (location.state.displayImage && location.state.vectorSource) {
+        const displayImage = location.state.displayImage;
+        const vectorSource = location.state.vectorSource;
+        
+        const img = new Image();
+        img.onload = async () => {
+          // 根据画布大小动态设定图片最大尺寸（占画布的40%）
+          const MAX_IMAGE_WIDTH = canvasWidth * 0.4;
+          const MAX_IMAGE_HEIGHT = canvasHeight * 0.4;
+
+          let newWidth = img.width;
+          let newHeight = img.height;
+
+          // 计算缩放比例，保持原图宽高比
+          const scale = Math.min(MAX_IMAGE_WIDTH / img.width, MAX_IMAGE_HEIGHT / img.height, 1);
+          if (scale < 1) {
+            newWidth = img.width * scale;
+            newHeight = img.height * scale;
+          }
+
+          // 如果图片太小，设定一个最小尺寸
+          const MIN_SIZE = Math.min(canvasWidth, canvasHeight) * 0.05;
+          if (Math.max(newWidth, newHeight) < MIN_SIZE) {
+            const minScale = MIN_SIZE / Math.max(newWidth, newHeight);
+            newWidth *= minScale;
+            newHeight *= minScale;
+          }
+
+          // 使用从HomePage传递过来的已解析的parsedItems数据，如果没有则重新解析
+          let parsedItems: CanvasItemData[] = vectorSource.parsedItems || [];
+          if (parsedItems.length === 0 && vectorSource.type === 'svg' && vectorSource.content) {
+            try {
+              parsedItems = await parseSvgWithSvgson(vectorSource.content);
+              console.log('重新解析SVG内容成功，得到', parsedItems.length, '个矢量对象');
+            } catch (error) {
+              console.error('解析SVG内容失败:', error);
+            }
+          } else if (parsedItems.length > 0) {
+            console.log('使用已解析的SVG数据，包含', parsedItems.length, '个矢量对象');
+          }
+
+          // 添加单一ImageObject到画布
+          // href显示线框位图，vectorSource包含原始矢量数据
+          addItem({
+            type: CanvasItemType.IMAGE,
+            x: canvasWidth / 2,
+            y: canvasHeight / 2,
+            href: displayImage, // 显示线框位图
+            width: newWidth,
+            height: newHeight,
+            rotation: 0,
+            vectorSource: {
+              ...vectorSource,
+              parsedItems: parsedItems // 使用解析后的矢量数据
+            }
+          } as Omit<ImageObject, 'id' | 'layerId'>);
+        };
+        img.src = displayImage;
+      }
+
+      // 清除路由状态，避免重复处理
+      window.history.replaceState({}, document.title);
+      return;
+    }
+
+    // 处理普通图片数据（原有逻辑）
     if (location.state?.image && location.state.image !== processedImage) {
       setProcessedImage(location.state.image);
+      setProcessedLocationState(location.state);
+      
       const img = new Image();
       img.onload = () => {
         // 根据画布大小动态设定图片最大尺寸（占画布的70%）
@@ -369,7 +451,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       };
       img.src = location.state.image;
     }
-  }, [location.state?.image, canvasWidth, canvasHeight, addItem, processedImage]);
+  }, [location.state, canvasWidth, canvasHeight, addItem, processedImage, processedLocationState]);
 
   const updateItem = useCallback((itemId: string, updates: Partial<CanvasItem>) => {
     setItems(prevItems =>
