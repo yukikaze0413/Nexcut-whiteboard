@@ -10,6 +10,8 @@ import CategoryPicker from './components/CategoryPicker';
 import LayerPanel from './components/LayerPanel';
 import { generatePlatformScanGCode, GCodeScanSettings } from './lib/gcode';
 import LayerSettingsPanel from './components/LayerSettingsPanel';
+import PerformanceConfigPanel from './components/PerformanceConfigPanel';
+import PerformanceMonitor from './components/PerformanceMonitor';
 // @ts-ignore
 import { Helper, parseString as parseDxf } from 'dxf';
 import { parse as parseSvgson } from 'svgson';
@@ -178,8 +180,26 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
 
   const [layers, setLayers] = useState<Layer[]>([
-    { id: `scan_layer_${Date.now()}`, name: '扫描图层', isVisible: true, printingMethod: PrintingMethod.SCAN },
-    { id: `engrave_layer_${Date.now()}`, name: '雕刻图层', isVisible: true, printingMethod: PrintingMethod.ENGRAVE }
+    {
+      id: `scan_layer_${Date.now()}`,
+      name: '扫描图层',
+      isVisible: true,
+      printingMethod: PrintingMethod.SCAN,
+      lineDensity: 10,
+      halftone: false,
+      reverseMovementOffset: 0,
+      power: 50,
+      maxPower: 100,
+      minPower: 0,
+      moveSpeed: 100
+    },
+    {
+      id: `engrave_layer_${Date.now()}`,
+      name: '雕刻图层',
+      isVisible: true,
+      printingMethod: PrintingMethod.ENGRAVE,
+      power: 50
+    }
   ]);
   const [items, setItems] = useState<CanvasItem[]>([]);
   const [history, setHistory] = useState<[Layer[], CanvasItem[]][]>([]);
@@ -196,12 +216,88 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
   const [step, setStep] = useState(1); // 新增步骤状态
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null); // 图层设置界面选中
-  const [processedImage, setProcessedImage] = useState<string | null>(null);
+  const [processedImage, setProcessedImage] = useState<string | null>(null); // 跟踪已处理的图片
+  const [showPerformanceConfig, setShowPerformanceConfig] = useState(false); // 性能配置面板
+  const [showPerformanceMonitor, setShowPerformanceMonitor] = useState(false); // 性能监控面板
   const [processedLocationState, setProcessedLocationState] = useState<any>(null); // 跟踪已处理的图片
 
   // 添加G代码生成进度弹窗状态
   const [isGeneratingGCode, setIsGeneratingGCode] = useState(false);
   const [generationProgress, setGenerationProgress] = useState('');
+
+  // 添加状态用于显示导入进度
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [importStatus, setImportStatus] = useState('');
+
+  // 添加性能优化配置
+  const [performanceConfig, setPerformanceConfig] = useState({
+    maxPointsPerPath: 500,        // 每个路径最大点数
+    simplificationTolerance: 2.0,  // 路径简化容差
+    batchSize: 50,                // 批处理大小
+    enableLOD: true,              // 启用细节层次
+    maxTotalPoints: 5000          // 总点数限制
+  });
+
+
+
+  // 优化的路径简化函数 - 支持多种算法和性能配置
+  const simplifyPath = useCallback((points: { x: number, y: number }[], tolerance: number = 2.0, maxPoints?: number): { x: number, y: number }[] => {
+    if (points.length <= 2) return points;
+
+    // 如果指定了最大点数且当前点数超过限制，先进行均匀采样
+    let workingPoints = points;
+    if (maxPoints && points.length > maxPoints) {
+      const step = Math.floor(points.length / maxPoints);
+      workingPoints = points.filter((_, index) => index % step === 0);
+      // 确保包含最后一个点
+      if (workingPoints[workingPoints.length - 1] !== points[points.length - 1]) {
+        workingPoints.push(points[points.length - 1]);
+      }
+    }
+
+    // 道格拉斯-普克算法 - 优化版本
+    const douglasPeucker = (pts: { x: number, y: number }[], epsilon: number): { x: number, y: number }[] => {
+      if (pts.length <= 2) return pts;
+
+      let maxDist = 0;
+      let index = 0;
+      const first = pts[0];
+      const last = pts[pts.length - 1];
+
+      // 优化的点到直线距离计算
+      const dx = last.x - first.x;
+      const dy = last.y - first.y;
+      const lengthSq = dx * dx + dy * dy;
+
+      if (lengthSq === 0) return [first, last];
+
+      // 找到距离直线最远的点
+      for (let i = 1; i < pts.length - 1; i++) {
+        const point = pts[i];
+        const t = Math.max(0, Math.min(1, ((point.x - first.x) * dx + (point.y - first.y) * dy) / lengthSq));
+        const projX = first.x + t * dx;
+        const projY = first.y + t * dy;
+        const dist = Math.sqrt((point.x - projX) ** 2 + (point.y - projY) ** 2);
+
+        if (dist > maxDist) {
+          maxDist = dist;
+          index = i;
+        }
+      }
+
+      // 如果最大距离大于阈值，则递归简化
+      if (maxDist > epsilon) {
+        const left = douglasPeucker(pts.slice(0, index + 1), epsilon);
+        const right = douglasPeucker(pts.slice(index), epsilon);
+        return [...left.slice(0, -1), ...right];
+      } else {
+        return [first, last];
+      }
+    };
+
+    return douglasPeucker(workingPoints, tolerance);
+  }, []);
 
   // 初始化activeLayerId
   useEffect(() => {
@@ -231,8 +327,20 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         id: `layer_${Date.now()}`,
         name: printingMethod === PrintingMethod.SCAN ? '扫描图层' : '雕刻图层',
         isVisible: true,
-        printingMethod: printingMethod
+        printingMethod: printingMethod,
+        power: 50
       };
+
+      // 为扫描图层添加默认参数
+      if (printingMethod === PrintingMethod.SCAN) {
+        newLayer.lineDensity = 10;
+        newLayer.halftone = false;
+        newLayer.reverseMovementOffset = 0;
+        newLayer.maxPower = 100;
+        newLayer.minPower = 0;
+        newLayer.moveSpeed = 100;
+      }
+
       setLayers(prev => [newLayer, ...prev]);
       layer = newLayer;
     }
@@ -548,6 +656,21 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           <label style="display: block; margin-bottom: 3px; font-size: 13px;">反向移动偏移：</label>
           <input id="reverseMovementOffset" type="number" min="0" step="0.1" value="0" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" />
         </div>
+
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; margin-bottom: 3px; font-size: 13px;">功率最大值 (%)：</label>
+          <input id="maxPower" type="number" min="0" max="100" value="100" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" />
+        </div>
+
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; margin-bottom: 3px; font-size: 13px;">功率最小值 (%)：</label>
+          <input id="minPower" type="number" min="0" max="100" value="0" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" />
+        </div>
+
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; margin-bottom: 3px; font-size: 13px;">移动速度 (mm/s)：</label>
+          <input id="moveSpeed" type="number" min="10" max="500" value="100" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" />
+        </div>
       </div>
       
       <div id="commonSettings" style="margin-bottom: 20px;">
@@ -580,6 +703,9 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     const lineDensityInput = content.querySelector('#lineDensity') as HTMLInputElement;
     const halftoneInput = content.querySelector('#halftone') as HTMLInputElement;
     const reverseMovementOffsetInput = content.querySelector('#reverseMovementOffset') as HTMLInputElement;
+    const maxPowerInput = content.querySelector('#maxPower') as HTMLInputElement;
+    const minPowerInput = content.querySelector('#minPower') as HTMLInputElement;
+    const moveSpeedInput = content.querySelector('#moveSpeed') as HTMLInputElement;
     const powerInput = content.querySelector('#power') as HTMLInputElement;
     const isVisibleInput = content.querySelector('#isVisible') as HTMLInputElement;
     const scanSettings = content.querySelector('#scanSettings') as HTMLDivElement;
@@ -614,6 +740,9 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         newLayer.lineDensity = parseInt(lineDensityInput.value) || 10;
         newLayer.halftone = halftoneInput.checked;
         newLayer.reverseMovementOffset = parseFloat(reverseMovementOffsetInput.value) || 0;
+        newLayer.maxPower = parseInt(maxPowerInput.value) || 100;
+        newLayer.minPower = parseInt(minPowerInput.value) || 0;
+        newLayer.moveSpeed = parseInt(moveSpeedInput.value) || 3000;
       }
 
       setLayers(prev => [...prev, newLayer]);
@@ -677,7 +806,60 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     });
   }, [layers, items, pushHistory]);
 
-  // svgson + svg.js递归解析SVG节点
+  // 智能采样函数 - 根据路径复杂度动态调整采样密度
+  const smartSamplePath = useCallback((path: SVGPathElement, maxSamples: number = 1000): { x: number; y: number }[] => {
+    const totalLength = path.getTotalLength();
+    if (totalLength === 0) return [];
+
+    // 基于路径长度和复杂度计算采样点数
+    const baseSamples = Math.min(Math.max(Math.floor(totalLength / 2), 32), maxSamples);
+    const points: { x: number; y: number }[] = [];
+
+    // 自适应采样 - 在曲率变化大的地方增加采样密度
+    let lastPoint: DOMPoint | null = null;
+    let lastDirection: { x: number; y: number } | null = null;
+
+    for (let i = 0; i <= baseSamples; i++) {
+      const t = i / baseSamples;
+      const len = t * totalLength;
+      const point = path.getPointAtLength(len);
+
+      if (lastPoint) {
+        const direction = {
+          x: point.x - lastPoint.x,
+          y: point.y - lastPoint.y
+        };
+
+        // 计算方向变化
+        if (lastDirection) {
+          const dot = direction.x * lastDirection.x + direction.y * lastDirection.y;
+          const mag1 = Math.sqrt(direction.x ** 2 + direction.y ** 2);
+          const mag2 = Math.sqrt(lastDirection.x ** 2 + lastDirection.y ** 2);
+
+          if (mag1 > 0 && mag2 > 0) {
+            const cosAngle = dot / (mag1 * mag2);
+            const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
+
+            // 如果方向变化大，在中间插入额外的点
+            if (angle > Math.PI / 6 && i > 0) { // 30度以上的转向
+              const midLen = ((i - 1) / baseSamples + t) * totalLength / 2;
+              const midPoint = path.getPointAtLength(midLen);
+              points.push({ x: midPoint.x, y: midPoint.y });
+            }
+          }
+        }
+
+        lastDirection = direction;
+      }
+
+      points.push({ x: point.x, y: point.y });
+      lastPoint = point;
+    }
+
+    return points;
+  }, []);
+
+  // 优化的SVG解析函数 - 支持性能配置和进度回调
   const parseSvgWithSvgson = useCallback(async (svgContent: string): Promise<CanvasItemData[]> => {
     const svgJson = await parseSvgson(svgContent);
     // 获取viewBox和缩放
@@ -691,65 +873,424 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       scaleY = parseFloat(svgJson.attributes.height) / viewBox[3];
     }
 
-    // 递归处理
-    function walk(node: any, parentTransform: DOMMatrix, items: CanvasItemData[] = []) {
+    // 优化: 缓存DOM元素以减少重复创建
+    const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const transformCache = new Map<string, DOMMatrix>();
+
+    // 优化: 分帧处理以避免阻塞UI
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    
+    // 收集所有需要处理的节点
+    const collectNodes = (node: any, nodes: any[] = []) => {
+      const skipTags = ['defs', 'clipPath', 'mask', 'marker', 'symbol', 'use', 'style', 'title'];
+      if (!skipTags.includes(node.name)) {
+        nodes.push(node);
+      }
+      if (node.children) {
+        node.children.forEach((child: any) => collectNodes(child, nodes));
+      }
+      return nodes;
+    };
+
+    const allNodes = collectNodes(svgJson);
+    let processedNodes = 0;
+
+    // 递归处理 - 优化版本
+    async function walk(node: any, parentTransform: DOMMatrix, items: CanvasItemData[] = []) {
       // 跳过无关元素
       const skipTags = ['defs', 'clipPath', 'mask', 'marker', 'symbol', 'use', 'style', 'title'];
       if (skipTags.includes(node.name)) return items;
 
-      // 合并transform
+      // 优化: 使用缓存的变换矩阵
       let currentTransform = parentTransform.translate(0, 0); // 创建副本
       if (node.attributes.transform) {
-        const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        const tempG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        tempG.setAttribute('transform', node.attributes.transform);
-        tempSvg.appendChild(tempG);
-        const ctm = tempG.getCTM();
-        if (ctm) { // FIX: Check for null before using
-          currentTransform.multiplySelf(ctm);
+        const transformKey = node.attributes.transform;
+        if (transformCache.has(transformKey)) {
+          const cachedMatrix = transformCache.get(transformKey)!;
+          currentTransform.multiplySelf(cachedMatrix);
+        } else {
+          const tempG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          tempG.setAttribute('transform', transformKey);
+          tempSvg.appendChild(tempG);
+          const ctm = tempG.getCTM();
+          if (ctm) {
+            transformCache.set(transformKey, ctm);
+            currentTransform.multiplySelf(ctm);
+          }
+          tempSvg.removeChild(tempG);
         }
       }
 
-      // 处理path
+      // 处理path - 支持多笔段
       if (node.name === 'path' && node.attributes.d) {
-        // 只采样有填充的 path
-        //if (!node.attributes.fill || node.attributes.fill === 'none') return items;
         const d = node.attributes.d;
         try {
-          const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
           const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           tempPath.setAttribute('d', d);
           tempSvg.appendChild(tempPath);
           const totalLength = tempPath.getTotalLength();
           if (totalLength > 0) {
-            const sampleCount = Math.max(Math.floor(totalLength), 128);
-            const absPoints: { x: number, y: number }[] = [];
-            for (let i = 0; i <= sampleCount; i++) {
-              const len = (i / sampleCount) * totalLength;
-              const pt = tempPath.getPointAtLength(len);
-              const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
-              absPoints.push({ x: transformedPt.x * scaleX, y: transformedPt.y * scaleY });
-            }
-            if (absPoints.length >= 2) {
-              const minX = Math.min(...absPoints.map(p => p.x));
-              const maxX = Math.max(...absPoints.map(p => p.x));
-              const minY = Math.min(...absPoints.map(p => p.y));
-              const maxY = Math.max(...absPoints.map(p => p.y));
+            // 检查是否包含多个 moveto 命令（表示多个子路径）
+            const movetoMatches = d.match(/[Mm]/g);
+            const hasMultipleSubpaths = movetoMatches && movetoMatches.length > 1;
+
+            if (hasMultipleSubpaths) {
+              console.log(`检测到包含 ${movetoMatches.length} 个子路径的复杂path，使用智能分段采样`);
+
+              // 解析 SVG path 的 d 属性，找到所有 M 命令的位置
+              const findMovetoPositions = (pathD: string): number[] => {
+                const movetoPositions: number[] = [];
+
+                // 使用正则表达式找到所有 M/m 命令及其位置
+                const movetoRegex = /[Mm][^MmZz]*/g;
+                let match;
+                const segments: string[] = [];
+
+                while ((match = movetoRegex.exec(pathD)) !== null) {
+                  segments.push(match[0]);
+                }
+
+                if (segments.length <= 1) return movetoPositions;
+
+                console.log(`找到 ${segments.length} 个 M 命令段`);
+
+                // 为每个段创建临时路径，计算其在总长度中的位置
+                let accumulatedLength = 0;
+
+                for (let i = 0; i < segments.length; i++) {
+                  if (i > 0) {
+                    // 从第二个段开始，记录断点位置
+                    const lengthRatio = accumulatedLength / totalLength;
+                    const sampleIndex = Math.round(lengthRatio * allPoints.length);
+                    movetoPositions.push(sampleIndex);
+                    console.log(`M命令 ${i + 1} 对应采样点索引: ${sampleIndex} (长度比例: ${(lengthRatio * 100).toFixed(1)}%)`);
+                  }
+
+                  // 计算当前段的长度
+                  try {
+                    // 构建到当前段结束的路径
+                    const partialPath = segments.slice(0, i + 1).join(' ');
+                    const tempPartialPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    tempPartialPath.setAttribute('d', partialPath);
+                    tempSvg.appendChild(tempPartialPath);
+
+                    const partialLength = tempPartialPath.getTotalLength();
+                    accumulatedLength = partialLength;
+
+                    tempSvg.removeChild(tempPartialPath);
+                  } catch (error) {
+                    console.warn(`计算段 ${i + 1} 长度失败:`, error);
+                  }
+                }
+
+                return movetoPositions;
+              };
+
+              // 使用智能采样替代固定采样
+              const maxSamples = Math.min(performanceConfig.maxPointsPerPath, Math.max(Math.floor(totalLength), 64));
+              const rawPoints = smartSamplePath(tempPath, maxSamples);
+
+              // 应用变换和缩放
+              const allPoints: { x: number; y: number }[] = rawPoints.map(pt => {
+                const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+                return { x: transformedPt.x * scaleX, y: transformedPt.y * scaleY };
+              });
+
+              // 更新进度
+              setImportStatus(`处理复杂路径: ${allPoints.length} 个采样点`);
+
+              // 基于 M 命令位置检测断点
+              const totalSamples = allPoints.length;
+              const breakIndices = findMovetoPositions(d);
+
+              // 如果基于M命令的检测失败，使用多重几何检测策略
+              if (breakIndices.length === 0 && allPoints.length > 2) {
+                console.log('M命令检测未找到断点，使用多重几何检测策略');
+
+                // 1. 距离检测（更敏感的阈值）
+                const distances: number[] = [];
+                for (let i = 1; i < allPoints.length; i++) {
+                  const prev = allPoints[i - 1];
+                  const curr = allPoints[i];
+                  const dist = Math.sqrt(Math.pow(curr.x - prev.x, 2) + Math.pow(curr.y - prev.y, 2));
+                  distances.push(dist);
+                }
+
+                // 2. 方向变化检测（检测急剧转向）
+                const directionChanges: number[] = [];
+                for (let i = 2; i < allPoints.length; i++) {
+                  const p1 = allPoints[i - 2];
+                  const p2 = allPoints[i - 1];
+                  const p3 = allPoints[i];
+
+                  const v1 = { x: p2.x - p1.x, y: p2.y - p1.y };
+                  const v2 = { x: p3.x - p2.x, y: p3.y - p2.y };
+
+                  const dot = v1.x * v2.x + v1.y * v2.y;
+                  const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+                  const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+
+                  if (mag1 > 0 && mag2 > 0) {
+                    const cosAngle = dot / (mag1 * mag2);
+                    const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
+                    directionChanges.push(angle);
+                  } else {
+                    directionChanges.push(0);
+                  }
+                }
+
+                // 3. 曲率变化检测（检测从直线到曲线的转换）
+                const curvatureChanges: number[] = [];
+                for (let i = 3; i < allPoints.length; i++) {
+                  const p1 = allPoints[i - 3];
+                  const p2 = allPoints[i - 2];
+                  const p3 = allPoints[i - 1];
+                  const p4 = allPoints[i];
+
+                  // 计算前后两段的曲率差异
+                  const curvature1 = calculateCurvature(p1, p2, p3);
+                  const curvature2 = calculateCurvature(p2, p3, p4);
+                  const curvatureChange = Math.abs(curvature2 - curvature1);
+                  curvatureChanges.push(curvatureChange);
+                }
+
+                // 4. 速度变化检测（检测运动速度的突变）
+                const velocityChanges: number[] = [];
+                for (let i = 2; i < allPoints.length; i++) {
+                  const p1 = allPoints[i - 2];
+                  const p2 = allPoints[i - 1];
+                  const p3 = allPoints[i];
+
+                  const v1 = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+                  const v2 = Math.sqrt(Math.pow(p3.x - p2.x, 2) + Math.pow(p3.y - p2.y, 2));
+
+                  if (v1 > 0) {
+                    const velocityRatio = Math.abs(v2 - v1) / v1;
+                    velocityChanges.push(velocityRatio);
+                  } else {
+                    velocityChanges.push(0);
+                  }
+                }
+
+                // 计算各种阈值（更敏感）
+                const sortedDistances = [...distances].sort((a, b) => a - b);
+                const distanceQ75 = sortedDistances[Math.floor(sortedDistances.length * 0.75)];
+                const distanceQ90 = sortedDistances[Math.floor(sortedDistances.length * 0.9)];
+                const distanceThreshold = Math.max(distanceQ75 * 2, distanceQ90 * 1.5, totalLength / allPoints.length * 3);
+
+                const sortedAngles = [...directionChanges].sort((a, b) => a - b);
+                const angleQ85 = sortedAngles[Math.floor(sortedAngles.length * 0.85)];
+                const angleThreshold = Math.max(angleQ85 * 0.9, Math.PI * 0.6); // 约108度
+
+                const sortedCurvatures = [...curvatureChanges].sort((a, b) => a - b);
+                const curvatureQ90 = sortedCurvatures[Math.floor(sortedCurvatures.length * 0.9)];
+                const curvatureThreshold = curvatureQ90 * 0.8;
+
+                const sortedVelocities = [...velocityChanges].sort((a, b) => a - b);
+                const velocityQ90 = sortedVelocities[Math.floor(sortedVelocities.length * 0.9)];
+                const velocityThreshold = Math.max(velocityQ90 * 0.8, 2.0); // 速度变化200%以上
+
+                // 收集各类断点
+                const distanceBreaks: number[] = [];
+                const angleBreaks: number[] = [];
+                const curvatureBreaks: number[] = [];
+                const velocityBreaks: number[] = [];
+
+                for (let i = 0; i < distances.length; i++) {
+                  if (distances[i] > distanceThreshold) {
+                    distanceBreaks.push(i + 1);
+                  }
+                }
+
+                for (let i = 0; i < directionChanges.length; i++) {
+                  if (directionChanges[i] > angleThreshold) {
+                    angleBreaks.push(i + 2);
+                  }
+                }
+
+                for (let i = 0; i < curvatureChanges.length; i++) {
+                  if (curvatureChanges[i] > curvatureThreshold) {
+                    curvatureBreaks.push(i + 3);
+                  }
+                }
+
+                for (let i = 0; i < velocityChanges.length; i++) {
+                  if (velocityChanges[i] > velocityThreshold) {
+                    velocityBreaks.push(i + 2);
+                  }
+                }
+
+                // 合并所有断点
+                const allBreaks = [...distanceBreaks, ...angleBreaks, ...curvatureBreaks, ...velocityBreaks];
+                const uniqueBreaks = [...new Set(allBreaks)].sort((a, b) => a - b);
+
+                // 过滤太近的断点，但使用更小的最小间隔以捕获更多断点
+                const minGap = Math.max(allPoints.length * 0.03, 3);
+                for (const breakPoint of uniqueBreaks) {
+                  if (breakIndices.length === 0 || breakPoint - breakIndices[breakIndices.length - 1] >= minGap) {
+                    breakIndices.push(breakPoint);
+                  }
+                }
+
+                console.log(`多重检测结果: 距离=${distanceBreaks.length}, 角度=${angleBreaks.length}, 曲率=${curvatureBreaks.length}, 速度=${velocityBreaks.length}, 最终=${breakIndices.length}`);
+                console.log(`阈值: 距离=${distanceThreshold.toFixed(2)}, 角度=${(angleThreshold * 180 / Math.PI).toFixed(1)}°, 曲率=${curvatureThreshold.toFixed(4)}, 速度=${velocityThreshold.toFixed(2)}`);
+              }
+
+              // 曲率计算辅助函数
+              function calculateCurvature(p1: {x: number, y: number}, p2: {x: number, y: number}, p3: {x: number, y: number}): number {
+                const dx1 = p2.x - p1.x;
+                const dy1 = p2.y - p1.y;
+                const dx2 = p3.x - p2.x;
+                const dy2 = p3.y - p2.y;
+
+                const cross = dx1 * dy2 - dy1 * dx2;
+                const dot = dx1 * dx2 + dy1 * dy2;
+
+                const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+                const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+
+                if (len1 === 0 || len2 === 0) return 0;
+
+                const curvature = Math.abs(cross) / (len1 * len2 * Math.sqrt(len1 * len1 + len2 * len2 + 2 * dot));
+                return curvature;
+              }
+
+              // 计算边界框
+              let minX = allPoints[0].x, maxX = allPoints[0].x;
+              let minY = allPoints[0].y, maxY = allPoints[0].y;
+              for (const p of allPoints) {
+                if (p.x < minX) minX = p.x;
+                if (p.x > maxX) maxX = p.x;
+                if (p.y < minY) minY = p.y;
+                if (p.y > maxY) maxY = p.y;
+              }
+
               const centerX = (minX + maxX) / 2;
               const centerY = (minY + maxY) / 2;
-              items.push({
-                type: CanvasItemType.DRAWING,
-                x: centerX,
-                y: centerY,
-                points: absPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY })),
-                fillColor: node.attributes.fill,
-                strokeWidth: Number(node.attributes['stroke-width']) || 0,
-                color: '',
-                rotation: 0,
+
+              // 转换为相对坐标
+              const originalPoints = allPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY }));
+
+              if (breakIndices.length > 0) {
+                // 有断点：按断点分割成多个笔段
+                const allStrokes: { x: number; y: number }[][] = [];
+                let segmentStart = 0;
+                const allBreakPoints = [...breakIndices, allPoints.length].sort((a, b) => a - b);
+
+                for (const breakPoint of allBreakPoints) {
+                  if (breakPoint > segmentStart) {
+                    const segmentPoints = originalPoints.slice(segmentStart, breakPoint);
+                    if (segmentPoints.length >= 2) {
+                      allStrokes.push(segmentPoints);
+                    }
+                    segmentStart = breakPoint;
+                  }
+                }
+
+                // 生成显示用的简化数据 - 使用性能配置
+                const displayStrokes = allStrokes.map(stroke => {
+                  if (stroke.length > performanceConfig.maxPointsPerPath / 4) {
+                    return simplifyPath(stroke, performanceConfig.simplificationTolerance, performanceConfig.maxPointsPerPath / 4);
+                  }
+                  return stroke;
+                });
+
+                console.log(`多笔段处理: ${allStrokes.length} 个笔段，总计 ${originalPoints.length} 个点`);
+
+                items.push({
+                  type: CanvasItemType.DRAWING,
+                  x: centerX,
+                  y: centerY,
+                  points: displayStrokes[0] || [],
+                  originalPoints: allStrokes[0] || [],
+                  strokes: displayStrokes,
+                  originalStrokes: allStrokes,
+                  fillColor: node.attributes.fill,
+                  strokeWidth: Number(node.attributes['stroke-width']) || 0,
+                  color: '',
+                  rotation: 0,
+                });
+              } else {
+                // 无断点：使用单笔段 + 智能简化
+                const shouldSimplify = originalPoints.length > performanceConfig.maxPointsPerPath / 2;
+                const simplifiedDisplayPoints = shouldSimplify
+                  ? simplifyPath(allPoints, performanceConfig.simplificationTolerance, performanceConfig.maxPointsPerPath / 2)
+                  : allPoints;
+                const displayPoints = simplifiedDisplayPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY }));
+
+                console.log(`复杂单笔段处理: ${originalPoints.length} 个点 → ${displayPoints.length} 个显示点`);
+
+                items.push({
+                  type: CanvasItemType.DRAWING,
+                  x: centerX,
+                  y: centerY,
+                  points: displayPoints,
+                  originalPoints: originalPoints,
+                  fillColor: node.attributes.fill,
+                  strokeWidth: Number(node.attributes['stroke-width']) || 0,
+                  color: '',
+                  rotation: 0,
+                });
+              }
+            } else {
+              // 单子路径：使用优化的智能采样
+              const maxSamplePoints = Math.min(performanceConfig.maxPointsPerPath, Math.max(Math.floor(totalLength), 64));
+              setImportStatus(`处理单路径: 目标采样 ${maxSamplePoints} 个点`);
+
+              const rawPoints = smartSamplePath(tempPath, maxSamplePoints);
+              const highPrecisionPoints: { x: number, y: number }[] = rawPoints.map(pt => {
+                const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+                return { x: transformedPt.x * scaleX, y: transformedPt.y * scaleY };
               });
+
+              // 分批处理以避免阻塞UI
+              if (highPrecisionPoints.length > performanceConfig.batchSize) {
+                await sleep(0);
+              }
+
+              const absPoints = highPrecisionPoints;
+
+              if (absPoints.length >= 2) {
+                let minX = absPoints[0].x, maxX = absPoints[0].x;
+                let minY = absPoints[0].y, maxY = absPoints[0].y;
+                for (let i = 1; i < absPoints.length; i++) {
+                  const p = absPoints[i];
+                  if (p.x < minX) minX = p.x;
+                  if (p.x > maxX) maxX = p.x;
+                  if (p.y < minY) minY = p.y;
+                  if (p.y > maxY) maxY = p.y;
+                }
+
+                const centerX = (minX + maxX) / 2;
+                const centerY = (minY + maxY) / 2;
+
+                const originalPoints = highPrecisionPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY }));
+                const shouldSimplify = absPoints.length > performanceConfig.maxPointsPerPath / 2;
+                const simplifiedDisplayPoints = shouldSimplify
+                  ? simplifyPath(absPoints, performanceConfig.simplificationTolerance, performanceConfig.maxPointsPerPath / 2)
+                  : absPoints;
+                const displayPoints = simplifiedDisplayPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY }));
+
+                console.log(`单路径采样: 高精度 ${highPrecisionPoints.length} 点 → 界面显示 ${displayPoints.length} 点`);
+
+                items.push({
+                  type: CanvasItemType.DRAWING,
+                  x: centerX,
+                  y: centerY,
+                  points: displayPoints,
+                  originalPoints: originalPoints,
+                  fillColor: node.attributes.fill,
+                  strokeWidth: Number(node.attributes['stroke-width']) || 0,
+                  color: '',
+                  rotation: 0,
+                });
+              }
             }
           }
-        } catch (e) { }
+          tempSvg.removeChild(tempPath);
+        } catch (e) { 
+          console.warn('解析path失败:', e);
+        }
       }
       // 处理rect
       else if (node.name === 'rect') {
@@ -865,16 +1406,30 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         }
       }
 
+      // 更新进度
+      processedNodes++;
+      if (processedNodes % 10 === 0) {
+        setImportProgress((processedNodes / allNodes.length) * 100);
+        await sleep(0); // 让出控制权更新UI
+      }
+
       // 递归children
       if (node.children && node.children.length > 0) {
-        node.children.forEach((child: any) => walk(child, currentTransform, items));
+        for (const child of node.children) {
+          await walk(child, currentTransform, items);
+        }
       }
 
       return items;
     }
+    
     const items: CanvasItemData[] = [];
     const rootTransform = new DOMMatrix();
-    walk(svgJson, rootTransform, items);
+    await walk(svgJson, rootTransform, items);
+    
+    // 清理
+    transformCache.clear();
+    
     // 合并为GROUP（如果有多个子物体）
     if (items.length > 1) {
       const bbox = getGroupBoundingBox(items);
@@ -913,38 +1468,53 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   const handleImportFile = useCallback(async (file: { name: string; ext: string; content: string }) => {
     // SVG 导入
     if (file.ext === 'svg') {
-      //return;
-      const parsedItems = await parseSvgWithSvgson(file.content);
-      //const test = await parseSvgWithSvgson("");
-      if (parsedItems.length === 0) {
-        alert('SVG未识别到可导入的线条');
-      } else {
-        // 保存原始SVG内容用于G代码生成
-        const originalContent = file.content;
+      try {
+        // 显示导入进度
+        setIsImporting(true);
+        setImportProgress(0);
 
-        // 创建SVG图像用于显示
-        const dataUrl = 'data:image/svg+xml;base64,' + btoa(file.content);
-        const img = new Image();
-        img.onload = () => {
-          // 创建图像对象时包含矢量源数据
-          const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-            type: CanvasItemType.IMAGE,
-            x: canvasWidth / 2,
-            y: canvasHeight / 2,
-            width: img.width,
-            height: img.height,
-            href: dataUrl,
-            rotation: 0,
-            vectorSource: {
-              type: 'svg',
-              content: originalContent,
-              parsedItems: parsedItems,
-            }
+        const parsedItems = await parseSvgWithSvgson(file.content);
+        
+        if (parsedItems.length === 0) {
+          alert('SVG未识别到可导入的线条');
+          setIsImporting(false);
+        } else {
+          // 保存原始SVG内容用于G代码生成
+          const originalContent = file.content;
+
+          // 创建SVG图像用于显示
+          const dataUrl = 'data:image/svg+xml;base64,' + btoa(file.content);
+          const img = new Image();
+          img.onload = () => {
+            // 创建图像对象时包含矢量源数据
+            const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
+              type: CanvasItemType.IMAGE,
+              x: canvasWidth / 2,
+              y: canvasHeight / 2,
+              width: img.width,
+              height: img.height,
+              href: dataUrl,
+              rotation: 0,
+              vectorSource: {
+                type: 'svg',
+                content: originalContent,
+                parsedItems: parsedItems,
+              }
+            };
+
+            addItem(imageData);
+            
+            // 隐藏进度条
+            setIsImporting(false);
+            setImportProgress(0);
           };
-
-          addItem(imageData);
-        };
-        img.src = dataUrl;
+          img.src = dataUrl;
+        }
+      } catch (error) {
+        console.error('SVG导入失败:', error);
+        alert('SVG导入失败，请检查文件格式');
+        setIsImporting(false);
+        setImportProgress(0);
       }
       return;
     }
@@ -1695,10 +2265,10 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           negativeImage: false,
           hFlipped: false,
           vFlipped: false,
-          minPower: 0,
-          maxPower: 255,
-          burnSpeed: 1000,
-          travelSpeed: 6000,
+          minPower: layer.minPower ?? 0,
+          maxPower: layer.maxPower ?? 100,
+          burnSpeed: (layer.moveSpeed ?? 100) * 60, // 转换 mm/s 到 mm/min
+          travelSpeed: (layer.moveSpeed ?? 100) * 60 * 2, // 移动速度通常是燃烧速度的2倍
           overscanDist: layer.reverseMovementOffset ?? 3,
         };
 
@@ -1817,10 +2387,10 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 negativeImage: false,
                 hFlipped: false,
                 vFlipped: false,
-                minPower: 0,
-                maxPower: 255,
-                burnSpeed: 1000,
-                travelSpeed: 6000,
+                minPower: layer.minPower ?? 0,
+                maxPower: layer.maxPower ?? 100,
+                burnSpeed: (layer.moveSpeed ?? 100) * 60, // 转换 mm/s 到 mm/min
+                travelSpeed: (layer.moveSpeed ?? 100) * 60 * 2, // 移动速度通常是燃烧速度的2倍
                 overscanDist: layer.reverseMovementOffset ?? 3,
               };
 
@@ -2051,6 +2621,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 canUndo={history.length > 0}
                 onImportFile={handleImportFile}
                 onNext={handleNext}
+                onOpenPerformanceConfig={() => setShowPerformanceConfig(true)}
               />
             </div>
             <main className="flex-1 flex flex-col min-h-0 min-w-0 bg-white relative">
@@ -2438,10 +3009,54 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           </div>
         </div>
       )}
+
+      {/* SVG导入进度弹窗 - 优化版本 */}
+      {isImporting && (
+        <div className="fixed inset-0 flex items-center justify-center z-[100] pointer-events-none">
+          <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl pointer-events-auto">
+            <div className="flex items-center justify-center mb-4">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+            </div>
+            <h3 className="text-lg font-semibold text-center mb-2">正在导入矢量文件</h3>
+            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+              <div
+                className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${Math.max(5, importProgress)}%` }}
+              ></div>
+            </div>
+            <p className="text-gray-600 text-center text-sm">
+              {importProgress > 0 ? `${Math.round(importProgress)}% 已完成` : '正在解析文件...'}
+            </p>
+            {importStatus && (
+              <p className="text-gray-500 text-center text-xs mt-1">
+                {importStatus}
+              </p>
+            )}
+            <div className="mt-3 text-xs text-gray-400 text-center">
+              <p>性能优化已启用</p>
+              <p>最大点数: {performanceConfig.maxPointsPerPath} | 简化容差: {performanceConfig.simplificationTolerance}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 性能配置面板 */}
+      {showPerformanceConfig && (
+        <PerformanceConfigPanel
+          config={performanceConfig}
+          onConfigChange={setPerformanceConfig}
+          onClose={() => setShowPerformanceConfig(false)}
+        />
+      )}
+
+      {/* 性能监控组件 */}
+      <PerformanceMonitor
+        items={items}
+        isVisible={showPerformanceMonitor}
+        onToggle={() => setShowPerformanceMonitor(!showPerformanceMonitor)}
+      />
     </div>
   );
-
-
 };
 
 // 声明window.Android和window.iOS类型

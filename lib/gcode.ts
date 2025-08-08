@@ -9,8 +9,8 @@ export interface GCodeScanSettings {
   negativeImage?: boolean; // 是否为负片
   hFlipped?: boolean; // 水平翻转
   vFlipped?: boolean; // 垂直翻转
-  minPower?: number; // 最小功率
-  maxPower?: number; // 最大功率
+  minPower?: number; // 最小功率 (0-100)
+  maxPower?: number; // 最大功率 (0-100)
   burnSpeed?: number; // 燃烧速度 (mm/min)
   travelSpeed?: number; // 空程速度 (mm/min)
   overscanDist?: number; // 超扫描距离 (mm)
@@ -229,7 +229,7 @@ export async function generatePlatformScanGCode(
   const {
     lineDensity,
     minPower = 0,
-    maxPower = 255,
+    maxPower = 100,  // 修改为0-100范围
     burnSpeed = 1000,
     travelSpeed = 6000,
     overscanDist = 3,
@@ -256,7 +256,11 @@ export async function generatePlatformScanGCode(
   let x1: number | null = null, y1: number | null = null, speed1: number | null = null, power1 = 0;
 
   function flush(ignoreTravel: boolean = false) {
-    let cmd = "G1 ";
+    // 根据功率决定使用G0还是G1指令
+    // 功率为0时使用G0（快速移动），功率大于0时使用G1（工作移动）
+    const isRapidMove = power1 === 0;
+    let cmd = isRapidMove ? "G0 " : "G1 ";
+
     if (x0 !== x1 && x1 != null) {
       cmd += `X${roundCoord(x1)}`;
       x0 = x1;
@@ -268,7 +272,12 @@ export async function generatePlatformScanGCode(
     if (cmd.length === 3 || (power1 === 0 && ignoreTravel)) {
       return;
     }
-    cmd += `S${power1}`;
+
+    // 只有G1指令需要功率参数，G0指令不需要
+    if (!isRapidMove) {
+      cmd += `S${power1}`;
+    }
+
     if (speed0 !== speed1) {
       cmd += `F${speed1}`;
       speed0 = speed1;
@@ -296,7 +305,7 @@ export async function generatePlatformScanGCode(
   gcode.push(`; Platform Size: ${platformWidth}x${platformHeight} mm`);
   gcode.push(`; Resolution: ${lineDensity} mm/pixel (${width}x${height} pixels)`);
   gcode.push(`; Mode: ${settings.isHalftone ? "Halftone" : "Greyscale"}`);
-  gcode.push(`; Power: [${minPower}, ${maxPower}]`);
+  gcode.push(`; Power Range: [${minPower}, ${maxPower}] (0-100 scale)`);
   gcode.push(`; Speed: Burn=${burnSpeed} mm/min, Travel=${travelSpeed} mm/min`);
   gcode.push(`; Optimization: Skip blank rows/columns, fast travel for blank areas`);
   gcode.push(`;`);
@@ -337,10 +346,11 @@ export async function generatePlatformScanGCode(
   const reductionY = ((height * dy - contentHeight) / (height * dy) * 100).toFixed(1);
 
   gcode.push(`; Content detection: using threshold < 250 (instead of < 255) for better edge detection`);
-  gcode.push(`; Halftone processing: ${settings.isHalftone ? 'ENABLED - blank areas protected from error diffusion' : 'DISABLED - greyscale mode'}`);
-  gcode.push(`; Reverse Movement Offset: ${overscanDist} mm (${Math.ceil(overscanDist / dx)} pixels at ${dx} mm/pixel)`);
+  gcode.push(`; Halftone processing: ${settings.isHalftone ? 'ENABLED - binary threshold at 128, blank areas protected' : 'DISABLED - greyscale mode'}`);
+  gcode.push(`; Reverse Movement Offset (空移): ${overscanDist} mm (${Math.ceil(overscanDist / dx)} pixels at ${dx.toFixed(3)} mm/pixel)`);
   gcode.push(`; Content bounds: X[${(minX * dx).toFixed(1)}, ${(maxX * dx).toFixed(1)}] Y[${(minY * dy).toFixed(1)}, ${(maxY * dy).toFixed(1)}] mm`);
   gcode.push(`; Actual scan range: X[${((minX * dx) - overscanDist).toFixed(1)}, ${((maxX * dx) + overscanDist).toFixed(1)}] mm (content + overscan)`);
+  gcode.push(`; Overscan application: ${settings.isHalftone ? 'Applied in halftone mode for smooth edge transitions' : 'Applied in greyscale mode for power ramping'}`);
   gcode.push(`; Content pixels: minX=${minX}, maxX=${maxX}, minY=${minY}, maxY=${maxY} (${maxX - minX + 1}x${maxY - minY + 1} pixels)`);
   gcode.push(`; Content area: ${contentWidth.toFixed(1)}x${contentHeight.toFixed(1)} mm (reduced by ${reductionX}%x${reductionY}%)`);
   gcode.push(`; Scan area optimized: ${(maxY - minY + 1)} rows of ${height} total (${((maxY - minY + 1) / height * 100).toFixed(1)}%)`);
@@ -386,6 +396,13 @@ export async function generatePlatformScanGCode(
     const startX = reverseDir ? contentEndX + overscanDist : contentStartX - overscanDist;
     goTo(startX, currentY, 0, travelSpeed, true);
 
+    // 在半调网屏模式下，确保空移区域有适当的处理
+    if (settings.isHalftone && overscanDist > 0) {
+      // 在内容开始前，先移动到空移起始位置，确保激光头有足够的加速距离
+      const preheatX = reverseDir ? contentEndX + overscanDist * 0.5 : contentStartX - overscanDist * 0.5;
+      goTo(preheatX, null, 0, travelSpeed);
+    }
+
     // 移动到扫描起始点（内容边界）
     goTo(reverseDir ? contentEndX : contentStartX, null, 0, travelSpeed);
 
@@ -396,10 +413,21 @@ export async function generatePlatformScanGCode(
       const pixelIndex = ix + (height - 1 - y) * width;
       const c = data[pixelIndex];
 
-      // 计算激光功率
-      const power = settings.isHalftone
-        ? (c < 128 ? maxPower : 0)
-        : Math.round((minPower + (1.0 - c / 255.0) * (maxPower - minPower)) * 10) / 10;
+      // 计算激光功率 (0-100范围)
+      let power: number;
+      if (settings.isHalftone) {
+        power = c < 128 ? maxPower : 0;
+      } else {
+        // 灰度模式功率计算
+        if (maxPower === minPower) {
+          // 当最大最小功率相同时，实现单一功率效果
+          // 使用127作为阈值：暗于127的像素使用设定功率，亮于127的像素不出光
+          power = c < 127 ? maxPower : 0;
+        } else {
+          // 正常的功率范围映射
+          power = Math.round(minPower + (1.0 - c / 255.0) * (maxPower - minPower));
+        }
+      }
 
       if (power > 0) {
         // 有功率输出，直接移动并设置功率
@@ -416,9 +444,20 @@ export async function generatePlatformScanGCode(
           const testIx = reverseDir ? (scanEndX - (blankEnd - scanStartX)) : blankEnd;
           const testPixelIndex = testIx + (height - 1 - y) * width;
           const testC = data[testPixelIndex];
-          const testPower = settings.isHalftone
-            ? (testC < 128 ? maxPower : 0)
-            : Math.round((minPower + (1.0 - testC / 255.0) * (maxPower - minPower)) * 10) / 10;
+          let testPower: number;
+          if (settings.isHalftone) {
+            testPower = testC < 128 ? maxPower : 0;
+          } else {
+            // 灰度模式功率计算
+            if (maxPower === minPower) {
+              // 当最大最小功率相同时，实现单一功率效果
+              // 使用127作为阈值：暗于127的像素使用设定功率，亮于127的像素不出光
+              testPower = testC < 127 ? maxPower : 0;
+            } else {
+              // 正常的功率范围映射
+              testPower = Math.round(minPower + (1.0 - testC / 255.0) * (maxPower - minPower));
+            }
+          }
 
           if (testPower > 0) {
             break; // 遇到非空白像素，停止
@@ -449,8 +488,7 @@ export async function generatePlatformScanGCode(
 
   // G代码尾部
   gcode.push(`M5 ; Disable laser`);
-  gcode.push(`G1 S0 F${travelSpeed} ; Set power to 0`);
-  gcode.push(`G0 X0 Y0 ; Return to origin`);
+  gcode.push(`G0 X0 Y0 F${travelSpeed} ; Return to origin`);
   gcode.push(``);
   gcode.push(`; Optimization Results:`);
   gcode.push(`; - Processed ${processedRows - skippedRows} rows, skipped ${skippedRows} blank rows`);
@@ -566,8 +604,8 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
   const { x = 0, y = 0 } = item;
   const rotation = 'rotation' in item ? item.rotation || 0 : 0;
 
-  // 激光功率设置
-  const laserPower = Math.round((settings.power || 50) * 10); // 转换为0-1000范围
+  // 激光功率设置 (0-100范围)
+  const laserPower = Math.round(settings.power || 50); // 保持0-100范围
 
   console.log(`处理对象 ${item.type} at (${x}, ${y}), rotation: ${rotation}°, Y轴${settings.flipY ? '已' : '未'}反转`);
   if ('parameters' in item) {
@@ -1198,24 +1236,142 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
 
   // 处理手绘路径（应用旋转和Y轴反转）
   if (item.type === CanvasItemType.DRAWING && 'points' in item && Array.isArray(item.points)) {
-    if (item.points.length > 1) {
-      const drawingPaths = [];
+    const drawingItem = item as any; // 类型断言以访问扩展字段
+    
+    console.log('G代码生成 - Drawing对象分析:', {
+      hasOriginalStrokes: !!(drawingItem.originalStrokes && Array.isArray(drawingItem.originalStrokes)),
+      originalStrokesLength: drawingItem.originalStrokes ? drawingItem.originalStrokes.length : 0,
+      hasStrokes: !!(drawingItem.strokes && Array.isArray(drawingItem.strokes)),
+      strokesLength: drawingItem.strokes ? drawingItem.strokes.length : 0,
+      pointsLength: item.points.length,
+      hasOriginalPoints: !!(drawingItem.originalPoints && Array.isArray(drawingItem.originalPoints)),
+      originalPointsLength: drawingItem.originalPoints ? drawingItem.originalPoints.length : 0
+    });
+    
+    // 检查是否有多笔段数据
+    if (drawingItem.originalStrokes && Array.isArray(drawingItem.originalStrokes) && drawingItem.originalStrokes.length > 0) {
+      // 使用多笔段数据（高精度）
+      const strokes = drawingItem.originalStrokes;
+      console.log(`G代码生成使用原始高精度多笔段数据，共${strokes.length}个笔段`);
+      
+      for (let strokeIndex = 0; strokeIndex < strokes.length; strokeIndex++) {
+        const stroke = strokes[strokeIndex];
+        if (!Array.isArray(stroke) || stroke.length < 2) continue;
+        
+        const drawingPaths = [];
+        
+        // 对当前笔段的所有点应用旋转和坐标转换
+        const transformedPoints = stroke.map((point: { x: number; y: number }) => {
+          const rotated = rotatePoint(x + point.x, y + point.y, x, y, rotation);
+          return transformCoordinate(rotated.x, rotated.y, settings);
+        });
 
-      // 对所有点应用旋转和坐标转换
-      const transformedPoints = item.points.map(point => {
-        const rotated = rotatePoint(x + point.x, y + point.y, x, y, rotation);
-        return transformCoordinate(rotated.x, rotated.y, settings);
-      });
+        drawingPaths.push(`; 开始笔段 ${strokeIndex + 1}/${strokes.length}`);
+        drawingPaths.push(`G0 X${transformedPoints[0].x} Y${transformedPoints[0].y}`); // 移动到笔段起点
+        drawingPaths.push(`M3 S${laserPower}`); // 开启激光
 
-      drawingPaths.push(`G0 X${transformedPoints[0].x} Y${transformedPoints[0].y}`); // 移动到起点
-      drawingPaths.push(`M3 S${laserPower}`); // 开启激光
+        for (let i = 1; i < transformedPoints.length; i++) {
+          drawingPaths.push(`G1 X${transformedPoints[i].x} Y${transformedPoints[i].y} F${settings.feedRate || 1000}`);
+        }
 
-      for (let i = 1; i < transformedPoints.length; i++) {
-        drawingPaths.push(`G1 X${transformedPoints[i].x} Y${transformedPoints[i].y} F${settings.feedRate || 1000}`);
+        drawingPaths.push(`M5`); // 关闭激光（抬笔）
+        drawingPaths.push(`; 结束笔段 ${strokeIndex + 1}`);
+        paths.push(...drawingPaths);
       }
+    } else if (drawingItem.strokes && Array.isArray(drawingItem.strokes) && drawingItem.strokes.length > 0) {
+      // 使用多笔段数据（显示精度）
+      const strokes = drawingItem.strokes;
+      console.log(`G代码生成使用显示精度多笔段数据，共${strokes.length}个笔段`);
+      
+      for (let strokeIndex = 0; strokeIndex < strokes.length; strokeIndex++) {
+        const stroke = strokes[strokeIndex];
+        if (!Array.isArray(stroke) || stroke.length < 2) continue;
+        
+        const drawingPaths = [];
+        
+        // 对当前笔段的所有点应用旋转和坐标转换
+        const transformedPoints = stroke.map((point: { x: number; y: number }) => {
+          const rotated = rotatePoint(x + point.x, y + point.y, x, y, rotation);
+          return transformCoordinate(rotated.x, rotated.y, settings);
+        });
 
-      drawingPaths.push(`M5`); // 关闭激光
-      paths.push(...drawingPaths);
+        drawingPaths.push(`; 开始笔段 ${strokeIndex + 1}/${strokes.length}`);
+        drawingPaths.push(`G0 X${transformedPoints[0].x} Y${transformedPoints[0].y}`); // 移动到笔段起点
+        drawingPaths.push(`M3 S${laserPower}`); // 开启激光
+
+        for (let i = 1; i < transformedPoints.length; i++) {
+          drawingPaths.push(`G1 X${transformedPoints[i].x} Y${transformedPoints[i].y} F${settings.feedRate || 1000}`);
+        }
+
+        drawingPaths.push(`M5`); // 关闭激光（抬笔）
+        drawingPaths.push(`; 结束笔段 ${strokeIndex + 1}`);
+        paths.push(...drawingPaths);
+      }
+    } else {
+      // 回退到传统的单笔段模式（向后兼容）
+      const pointsToUse = (drawingItem.originalPoints && Array.isArray(drawingItem.originalPoints) && drawingItem.originalPoints.length > 0)
+        ? drawingItem.originalPoints
+        : item.points;
+
+      if (pointsToUse.length > 1) {
+        const drawingPaths = [];
+
+        console.log(`G代码生成使用${(drawingItem.originalPoints && Array.isArray(drawingItem.originalPoints) && drawingItem.originalPoints.length > 0) ? '原始高精度' : '显示'}单笔段数据，共${pointsToUse.length}个点`);
+
+        // 对所有点应用旋转和坐标转换
+        const transformedPoints = pointsToUse.map((point: { x: number; y: number }) => {
+          const rotated = rotatePoint(x + point.x, y + point.y, x, y, rotation);
+          return transformCoordinate(rotated.x, rotated.y, settings);
+        });
+
+        // 检查是否有抬笔点索引
+        const breakIndices = drawingItem.breakIndices && Array.isArray(drawingItem.breakIndices)
+          ? drawingItem.breakIndices
+          : [];
+
+        if (breakIndices.length > 0) {
+          // 有抬笔点：分段处理
+          console.log(`检测到 ${breakIndices.length} 个抬笔点，分段生成G代码`);
+
+          let segmentStart = 0;
+          const allBreakPoints = [...breakIndices, transformedPoints.length].sort((a, b) => a - b);
+
+          for (let segIndex = 0; segIndex < allBreakPoints.length; segIndex++) {
+            const segmentEnd = allBreakPoints[segIndex];
+
+            if (segmentEnd > segmentStart && segmentEnd <= transformedPoints.length) {
+              const segmentPoints = transformedPoints.slice(segmentStart, segmentEnd);
+
+              if (segmentPoints.length >= 2) {
+                drawingPaths.push(`; 开始路径段 ${segIndex + 1}/${allBreakPoints.length}`);
+                drawingPaths.push(`G0 X${segmentPoints[0].x} Y${segmentPoints[0].y}`); // 移动到段起点
+                drawingPaths.push(`M3 S${laserPower}`); // 开启激光
+
+                for (let i = 1; i < segmentPoints.length; i++) {
+                  drawingPaths.push(`G1 X${segmentPoints[i].x} Y${segmentPoints[i].y} F${settings.feedRate || 1000}`);
+                }
+
+                drawingPaths.push(`M5`); // 关闭激光（抬笔）
+                drawingPaths.push(`; 结束路径段 ${segIndex + 1}`);
+              }
+
+              segmentStart = segmentEnd;
+            }
+          }
+        } else {
+          // 无抬笔点：传统单笔段处理
+          drawingPaths.push(`G0 X${transformedPoints[0].x} Y${transformedPoints[0].y}`); // 移动到起点
+          drawingPaths.push(`M3 S${laserPower}`); // 开启激光
+
+          for (let i = 1; i < transformedPoints.length; i++) {
+            drawingPaths.push(`G1 X${transformedPoints[i].x} Y${transformedPoints[i].y} F${settings.feedRate || 1000}`);
+          }
+
+          drawingPaths.push(`M5`); // 关闭激光
+        }
+
+        paths.push(...drawingPaths);
+      }
     }
   }
 

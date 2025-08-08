@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G代码S值映射测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-result {
+            margin: 10px 0;
+            padding: 8px;
+            border-radius: 3px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .warning { background: #fff3cd; color: #856404; }
+        .error { background: #f8d7da; color: #721c24; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        .config-panel {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .gcode-output {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre;
+        }
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+        .comparison-table th, .comparison-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+        .comparison-table th {
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <h1>G代码S值映射测试</h1>
+    
+    <div class="test-section">
+        <h2>S值映射验证</h2>
+        <p>测试S值是否正确映射到0-100范围</p>
+        
+        <div class="config-panel">
+            <label>
+                <input type="checkbox" id="halftoneMode" checked> 半调网屏模式
+            </label>
+            <br><br>
+            <label>最小功率: <input type="number" id="minPower" value="0" min="0" max="100"></label>
+            <label>最大功率: <input type="number" id="maxPower" value="100" min="0" max="100"></label>
+            <br><br>
+            <label>空移距离: <input type="number" id="overscanDist" value="3" min="0" max="10" step="0.1"> mm</label>
+        </div>
+        
+        <button onclick="testSValueMapping()">测试S值映射</button>
+        <div id="sValueResults"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>半调网屏与空移测试</h2>
+        <p>验证半调网屏模式下空移是否正确应用</p>
+        
+        <button onclick="testHalftoneOverscan()">测试半调网屏空移</button>
+        <div id="halftoneResults"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>功率映射对比表</h2>
+        <p>显示不同像素值对应的S值</p>
+        
+        <button onclick="generatePowerTable()">生成功率对比表</button>
+        <div id="powerTableResults"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>模拟G代码输出</h2>
+        <p>生成示例G代码片段</p>
+        
+        <button onclick="generateSampleGCode()">生成示例G代码</button>
+        <div id="gcodeResults"></div>
+    </div>
+
+    <script>
+        // 模拟G代码生成设置
+        function getSettings() {
+            return {
+                isHalftone: document.getElementById('halftoneMode').checked,
+                minPower: parseInt(document.getElementById('minPower').value),
+                maxPower: parseInt(document.getElementById('maxPower').value),
+                overscanDist: parseFloat(document.getElementById('overscanDist').value),
+                lineDensity: 0.1, // 0.1mm/pixel
+                burnSpeed: 1000,
+                travelSpeed: 6000
+            };
+        }
+
+        // 计算功率值（模拟实际算法）
+        function calculatePower(pixelValue, settings) {
+            if (settings.isHalftone) {
+                return pixelValue < 128 ? settings.maxPower : 0;
+            } else {
+                return Math.round(settings.minPower + (1.0 - pixelValue / 255.0) * (settings.maxPower - settings.minPower));
+            }
+        }
+
+        // 测试S值映射
+        function testSValueMapping() {
+            const settings = getSettings();
+            const testPixels = [0, 32, 64, 96, 127, 128, 160, 192, 224, 255];
+            
+            let results = `S值映射测试结果 (${settings.isHalftone ? '半调网屏' : '灰度'} 模式):\n`;
+            results += `功率范围: ${settings.minPower}-${settings.maxPower}\n\n`;
+            results += `像素值 -> S值\n`;
+            results += `================\n`;
+            
+            testPixels.forEach(pixel => {
+                const power = calculatePower(pixel, settings);
+                const status = (power >= 0 && power <= 100) ? '✓' : '✗';
+                results += `${pixel.toString().padStart(3)} -> S${power.toString().padStart(3)} ${status}\n`;
+            });
+            
+            // 验证范围
+            const allValid = testPixels.every(pixel => {
+                const power = calculatePower(pixel, settings);
+                return power >= 0 && power <= 100;
+            });
+            
+            results += `\n验证结果: ${allValid ? '✓ 所有S值都在0-100范围内' : '✗ 存在超出范围的S值'}`;
+            
+            document.getElementById('sValueResults').innerHTML = 
+                `<div class="test-result ${allValid ? 'success' : 'error'}">${results}</div>`;
+        }
+
+        // 测试半调网屏空移
+        function testHalftoneOverscan() {
+            const settings = getSettings();
+            
+            let results = `半调网屏空移测试:\n`;
+            results += `模式: ${settings.isHalftone ? '半调网屏' : '灰度模式'}\n`;
+            results += `空移距离: ${settings.overscanDist} mm\n`;
+            results += `线密度: ${settings.lineDensity} mm/pixel\n\n`;
+            
+            // 模拟扫描行处理
+            const contentStartX = 10; // mm
+            const contentEndX = 50; // mm
+            const overscanDist = settings.overscanDist;
+            
+            results += `内容边界: ${contentStartX} - ${contentEndX} mm\n`;
+            results += `实际扫描范围: ${contentStartX - overscanDist} - ${contentEndX + overscanDist} mm\n\n`;
+            
+            // 模拟正向扫描
+            results += `正向扫描 (左到右):\n`;
+            results += `1. 移动到起始位置: X${contentStartX - overscanDist} (内容前 ${overscanDist}mm)\n`;
+            
+            if (settings.isHalftone && overscanDist > 0) {
+                const preheatX = contentStartX - overscanDist * 0.5;
+                results += `2. 半调模式预热: X${preheatX} S0 (预热位置)\n`;
+                results += `3. 移动到内容起始: X${contentStartX} S0\n`;
+                results += `4. 开始扫描内容...\n`;
+                results += `5. 扫描结束: X${contentEndX}\n`;
+                results += `6. 空移到结束位置: X${contentEndX + overscanDist} S0\n`;
+            } else {
+                results += `2. 移动到内容起始: X${contentStartX} S0\n`;
+                results += `3. 开始扫描内容...\n`;
+                results += `4. 扫描结束: X${contentEndX}\n`;
+                results += `5. 空移到结束位置: X${contentEndX + overscanDist} S0\n`;
+            }
+            
+            const hasOverscan = overscanDist > 0;
+            const halftoneOptimized = settings.isHalftone && overscanDist > 0;
+            
+            results += `\n空移应用状态: ${hasOverscan ? '✓ 已应用' : '✗ 未设置'}\n`;
+            results += `半调优化: ${halftoneOptimized ? '✓ 已启用预热处理' : '- 未启用或非半调模式'}`;
+            
+            document.getElementById('halftoneResults').innerHTML = 
+                `<div class="test-result ${hasOverscan ? 'success' : 'warning'}">${results}</div>`;
+        }
+
+        // 生成功率对比表
+        function generatePowerTable() {
+            const settings = getSettings();
+            
+            let table = '<table class="comparison-table">';
+            table += '<tr><th>像素值</th><th>灰度模式 S值</th><th>半调模式 S值</th><th>说明</th></tr>';
+            
+            for (let pixel = 0; pixel <= 255; pixel += 32) {
+                const grayscalePower = Math.round(settings.minPower + (1.0 - pixel / 255.0) * (settings.maxPower - settings.minPower));
+                const halftonePower = pixel < 128 ? settings.maxPower : 0;
+                
+                let description = '';
+                if (pixel === 0) description = '纯黑 (最大功率)';
+                else if (pixel === 127) description = '半调阈值下';
+                else if (pixel === 128) description = '半调阈值上';
+                else if (pixel === 255) description = '纯白 (无功率)';
+                else description = `灰度 ${Math.round(pixel/255*100)}%`;
+                
+                table += `<tr>
+                    <td>${pixel}</td>
+                    <td>S${grayscalePower}</td>
+                    <td>S${halftonePower}</td>
+                    <td>${description}</td>
+                </tr>`;
+            }
+            
+            table += '</table>';
+            
+            document.getElementById('powerTableResults').innerHTML = table;
+        }
+
+        // 生成示例G代码
+        function generateSampleGCode() {
+            const settings = getSettings();
+            
+            let gcode = `; G代码示例 - S值映射测试\n`;
+            gcode += `; 模式: ${settings.isHalftone ? '半调网屏' : '灰度模式'}\n`;
+            gcode += `; 功率范围: [${settings.minPower}, ${settings.maxPower}] (0-100 scale)\n`;
+            gcode += `; 空移距离: ${settings.overscanDist} mm\n`;
+            gcode += `;\n`;
+            gcode += `G90 ; 绝对坐标\n`;
+            gcode += `G21 ; 毫米单位\n`;
+            gcode += `G0 X0 Y0 F${settings.travelSpeed} ; 移动到原点\n`;
+            gcode += `;\n`;
+            gcode += `; 示例扫描行 (Y=10mm)\n`;
+            
+            // 模拟一行扫描
+            const contentStart = 10;
+            const contentEnd = 50;
+            const overscan = settings.overscanDist;
+            
+            gcode += `G0 X${contentStart - overscan} Y10 F${settings.travelSpeed} ; 移动到行起始(含空移)\n`;
+            
+            if (settings.isHalftone && overscan > 0) {
+                const preheatX = contentStart - overscan * 0.5;
+                gcode += `G1 X${preheatX} S0 F${settings.travelSpeed} ; 半调模式预热位置\n`;
+            }
+            
+            gcode += `G1 X${contentStart} S0 F${settings.travelSpeed} ; 移动到内容起始\n`;
+            
+            // 模拟不同像素值的扫描
+            const samplePixels = [0, 64, 128, 192, 255];
+            let currentX = contentStart;
+            
+            samplePixels.forEach((pixel, index) => {
+                const power = calculatePower(pixel, settings);
+                const nextX = contentStart + (index + 1) * (contentEnd - contentStart) / samplePixels.length;
+                gcode += `G1 X${nextX} S${power} F${settings.burnSpeed} ; 像素值${pixel} -> S${power}\n`;
+                currentX = nextX;
+            });
+            
+            gcode += `G1 X${contentEnd + overscan} S0 F${settings.travelSpeed} ; 空移到行结束\n`;
+            gcode += `;\n`;
+            gcode += `M5 ; 关闭激光\n`;
+            gcode += `G0 X0 Y0 ; 返回原点\n`;
+            
+            document.getElementById('gcodeResults').innerHTML = 
+                `<div class="gcode-output">${gcode}</div>`;
+        }
+
+        // 初始化测试
+        document.addEventListener('DOMContentLoaded', function() {
+            testSValueMapping();
+        });
+    </script>
+</body>
+</html>

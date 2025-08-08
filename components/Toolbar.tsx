@@ -12,6 +12,7 @@ interface ToolbarProps {
   canUndo: boolean;
   onImportFile?: (file: { name: string; ext: string; content: string }) => void;
   onNext: () => void;
+  onOpenPerformanceConfig?: () => void;
 }
 
 const tools = [
@@ -28,7 +29,7 @@ const categoryTools = [
     { type: 'PART_LIBRARY' as const, name: '零件库', icon: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M11 3H3v8h8V3zm10 0h-8v8h8V3zM3 21h8v-8H3v8zm10 0h8v-8h-8v8z" /></svg> },
 ];
 
-const Toolbar: React.FC<ToolbarProps> = ({ onOpenCategoryPicker, onAddImage, activeTool, onSetTool, onUndo, canUndo, onImportFile, onNext }) => {
+const Toolbar: React.FC<ToolbarProps> = ({ onOpenCategoryPicker, onAddImage, activeTool, onSetTool, onUndo, canUndo, onImportFile, onNext, onOpenPerformanceConfig }) => {
   const importInputRef = useRef<HTMLInputElement>(null);
 
   
@@ -109,6 +110,13 @@ const Toolbar: React.FC<ToolbarProps> = ({ onOpenCategoryPicker, onAddImage, act
             <ToolButton onClick={onUndo} isActive={false} disabled={!canUndo} name={undoTool.name}>
                 {undoTool.icon}
             </ToolButton>
+            {onOpenPerformanceConfig && (
+              <ToolButton onClick={onOpenPerformanceConfig} isActive={false} name="性能">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                </svg>
+              </ToolButton>
+            )}
         </div>
         
         

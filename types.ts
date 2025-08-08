@@ -39,10 +39,16 @@ export interface Layer {
   name: string;
   isVisible: boolean;
   printingMethod: PrintingMethod;
+  // 扫描图层特有参数
   lineDensity?: number;
   halftone?: boolean;
   reverseMovementOffset?: number;
+  // 通用参数
   power?: number;
+  // 新增扫描参数
+  maxPower?: number;        // 功率最大值 (0-100)
+  minPower?: number;        // 功率最小值 (0-100)
+  moveSpeed?: number;       // 移动速度 (mm/s)
 }
 
 export interface PartParameters {
@@ -80,7 +86,11 @@ export interface Drawing {
   type: CanvasItemType.DRAWING;
   x: number;
   y: number;
-  points: { x: number; y: number }[]; // Relative to x, y
+  points: { x: number; y: number }[]; // Relative to x, y - 用于界面显示的点（可能经过简化）
+  originalPoints?: { x: number; y: number }[]; // 用于G代码生成的原始高精度点（可选，向后兼容）
+  strokes?: { x: number; y: number }[][]; // 多笔段支持：每个数组代表一个连续的笔段
+  originalStrokes?: { x: number; y: number }[][]; // 用于G代码生成的原始高精度多笔段数据
+  breakIndices?: number[]; // 抬笔点索引，用于在G代码生成时插入M5/M3
   color: string;
   strokeWidth: number;
   rotation: number;
