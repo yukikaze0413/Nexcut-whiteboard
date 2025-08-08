@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>扫描图层参数功能演示</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            background: #f5f5f5;
+        }
+        .header {
+            text-align: center;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+        .feature-card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-left: 5px solid #007bff;
+        }
+        .feature-card h3 {
+            color: #007bff;
+            margin-top: 0;
+            display: flex;
+            align-items: center;
+        }
+        .feature-card .icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 10px;
+            background: #007bff;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+        .demo-section {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin: 30px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .parameter-demo {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin: 20px 0;
+        }
+        .parameter-controls {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .parameter-controls label {
+            display: block;
+            margin: 15px 0 5px 0;
+            font-weight: bold;
+            color: #333;
+        }
+        .parameter-controls input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .parameter-controls .range-display {
+            font-family: monospace;
+            color: #666;
+            font-size: 12px;
+        }
+        .gcode-output {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .benefits-list {
+            list-style: none;
+            padding: 0;
+        }
+        .benefits-list li {
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            align-items: center;
+        }
+        .benefits-list li:before {
+            content: "✓";
+            color: #28a745;
+            font-weight: bold;
+            margin-right: 10px;
+            width: 20px;
+        }
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        .comparison-table th,
+        .comparison-table td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        .comparison-table th {
+            background: #f8f9fa;
+            font-weight: bold;
+            color: #495057;
+        }
+        .comparison-table tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+        .highlight {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        .preset-button { background: #28a745; }
+        .preset-button:hover { background: #1e7e34; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔥 扫描图层参数配置功能</h1>
+        <p>为G代码生成提供精确的功率和速度控制</p>
+    </div>
+
+    <div class="feature-grid">
+        <div class="feature-card">
+            <h3><span class="icon">1</span>功率最大值控制</h3>
+            <p>精确控制扫描时的最大激光功率（0-100%），决定最深色区域的雕刻深度和强度。</p>
+            <ul class="benefits-list">
+                <li>防止过度雕刻</li>
+                <li>保护材料不被烧穿</li>
+                <li>精确控制雕刻深度</li>
+            </ul>
+        </div>
+
+        <div class="feature-card">
+            <h3><span class="icon">2</span>功率最小值控制</h3>
+            <p>设置扫描时的最小激光功率（0-100%），决定最浅色区域的处理方式。</p>
+            <ul class="benefits-list">
+                <li>控制浅色区域效果</li>
+                <li>避免不必要的雕刻</li>
+                <li>提高对比度</li>
+            </ul>
+        </div>
+
+        <div class="feature-card">
+            <h3><span class="icon">3</span>移动速度控制</h3>
+            <p>调整激光头移动速度（100-10000 mm/min），平衡雕刻质量与效率。</p>
+            <ul class="benefits-list">
+                <li>优化雕刻效率</li>
+                <li>控制雕刻质量</li>
+                <li>适配不同材料</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="demo-section">
+        <h2>🎛️ 实时参数演示</h2>
+        <div class="parameter-demo">
+            <div class="parameter-controls">
+                <h4>参数配置</h4>
+                
+                <label>功率最大值 (%): <span id="maxPowerDisplay">100</span></label>
+                <input type="range" id="maxPower" min="0" max="100" value="100">
+                <div class="range-display">控制最深色区域的雕刻强度</div>
+
+                <label>功率最小值 (%): <span id="minPowerDisplay">0</span></label>
+                <input type="range" id="minPower" min="0" max="100" value="0">
+                <div class="range-display">控制最浅色区域的雕刻强度</div>
+
+                <label>移动速度 (mm/min): <span id="moveSpeedDisplay">3000</span></label>
+                <input type="range" id="moveSpeed" min="100" max="10000" step="100" value="3000">
+                <div class="range-display">激光头移动速度</div>
+
+                <div style="margin-top: 20px;">
+                    <button class="preset-button" onclick="applyPreset('quality')">高质量</button>
+                    <button class="preset-button" onclick="applyPreset('balanced')">平衡</button>
+                    <button class="preset-button" onclick="applyPreset('speed')">高速</button>
+                </div>
+            </div>
+
+            <div>
+                <h4>生成的G代码示例</h4>
+                <div id="gcodeOutput" class="gcode-output">
+                    调整参数查看G代码变化...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="demo-section">
+        <h2>📊 参数预设对比</h2>
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>预设类型</th>
+                    <th>功率最大值</th>
+                    <th>功率最小值</th>
+                    <th>移动速度</th>
+                    <th>适用场景</th>
+                    <th>特点</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>高质量</strong></td>
+                    <td>95%</td>
+                    <td>5%</td>
+                    <td>1500 mm/min</td>
+                    <td>精细雕刻、艺术品</td>
+                    <td>质量最佳，耗时较长</td>
+                </tr>
+                <tr>
+                    <td><strong>平衡</strong></td>
+                    <td>100%</td>
+                    <td>0%</td>
+                    <td>3000 mm/min</td>
+                    <td>日常使用、标准雕刻</td>
+                    <td>质量与效率平衡</td>
+                </tr>
+                <tr>
+                    <td><strong>高速</strong></td>
+                    <td>100%</td>
+                    <td>10%</td>
+                    <td>6000 mm/min</td>
+                    <td>批量生产、快速原型</td>
+                    <td>效率最高，质量略降</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="demo-section">
+        <h2>🔧 使用方法</h2>
+        
+        <div class="highlight">
+            <strong>新功能位置：</strong>在创建扫描图层或编辑现有扫描图层时，可以在图层设置面板中找到这些新增的参数配置选项。
+        </div>
+
+        <h3>1. 创建图层时配置</h3>
+        <ul>
+            <li>点击"添加图层"按钮</li>
+            <li>选择"扫描图层"类型</li>
+            <li>在扫描参数区域设置功率和速度参数</li>
+            <li>点击确认创建</li>
+        </ul>
+
+        <h3>2. 编辑现有图层</h3>
+        <ul>
+            <li>选择要编辑的扫描图层</li>
+            <li>在图层设置面板中找到新增的参数</li>
+            <li>实时调整参数值</li>
+            <li>修改会自动保存</li>
+        </ul>
+
+        <h3>3. G代码生成</h3>
+        <ul>
+            <li>配置好参数后，正常生成G代码</li>
+            <li>系统会自动使用图层的参数设置</li>
+            <li>生成的G代码包含精确的功率和速度控制</li>
+        </ul>
+    </div>
+
+    <div class="demo-section">
+        <h2>💡 优化建议</h2>
+        
+        <h3>根据材料选择参数</h3>
+        <ul>
+            <li><strong>木材：</strong>功率80-100%，速度2000-4000 mm/min</li>
+            <li><strong>亚克力：</strong>功率60-90%，速度1500-3000 mm/min</li>
+            <li><strong>皮革：</strong>功率40-80%，速度2000-5000 mm/min</li>
+            <li><strong>纸张：</strong>功率20-60%，速度3000-6000 mm/min</li>
+        </ul>
+
+        <h3>根据需求调整</h3>
+        <ul>
+            <li><strong>追求质量：</strong>降低速度，使用较小的功率范围</li>
+            <li><strong>追求效率：</strong>提高速度，使用较大的功率范围</li>
+            <li><strong>深度雕刻：</strong>提高最大功率，降低速度</li>
+            <li><strong>浅层雕刻：</strong>降低功率范围，可以提高速度</li>
+        </ul>
+    </div>
+
+    <script>
+        // 预设配置
+        const presets = {
+            quality: { maxPower: 95, minPower: 5, moveSpeed: 1500 },
+            balanced: { maxPower: 100, minPower: 0, moveSpeed: 3000 },
+            speed: { maxPower: 100, minPower: 10, moveSpeed: 6000 }
+        };
+
+        // 更新显示值
+        function updateDisplays() {
+            const maxPower = document.getElementById('maxPower').value;
+            const minPower = document.getElementById('minPower').value;
+            const moveSpeed = document.getElementById('moveSpeed').value;
+
+            document.getElementById('maxPowerDisplay').textContent = maxPower;
+            document.getElementById('minPowerDisplay').textContent = minPower;
+            document.getElementById('moveSpeedDisplay').textContent = moveSpeed;
+
+            updateGCode(maxPower, minPower, moveSpeed);
+        }
+
+        // 应用预设
+        function applyPreset(type) {
+            const preset = presets[type];
+            document.getElementById('maxPower').value = preset.maxPower;
+            document.getElementById('minPower').value = preset.minPower;
+            document.getElementById('moveSpeed').value = preset.moveSpeed;
+            updateDisplays();
+        }
+
+        // 更新G代码示例
+        function updateGCode(maxPower, minPower, moveSpeed) {
+            const travelSpeed = moveSpeed * 2;
+            const gcode = `; 扫描图层G代码示例
+; 参数配置: 功率[${minPower}, ${maxPower}], 速度${moveSpeed}mm/min
+;
+G90 ; 绝对坐标
+G21 ; 毫米单位
+M4 ; 启用激光(可变功率模式)
+
+; 扫描行示例
+G0 X0 Y10 F${travelSpeed} ; 快速移动到起始位置
+G1 X5 S${maxPower} F${moveSpeed} ; 深色区域-最大功率
+G1 X10 S${Math.round((parseInt(maxPower) + parseInt(minPower)) / 2)} F${moveSpeed} ; 中等灰度
+G1 X15 S${minPower} F${moveSpeed} ; 浅色区域-最小功率
+G1 X20 S0 F${moveSpeed} ; 空白区域
+
+M5 ; 关闭激光
+G0 X0 Y0 ; 返回原点`;
+
+            document.getElementById('gcodeOutput').textContent = gcode;
+        }
+
+        // 绑定事件
+        document.getElementById('maxPower').addEventListener('input', updateDisplays);
+        document.getElementById('minPower').addEventListener('input', updateDisplays);
+        document.getElementById('moveSpeed').addEventListener('input', updateDisplays);
+
+        // 初始化
+        updateDisplays();
+    </script>
+</body>
+</html>

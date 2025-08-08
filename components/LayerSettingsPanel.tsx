@@ -94,7 +94,7 @@ const LayerPreview: React.FC<{
 const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selectedLayerId, onSelectLayer, onUpdateLayer, items, canvasWidth, canvasHeight }) => {
   const selectedLayer = layers.find(l => l.id === selectedLayerId) || layers[0];
 
-  const handleInputChange = (key: 'lineDensity' | 'power' | 'reverseMovementOffset', value: number) => {
+  const handleInputChange = (key: 'lineDensity' | 'power' | 'reverseMovementOffset' | 'maxPower' | 'minPower' | 'moveSpeed', value: number) => {
     if (!selectedLayer) return;
     const updates: Partial<Layer> = {};
     updates[key] = value;
@@ -178,6 +178,69 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                   />
                   <label htmlFor="halftone-checkbox" className="ml-2 block text-sm text-gray-900">半调网屏</label>
+                </div>
+
+                {/* 新增扫描参数 */}
+                <div>
+                  <label className="block text-sm font-medium mb-1">功率最大值 (%)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={selectedLayer.maxPower ?? 100}
+                    onChange={e => handleInputChange('maxPower', Number(e.target.value))}
+                    className="w-full p-2 border rounded-md"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">扫描时的最大激光功率</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">功率最小值 (%)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={selectedLayer.minPower ?? 0}
+                    onChange={e => handleInputChange('minPower', Number(e.target.value))}
+                    className="w-full p-2 border rounded-md"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">扫描时的最小激光功率</p>
+                </div>
+
+                {/* 单一功率模式提示 */}
+                {selectedLayer.maxPower === selectedLayer.minPower && selectedLayer.maxPower !== undefined && selectedLayer.minPower !== undefined && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                    <div className="flex items-start">
+                      <div className="flex-shrink-0">
+                        <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <div className="ml-3">
+                        <h4 className="text-sm font-medium text-blue-800">单一功率模式</h4>
+                        <p className="text-sm text-blue-700 mt-1">
+                          最大值和最小值相同时，将使用单一功率 {selectedLayer.maxPower}% 雕刻暗于中灰度（127）的区域，
+                          亮于中灰度的区域不出光。这适合需要统一深度雕刻的场景。
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">移动速度 (mm/s)</label>
+                  <input
+                    type="number"
+                    min={10}
+                    max={500}
+                    step={10}
+                    value={selectedLayer.moveSpeed ?? 100}
+                    onChange={e => handleInputChange('moveSpeed', Number(e.target.value))}
+                    className="w-full p-2 border rounded-md"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">激光头移动速度</p>
                 </div>
               </div>
             ) : (

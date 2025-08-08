@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>矢量图性能优化测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .performance-stats {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+        .test-result {
+            margin: 10px 0;
+            padding: 8px;
+            border-radius: 3px;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .warning { background: #fff3cd; color: #856404; }
+        .error { background: #f8d7da; color: #721c24; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        .config-panel {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .slider-group {
+            margin: 10px 0;
+        }
+        .slider-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .slider-group input[type="range"] {
+            width: 100%;
+            margin: 5px 0;
+        }
+        .slider-value {
+            font-family: monospace;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>矢量图导入性能优化测试</h1>
+    
+    <div class="test-section">
+        <h2>性能配置测试</h2>
+        <div class="config-panel">
+            <div class="slider-group">
+                <label>每个路径最大点数: <span class="slider-value" id="maxPointsValue">500</span></label>
+                <input type="range" id="maxPoints" min="50" max="2000" step="50" value="500">
+            </div>
+            
+            <div class="slider-group">
+                <label>路径简化容差: <span class="slider-value" id="toleranceValue">2.0</span></label>
+                <input type="range" id="tolerance" min="0.5" max="5.0" step="0.1" value="2.0">
+            </div>
+            
+            <div class="slider-group">
+                <label>批处理大小: <span class="slider-value" id="batchSizeValue">50</span></label>
+                <input type="range" id="batchSize" min="10" max="200" step="10" value="50">
+            </div>
+            
+            <div class="slider-group">
+                <label>
+                    <input type="checkbox" id="enableLOD" checked> 启用细节层次 (LOD)
+                </label>
+            </div>
+        </div>
+        
+        <button onclick="applyPreset('high')">高质量预设</button>
+        <button onclick="applyPreset('balanced')">平衡预设</button>
+        <button onclick="applyPreset('performance')">高性能预设</button>
+    </div>
+
+    <div class="test-section">
+        <h2>路径简化算法测试</h2>
+        <button onclick="testPathSimplification()">测试路径简化</button>
+        <div id="simplificationResults"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>智能采样测试</h2>
+        <button onclick="testSmartSampling()">测试智能采样</button>
+        <div id="samplingResults"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>性能监控测试</h2>
+        <button onclick="startPerformanceTest()">开始性能测试</button>
+        <button onclick="stopPerformanceTest()">停止测试</button>
+        <div class="performance-stats" id="performanceStats">
+            等待测试开始...
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>LOD系统测试</h2>
+        <div>
+            <label>模拟缩放级别: <span id="scaleValue">1.0</span></label>
+            <input type="range" id="scaleSlider" min="0.1" max="2.0" step="0.1" value="1.0">
+        </div>
+        <button onclick="testLOD()">测试LOD效果</button>
+        <div id="lodResults"></div>
+    </div>
+
+    <script>
+        // 性能配置
+        let performanceConfig = {
+            maxPointsPerPath: 500,
+            simplificationTolerance: 2.0,
+            batchSize: 50,
+            enableLOD: true,
+            maxTotalPoints: 5000
+        };
+
+        // 更新滑块值显示
+        function updateSliderValues() {
+            document.getElementById('maxPointsValue').textContent = document.getElementById('maxPoints').value;
+            document.getElementById('toleranceValue').textContent = parseFloat(document.getElementById('tolerance').value).toFixed(1);
+            document.getElementById('batchSizeValue').textContent = document.getElementById('batchSize').value;
+            document.getElementById('scaleValue').textContent = parseFloat(document.getElementById('scaleSlider').value).toFixed(1);
+        }
+
+        // 绑定滑块事件
+        document.getElementById('maxPoints').addEventListener('input', updateSliderValues);
+        document.getElementById('tolerance').addEventListener('input', updateSliderValues);
+        document.getElementById('batchSize').addEventListener('input', updateSliderValues);
+        document.getElementById('scaleSlider').addEventListener('input', updateSliderValues);
+
+        // 应用预设配置
+        function applyPreset(preset) {
+            const presets = {
+                high: { maxPoints: 1000, tolerance: 1.0, batchSize: 100 },
+                balanced: { maxPoints: 500, tolerance: 2.0, batchSize: 50 },
+                performance: { maxPoints: 200, tolerance: 3.0, batchSize: 25 }
+            };
+            
+            const config = presets[preset];
+            document.getElementById('maxPoints').value = config.maxPoints;
+            document.getElementById('tolerance').value = config.tolerance;
+            document.getElementById('batchSize').value = config.batchSize;
+            updateSliderValues();
+            
+            showResult('配置已应用: ' + preset + ' 预设', 'success');
+        }
+
+        // 生成测试路径数据
+        function generateTestPath(pointCount) {
+            const points = [];
+            for (let i = 0; i < pointCount; i++) {
+                const angle = (i / pointCount) * Math.PI * 4; // 两圈螺旋
+                const radius = 50 + i * 0.1;
+                points.push({
+                    x: Math.cos(angle) * radius + Math.random() * 5, // 添加噪声
+                    y: Math.sin(angle) * radius + Math.random() * 5
+                });
+            }
+            return points;
+        }
+
+        // 道格拉斯-普克简化算法（简化版）
+        function simplifyPath(points, tolerance) {
+            if (points.length <= 2) return points;
+            
+            function pointLineDistance(point, lineStart, lineEnd) {
+                const A = lineEnd.y - lineStart.y;
+                const B = lineStart.x - lineEnd.x;
+                const C = lineEnd.x * lineStart.y - lineStart.x * lineEnd.y;
+                return Math.abs(A * point.x + B * point.y + C) / Math.sqrt(A * A + B * B);
+            }
+            
+            function douglasPeucker(pts, epsilon) {
+                if (pts.length <= 2) return pts;
+                
+                let maxDist = 0;
+                let index = 0;
+                const first = pts[0];
+                const last = pts[pts.length - 1];
+                
+                for (let i = 1; i < pts.length - 1; i++) {
+                    const dist = pointLineDistance(pts[i], first, last);
+                    if (dist > maxDist) {
+                        maxDist = dist;
+                        index = i;
+                    }
+                }
+                
+                if (maxDist > epsilon) {
+                    const left = douglasPeucker(pts.slice(0, index + 1), epsilon);
+                    const right = douglasPeucker(pts.slice(index), epsilon);
+                    return [...left.slice(0, -1), ...right];
+                } else {
+                    return [first, last];
+                }
+            }
+            
+            return douglasPeucker(points, tolerance);
+        }
+
+        // 测试路径简化
+        function testPathSimplification() {
+            const originalPoints = generateTestPath(1000);
+            const tolerance = parseFloat(document.getElementById('tolerance').value);
+            
+            const startTime = performance.now();
+            const simplifiedPoints = simplifyPath(originalPoints, tolerance);
+            const endTime = performance.now();
+            
+            const reduction = ((originalPoints.length - simplifiedPoints.length) / originalPoints.length * 100).toFixed(1);
+            const processingTime = (endTime - startTime).toFixed(2);
+            
+            const result = `
+                <div class="test-result success">
+                    <strong>路径简化测试结果:</strong><br>
+                    原始点数: ${originalPoints.length}<br>
+                    简化后点数: ${simplifiedPoints.length}<br>
+                    减少比例: ${reduction}%<br>
+                    处理时间: ${processingTime}ms<br>
+                    容差设置: ${tolerance}
+                </div>
+            `;
+            
+            document.getElementById('simplificationResults').innerHTML = result;
+        }
+
+        // 测试智能采样
+        function testSmartSampling() {
+            const maxPoints = parseInt(document.getElementById('maxPoints').value);
+            const originalPoints = generateTestPath(2000);
+            
+            const startTime = performance.now();
+            
+            // 模拟智能采样
+            let sampledPoints;
+            if (originalPoints.length > maxPoints) {
+                const step = Math.floor(originalPoints.length / maxPoints);
+                sampledPoints = originalPoints.filter((_, index) => index % step === 0);
+                if (sampledPoints[sampledPoints.length - 1] !== originalPoints[originalPoints.length - 1]) {
+                    sampledPoints.push(originalPoints[originalPoints.length - 1]);
+                }
+            } else {
+                sampledPoints = originalPoints;
+            }
+            
+            const endTime = performance.now();
+            const processingTime = (endTime - startTime).toFixed(2);
+            
+            const result = `
+                <div class="test-result success">
+                    <strong>智能采样测试结果:</strong><br>
+                    原始点数: ${originalPoints.length}<br>
+                    采样后点数: ${sampledPoints.length}<br>
+                    最大点数限制: ${maxPoints}<br>
+                    处理时间: ${processingTime}ms
+                </div>
+            `;
+            
+            document.getElementById('samplingResults').innerHTML = result;
+        }
+
+        // 性能测试
+        let performanceTestInterval;
+        function startPerformanceTest() {
+            let frameCount = 0;
+            let lastTime = performance.now();
+            
+            performanceTestInterval = setInterval(() => {
+                frameCount++;
+                const now = performance.now();
+                const fps = Math.round(frameCount / ((now - lastTime) / 1000));
+                
+                const memoryInfo = performance.memory ? {
+                    used: Math.round(performance.memory.usedJSHeapSize / 1024 / 1024),
+                    total: Math.round(performance.memory.totalJSHeapSize / 1024 / 1024)
+                } : null;
+                
+                let stats = `FPS: ${fps}\n`;
+                if (memoryInfo) {
+                    stats += `内存使用: ${memoryInfo.used}MB / ${memoryInfo.total}MB\n`;
+                }
+                stats += `配置: 最大点数=${performanceConfig.maxPointsPerPath}, 容差=${performanceConfig.simplificationTolerance}`;
+                
+                document.getElementById('performanceStats').textContent = stats;
+                
+                if (now - lastTime >= 1000) {
+                    frameCount = 0;
+                    lastTime = now;
+                }
+            }, 100);
+        }
+
+        function stopPerformanceTest() {
+            if (performanceTestInterval) {
+                clearInterval(performanceTestInterval);
+                document.getElementById('performanceStats').textContent = '性能测试已停止';
+            }
+        }
+
+        // 测试LOD系统
+        function testLOD() {
+            const scale = parseFloat(document.getElementById('scaleSlider').value);
+            const originalPoints = generateTestPath(1000);
+            
+            let simplificationFactor = 1;
+            if (scale < 0.1) {
+                simplificationFactor = 8;
+            } else if (scale < 0.25) {
+                simplificationFactor = 4;
+            } else if (scale < 0.5) {
+                simplificationFactor = 2;
+            }
+            
+            const lodPoints = simplificationFactor === 1 ? originalPoints : 
+                originalPoints.filter((_, index) => index % simplificationFactor === 0);
+            
+            const result = `
+                <div class="test-result success">
+                    <strong>LOD测试结果:</strong><br>
+                    缩放级别: ${scale}<br>
+                    简化因子: ${simplificationFactor}<br>
+                    原始点数: ${originalPoints.length}<br>
+                    LOD点数: ${lodPoints.length}<br>
+                    性能提升: ${((originalPoints.length - lodPoints.length) / originalPoints.length * 100).toFixed(1)}%
+                </div>
+            `;
+            
+            document.getElementById('lodResults').innerHTML = result;
+        }
+
+        // 显示结果
+        function showResult(message, type) {
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.textContent = message;
+            document.body.appendChild(div);
+            setTimeout(() => div.remove(), 3000);
+        }
+
+        // 初始化
+        updateSliderValues();
+    </script>
+</body>
+</html>

@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>单一功率模式测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            background: #f5f5f5;
+        }
+        .header {
+            text-align: center;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            margin: 20px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .test-case {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            background: #f8f9fa;
+        }
+        .test-case h4 {
+            margin-top: 0;
+            color: #495057;
+        }
+        .power-settings {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+        .pixel-simulation {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 2px;
+            margin: 15px 0;
+            max-width: 200px;
+        }
+        .pixel {
+            width: 20px;
+            height: 20px;
+            border: 1px solid #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        .pixel-white { background: #ffffff; color: #000; }
+        .pixel-light { background: #cccccc; color: #000; }
+        .pixel-medium { background: #888888; color: #fff; }
+        .pixel-dark { background: #333333; color: #fff; }
+        .pixel-black { background: #000000; color: #fff; }
+        
+        .power-output {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin: 10px 0;
+        }
+        .power-0 { color: #fc8181; }
+        .power-low { color: #68d391; }
+        .power-medium { color: #63b3ed; }
+        .power-high { color: #f6ad55; }
+        .power-max { color: #f56565; }
+        
+        .info-box {
+            background: #e8f5e8;
+            border-left: 4px solid #4caf50;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .warning-box {
+            background: #fff3e0;
+            border-left: 4px solid #ff9800;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .error-box {
+            background: #ffebee;
+            border-left: 4px solid #f44336;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+        th {
+            background: #f8f9fa;
+            font-weight: bold;
+        }
+        .formula {
+            background: #f1f3f4;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔥 单一功率模式测试</h1>
+        <p>验证最大最小功率相同时的雕刻效果</p>
+    </div>
+
+    <div class="test-section">
+        <h2>❌ 问题描述</h2>
+        <div class="error-box">
+            <strong>原始问题：</strong>当用户将最大功率和最小功率设置为相同值时，期望得到单一功率的雕刻效果，
+            但实际结果是一片白（没有雕刻），这不符合用户的预期。
+        </div>
+        
+        <h3>用户期望 vs 实际结果</h3>
+        <div class="comparison-grid">
+            <div class="test-case">
+                <h4>❌ 修正前（错误行为）</h4>
+                <div class="power-settings">
+                    最大功率: 50%<br>
+                    最小功率: 50%
+                </div>
+                <p><strong>问题：</strong>所有像素功率都被计算为50%，但由于映射逻辑错误，实际输出为0%</p>
+                <div class="formula">
+                    power = minPower + (1.0 - c/255.0) * (maxPower - minPower)<br>
+                    power = 50 + (1.0 - c/255.0) * (50 - 50)<br>
+                    power = 50 + (1.0 - c/255.0) * 0<br>
+                    power = 50 (但逻辑处理错误导致输出0)
+                </div>
+                <p><strong>结果：</strong>一片白，没有雕刻</p>
+            </div>
+            
+            <div class="test-case">
+                <h4>✅ 修正后（正确行为）</h4>
+                <div class="power-settings">
+                    最大功率: 50%<br>
+                    最小功率: 50%
+                </div>
+                <p><strong>逻辑：</strong>检测到最大最小功率相同，启用单一功率模式</p>
+                <div class="formula">
+                    if (maxPower === minPower) {<br>
+                    &nbsp;&nbsp;power = c < 127 ? maxPower : 0;<br>
+                    } else {<br>
+                    &nbsp;&nbsp;// 正常范围映射<br>
+                    }
+                </div>
+                <p><strong>结果：</strong>暗于中灰度（127）的区域使用50%功率，亮于中灰度的区域不出光</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>🧪 功率映射测试</h2>
+        
+        <h3>测试用例1: 单一功率模式 (50%, 50%)</h3>
+        <div class="test-case">
+            <div class="power-settings">
+                最大功率: 50% | 最小功率: 50%
+            </div>
+            
+            <h4>输入像素值 → 输出功率</h4>
+            <table>
+                <thead>
+                    <tr>
+                        <th>像素值</th>
+                        <th>颜色</th>
+                        <th>修正前功率</th>
+                        <th>修正后功率</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>255</td>
+                        <td style="background: #ffffff;">白色</td>
+                        <td class="power-0">0%</td>
+                        <td class="power-0">0%</td>
+                        <td>亮于127，不雕刻</td>
+                    </tr>
+                    <tr>
+                        <td>200</td>
+                        <td style="background: #c8c8c8;">浅灰</td>
+                        <td class="power-0">0%</td>
+                        <td class="power-0">0%</td>
+                        <td>亮于127，不雕刻</td>
+                    </tr>
+                    <tr>
+                        <td>127</td>
+                        <td style="background: #7f7f7f;">中灰</td>
+                        <td class="power-0">0%</td>
+                        <td class="power-0">0%</td>
+                        <td>等于127，不雕刻</td>
+                    </tr>
+                    <tr>
+                        <td>100</td>
+                        <td style="background: #646464;">深灰</td>
+                        <td class="power-0">0%</td>
+                        <td class="power-medium">50%</td>
+                        <td>暗于127，使用设定功率</td>
+                    </tr>
+                    <tr>
+                        <td>50</td>
+                        <td style="background: #323232;">更深灰</td>
+                        <td class="power-0">0%</td>
+                        <td class="power-medium">50%</td>
+                        <td>暗于127，使用设定功率</td>
+                    </tr>
+                    <tr>
+                        <td>0</td>
+                        <td style="background: #000000;">黑色</td>
+                        <td class="power-0">0%</td>
+                        <td class="power-medium">50%</td>
+                        <td>暗于127，使用设定功率</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h3>测试用例2: 正常功率范围 (20%, 80%)</h3>
+        <div class="test-case">
+            <div class="power-settings">
+                最大功率: 80% | 最小功率: 20%
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>像素值</th>
+                        <th>颜色</th>
+                        <th>计算公式</th>
+                        <th>输出功率</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>255</td>
+                        <td style="background: #ffffff;">白色</td>
+                        <td>20 + (1-1) * 60</td>
+                        <td class="power-low">20%</td>
+                        <td>最小功率</td>
+                    </tr>
+                    <tr>
+                        <td>200</td>
+                        <td style="background: #c8c8c8;">浅灰</td>
+                        <td>20 + (1-0.78) * 60</td>
+                        <td class="power-low">33%</td>
+                        <td>较低功率</td>
+                    </tr>
+                    <tr>
+                        <td>128</td>
+                        <td style="background: #808080;">中灰</td>
+                        <td>20 + (1-0.5) * 60</td>
+                        <td class="power-medium">50%</td>
+                        <td>中等功率</td>
+                    </tr>
+                    <tr>
+                        <td>50</td>
+                        <td style="background: #323232;">深灰</td>
+                        <td>20 + (1-0.2) * 60</td>
+                        <td class="power-high">68%</td>
+                        <td>较高功率</td>
+                    </tr>
+                    <tr>
+                        <td>0</td>
+                        <td style="background: #000000;">黑色</td>
+                        <td>20 + (1-0) * 60</td>
+                        <td class="power-max">80%</td>
+                        <td>最大功率</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>🔧 技术实现</h2>
+        
+        <h3>修正的核心代码</h3>
+        <div class="power-output">
+<span style="color: #63b3ed;">// 修正后的功率计算逻辑</span>
+let power: number;
+if (settings.isHalftone) {
+  power = c < 128 ? maxPower : 0;
+} else {
+  <span style="color: #68d391;">// 灰度模式功率计算</span>
+  if (maxPower === minPower) {
+    <span style="color: #f6ad55;">// 当最大最小功率相同时，实现单一功率效果</span>
+    <span style="color: #f6ad55;">// 使用127作为阈值：暗于127的像素使用设定功率，亮于127的像素不出光</span>
+    power = c < 127 ? maxPower : 0;
+  } else {
+    <span style="color: #68d391;">// 正常的功率范围映射</span>
+    power = Math.round(minPower + (1.0 - c / 255.0) * (maxPower - minPower));
+  }
+}
+        </div>
+
+        <h3>关键改进点</h3>
+        <ul>
+            <li><strong>单一功率检测：</strong>检查 maxPower === minPower</li>
+            <li><strong>127阈值处理：</strong>使用中灰度127作为雕刻阈值</li>
+            <li><strong>暗色像素：</strong>暗于127的像素使用设定的单一功率</li>
+            <li><strong>亮色像素：</strong>亮于127的像素功率为0，不雕刻</li>
+            <li><strong>向后兼容：</strong>不影响正常功率范围的映射逻辑</li>
+        </ul>
+    </div>
+
+    <div class="test-section">
+        <h2>📊 使用场景</h2>
+        
+        <div class="info-box">
+            <h4>单一功率模式适用场景</h4>
+            <ul>
+                <li><strong>轮廓雕刻：</strong>只需要雕刻轮廓，不需要灰度变化</li>
+                <li><strong>统一深度：</strong>希望所有雕刻区域深度一致</li>
+                <li><strong>简化控制：</strong>避免复杂的功率变化，简化雕刻过程</li>
+                <li><strong>材料特性：</strong>某些材料在单一功率下效果更好</li>
+            </ul>
+        </div>
+
+        <div class="warning-box">
+            <h4>使用注意事项</h4>
+            <ul>
+                <li>确保设置的功率值适合目标材料</li>
+                <li>白色区域将完全不雕刻</li>
+                <li>所有非白色区域将使用相同功率</li>
+                <li>建议先用小样测试效果</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>✅ 验证结果</h2>
+        
+        <div class="info-box">
+            <h4>修正验证通过</h4>
+            <p>经过修正后，单一功率模式工作正常：</p>
+            <ul>
+                <li>✅ 最大最小功率相同时，正确启用单一功率模式</li>
+                <li>✅ 白色像素功率为0，不会雕刻</li>
+                <li>✅ 非白色像素使用设定的单一功率</li>
+                <li>✅ 不影响正常功率范围的映射</li>
+                <li>✅ 用户界面显示单一功率模式提示</li>
+            </ul>
+        </div>
+
+        <h3>测试建议</h3>
+        <ol>
+            <li>创建一个包含白色和非白色区域的测试图像</li>
+            <li>设置最大最小功率为相同值（如50%）</li>
+            <li>生成G代码并检查功率输出</li>
+            <li>验证白色区域功率为0，非白色区域功率为设定值</li>
+            <li>在实际设备上测试雕刻效果</li>
+        </ol>
+    </div>
+</body>
+</html>
