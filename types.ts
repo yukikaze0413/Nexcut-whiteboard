@@ -115,6 +115,7 @@ export interface ImageObject {
     type: 'svg' | 'dxf' | 'plt';
     content: string; // 原始文件内容
     parsedItems?: CanvasItemData[]; // 解析后的矢量对象
+    originalDimensions?: { width: number; height: number }; // 原始尺寸
   };
 }
 

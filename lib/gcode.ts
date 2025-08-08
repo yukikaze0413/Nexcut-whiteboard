@@ -1,4 +1,4 @@
-import type { ImageObject, CanvasItem, Layer } from '../types';
+import type { ImageObject, CanvasItem, Layer, CanvasItemData } from '../types';
 import { CanvasItemType, PrintingMethod } from '../types';
 import { Helper, parseString as parseDxf } from 'dxf';
 
@@ -1226,103 +1226,192 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
   }
 
   // 处理图像对象
+  // 8.8
+  // 处理图像对象
   if (item.type === CanvasItemType.IMAGE) {
     const transformedPos = transformCoordinate(x, y, settings);
 
     // 检查是否有矢量源数据
     if (item.vectorSource && item.vectorSource.parsedItems && item.vectorSource.parsedItems.length > 0) {
-      // 调试信息：检查原始尺寸数据
-      console.log('G代码生成 - 图像对象调试信息:', {
-        itemWidth: item.width,
-        itemHeight: item.height,
-        hasOriginalDimensions: !!item.vectorSource.originalDimensions,
-        originalDimensions: item.vectorSource.originalDimensions,
-        vectorSourceType: item.vectorSource.type,
-        parsedItemsCount: item.vectorSource.parsedItems.length
-      });
+      paths.push(`; 图像对象(矢量源)位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
 
-      // 计算缩放比例：画布显示大小 vs 原始文件大小
+      // +++ ADDED +++ 核心改动：计算并应用缩放
       let scaleX = 1;
       let scaleY = 1;
 
+      let originalWidth = item.width;
+      let originalHeight = item.height;
+      // 确保 originalDimensions 存在且有效
       if (item.vectorSource.originalDimensions) {
-        const originalWidth = item.vectorSource.originalDimensions.viewBox.width || item.vectorSource.originalDimensions.width;
-        const originalHeight = item.vectorSource.originalDimensions.viewBox.height || item.vectorSource.originalDimensions.height;
-
-        console.log('原始尺寸计算:', {
-          originalWidth,
-          originalHeight,
-          itemWidth: item.width,
-          itemHeight: item.height
-        });
+        originalWidth = item.vectorSource.originalDimensions.width;
+        originalHeight = item.vectorSource.originalDimensions.height;
 
         if (originalWidth > 0 && originalHeight > 0) {
           scaleX = item.width / originalWidth;
           scaleY = item.height / originalHeight;
-          console.log('计算得到的缩放比例:', { scaleX, scaleY });
+          console.log(`矢量源原始尺寸: ${originalWidth}x${originalHeight}, 显示尺寸: ${item.width}x${item.height}`);
+          console.log(`矢量源缩放比例: X=${scaleX}, Y=${scaleY}`);
+          paths.push(`; 原始尺寸: ${originalWidth.toFixed(2)}x${originalHeight.toFixed(2)} -> 显示尺寸: ${item.width.toFixed(2)}x${item.height.toFixed(2)}`);
+          paths.push(`; 计算缩放比例: X=${scaleX.toFixed(4)}, Y=${scaleY.toFixed(4)}`);
         } else {
-          console.warn('原始尺寸无效，使用默认缩放比例 1:1');
+          paths.push(`; 警告: 原始尺寸无效, 使用默认缩放 1:1`);
         }
       } else {
-        console.warn('缺少原始尺寸信息，使用默认缩放比例 1:1');
+        paths.push(`; 警告: 缺少原始尺寸信息, 使用默认缩放 1:1`);
       }
+      // +++ END ADDED +++
 
-      // 使用矢量源数据生成G代码
-      paths.push(`; 图像对象(矢量源)位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
-      paths.push(`; 缩放比例: X=${scaleX.toFixed(3)}, Y=${scaleY.toFixed(3)}`);
-      paths.push(`; 原始尺寸: ${item.vectorSource.originalDimensions?.viewBox.width || 'unknown'} × ${item.vectorSource.originalDimensions?.viewBox.height || 'unknown'}`);
-      paths.push(`; 显示尺寸: ${item.width} × ${item.height}`);
+      // 处理矢量源中的每个对象
+      for (const vectorItem of item.vectorSource.parsedItems) {
+        // <<< MODIFIED >>> 创建一个新的、经过缩放的矢量对象副本
+        let scaledVectorItem: CanvasItemData = { ...vectorItem };
 
-        // 处理矢量源中的每个对象
-        for (const vectorItem of item.vectorSource.parsedItems) {
-          // 应用缩放到矢量子对象的位置
-          const scaledVectorX = (vectorItem.x || 0) * scaleX;
-          const scaledVectorY = (vectorItem.y || 0) * scaleY;
+        // 缩放子对象的相对位置
+        scaledVectorItem.x = ((vectorItem.x ?? 0) - originalWidth / 2) * scaleX + originalWidth / 2;
+        scaledVectorItem.y = ((vectorItem.y ?? 0) - originalHeight / 2) * scaleY + originalHeight / 2
 
-          // 先应用图像对象的旋转到矢量子对象的位置
-          const rotatedPos = rotatePoint(x + scaledVectorX, y + scaledVectorY, x, y, rotation);
-
-          // 创建缩放后的矢量对象
-          let scaledVectorItem = { ...vectorItem };
-
-          // 如果是绘图对象，缩放其点坐标
-          if ('points' in scaledVectorItem && Array.isArray(scaledVectorItem.points)) {
-            scaledVectorItem.points = scaledVectorItem.points.map(point => ({
-              x: point.x * scaleX,
-              y: point.y * scaleY
-            }));
-          }
-
-          // 如果是参数化对象，缩放其参数
-          if ('parameters' in scaledVectorItem && scaledVectorItem.parameters) {
-            const params = { ...scaledVectorItem.parameters };
-            if ('width' in params) params.width = params.width * scaleX;
-            if ('height' in params) params.height = params.height * scaleY;
-            if ('radius' in params) params.radius = params.radius * Math.min(scaleX, scaleY);
-            if ('length' in params) params.length = params.length * scaleX;
-            scaledVectorItem.parameters = params;
-          }
-
-          // 将矢量对象的位置相对于图像对象进行变换，并传递旋转角度
-          const vectorItemWithOffset: CanvasItem = {
-            ...scaledVectorItem,
-            x: rotatedPos.x,
-            y: rotatedPos.y,
-            // 将图像对象的旋转角度传递给矢量子对象
-            rotation: rotation + (('rotation' in vectorItem ? vectorItem.rotation : 0) || 0),
-            id: `vector_${Date.now()}_${Math.random()}`, // 临时ID
-            layerId: item.layerId
-          } as CanvasItem;
-
-          // 递归处理矢量对象
-          const vectorPaths = itemToGCodePaths(vectorItemWithOffset, settings);
-          paths.push(...vectorPaths);
+        // 如果是绘图对象，缩放其点坐标
+        if ('points' in scaledVectorItem && Array.isArray(scaledVectorItem.points)) {
+          scaledVectorItem.points = scaledVectorItem.points.map(point => ({
+            x: (point.x - originalWidth / 2) * scaleX + originalWidth / 2,
+            y: (point.y - originalHeight / 2) * scaleY + originalHeight / 2
+          }));
         }
+
+        // // 如果是参数化对象，缩放其参数 (注意：这里需要根据具体参数进行合理缩放)
+        // if ('parameters' in scaledVectorItem && scaledVectorItem.parameters) {
+        //   const params = { ...scaledVectorItem.parameters };
+        //   // 通用参数缩放
+        //   for (const key in params) {
+        //     if (key.toLowerCase().includes('width') || key.toLowerCase().includes('length') || key.toLowerCase() === 'seg1' || key.toLowerCase() === 'seg2' || key.toLowerCase() === 'seg3') {
+        //       params[key] *= scaleX;
+        //     } else if (key.toLowerCase().includes('height')) {
+        //       params[key] *= scaleY;
+        //     } else if (key.toLowerCase().includes('radius') || key.toLowerCase().includes('diameter') || key.toLowerCase().includes('thickness')) {
+        //       // 对于半径、直径等，使用X/Y缩放的平均值或最小值以保持形状
+        //       params[key] *= Math.min(scaleX, scaleY);
+        //     }
+        //   }
+        //   scaledVectorItem.parameters = params;
+        // }
+        // <<< END MODIFIED >>>
+
+        // 先应用图像对象的旋转到缩放后子对象的相对位置
+        const rotatedPos = rotatePoint(x + scaledVectorItem.x, y + scaledVectorItem.y, x, y, rotation);
+
+        const finalVectorItem: CanvasItem = {
+          ...scaledVectorItem,
+          x: rotatedPos.x,
+          y: rotatedPos.y,
+          rotation: rotation + (('rotation' in vectorItem ? vectorItem.rotation : 0) || 0),
+          id: `vector_${Date.now()}_${Math.random()}`,
+          layerId: item.layerId
+        } as CanvasItem;
+
+        const vectorPaths = itemToGCodePaths(finalVectorItem, settings);
+        paths.push(...vectorPaths);
+      }
     } else {
-      // 没有矢量源数据，转换为注释
       paths.push(`; 图像对象位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}° - 建议使用扫描图层处理`);
     }
   }
+  // if (item.type === CanvasItemType.IMAGE) {
+  //   const transformedPos = transformCoordinate(x, y, settings);
+
+  //   // 检查是否有矢量源数据
+  //   if (item.vectorSource && item.vectorSource.parsedItems && item.vectorSource.parsedItems.length > 0) {
+  //     // 调试信息：检查原始尺寸数据
+  //     console.log('G代码生成 - 图像对象调试信息:', {
+  //       itemWidth: item.width,
+  //       itemHeight: item.height,
+  //       hasOriginalDimensions: !!item.vectorSource.originalDimensions,
+  //       originalDimensions: item.vectorSource.originalDimensions,
+  //       vectorSourceType: item.vectorSource.type,
+  //       parsedItemsCount: item.vectorSource.parsedItems.length
+  //     });
+
+  //     // 计算缩放比例：画布显示大小 vs 原始文件大小
+  //     let scaleX = 1;
+  //     let scaleY = 1;
+
+  //     if (item.vectorSource.originalDimensions) {
+  //       const originalWidth = item.vectorSource.originalDimensions.viewBox.width || item.vectorSource.originalDimensions.width;
+  //       const originalHeight = item.vectorSource.originalDimensions.viewBox.height || item.vectorSource.originalDimensions.height;
+
+  //       console.log('原始尺寸计算:', {
+  //         originalWidth,
+  //         originalHeight,
+  //         itemWidth: item.width,
+  //         itemHeight: item.height
+  //       });
+
+  //       if (originalWidth > 0 && originalHeight > 0) {
+  //         scaleX = item.width / originalWidth;
+  //         scaleY = item.height / originalHeight;
+  //         console.log('计算得到的缩放比例:', { scaleX, scaleY });
+  //       } else {
+  //         console.warn('原始尺寸无效，使用默认缩放比例 1:1');
+  //       }
+  //     } else {
+  //       console.warn('缺少原始尺寸信息，使用默认缩放比例 1:1');
+  //     }
+
+  //     // 使用矢量源数据生成G代码
+  //     paths.push(`; 图像对象(矢量源)位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
+  //     paths.push(`; 缩放比例: X=${scaleX.toFixed(3)}, Y=${scaleY.toFixed(3)}`);
+  //     paths.push(`; 原始尺寸: ${item.vectorSource.originalDimensions?.viewBox.width || 'unknown'} × ${item.vectorSource.originalDimensions?.viewBox.height || 'unknown'}`);
+  //     paths.push(`; 显示尺寸: ${item.width} × ${item.height}`);
+
+  //       // 处理矢量源中的每个对象
+  //       for (const vectorItem of item.vectorSource.parsedItems) {
+  //         // 应用缩放到矢量子对象的位置
+  //         const scaledVectorX = (vectorItem.x || 0) * scaleX;
+  //         const scaledVectorY = (vectorItem.y || 0) * scaleY;
+
+  //         // 先应用图像对象的旋转到矢量子对象的位置
+  //         const rotatedPos = rotatePoint(x + scaledVectorX, y + scaledVectorY, x, y, rotation);
+
+  //         // 创建缩放后的矢量对象
+  //         let scaledVectorItem = { ...vectorItem };
+
+  //         // 如果是绘图对象，缩放其点坐标
+  //         if ('points' in scaledVectorItem && Array.isArray(scaledVectorItem.points)) {
+  //           scaledVectorItem.points = scaledVectorItem.points.map(point => ({
+  //             x: point.x * scaleX,
+  //             y: point.y * scaleY
+  //           }));
+  //         }
+
+  //         // 如果是参数化对象，缩放其参数
+  //         if ('parameters' in scaledVectorItem && scaledVectorItem.parameters) {
+  //           const params = { ...scaledVectorItem.parameters };
+  //           if ('width' in params) params.width = params.width * scaleX;
+  //           if ('height' in params) params.height = params.height * scaleY;
+  //           if ('radius' in params) params.radius = params.radius * Math.min(scaleX, scaleY);
+  //           if ('length' in params) params.length = params.length * scaleX;
+  //           scaledVectorItem.parameters = params;
+  //         }
+
+  //         // 将矢量对象的位置相对于图像对象进行变换，并传递旋转角度
+  //         const vectorItemWithOffset: CanvasItem = {
+  //           ...scaledVectorItem,
+  //           x: rotatedPos.x,
+  //           y: rotatedPos.y,
+  //           // 将图像对象的旋转角度传递给矢量子对象
+  //           rotation: rotation + (('rotation' in vectorItem ? vectorItem.rotation : 0) || 0),
+  //           id: `vector_${Date.now()}_${Math.random()}`, // 临时ID
+  //           layerId: item.layerId
+  //         } as CanvasItem;
+
+  //         // 递归处理矢量对象
+  //         const vectorPaths = itemToGCodePaths(vectorItemWithOffset, settings);
+  //         paths.push(...vectorPaths);
+  //       }
+  //   } else {
+  //     // 没有矢量源数据，转换为注释
+  //     paths.push(`; 图像对象位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}° - 建议使用扫描图层处理`);
+  //   }
+  // }
 
   // 处理组合对象
   if (item.type === 'GROUP' && 'children' in item && Array.isArray(item.children)) {

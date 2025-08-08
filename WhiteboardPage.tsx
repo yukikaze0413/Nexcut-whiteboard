@@ -25,8 +25,79 @@ import PropertyIcon from './assets/属性.svg';
 import { Converter } from 'svg-to-gcode';
 import * as svgo from 'svgo';
 
-// 浏览器端简易 HPGL 解析器，仅支持 PU/PD/PA 指令
+// 8.8
+interface AdaptiveSampleConfig {
+  minSegmentLength?: number; // 初始采样的最小段长（像素）
+  curvatureThreshold?: number; // 决定是否需要细分的曲率/偏差阈值
+  maxSamples?: number; // 防止无限递归的最大采样点数
+}
 
+/**
+ * 使用自适应算法对SVG路径进行采样
+ * @param pathElement - 要采样的 SVGPathElement
+ * @param config - 采样配置
+ * @returns 采样点数组
+ */
+function adaptiveSamplePath(
+  pathElement: SVGPathElement,
+  config: AdaptiveSampleConfig = {}
+): { x: number; y: number }[] {
+  const {
+    minSegmentLength = 5,
+    curvatureThreshold = 0.5,
+    maxSamples = 1000
+  } = config;
+
+  const totalLength = pathElement.getTotalLength();
+  if (totalLength === 0) return [];
+
+  const initialSampleCount = Math.max(2, Math.floor(totalLength / minSegmentLength));
+  const points: { dist: number; pt: DOMPoint }[] = [];
+
+  // 1. 初始粗略采样
+  for (let i = 0; i <= initialSampleCount; i++) {
+    const dist = (i / initialSampleCount) * totalLength;
+    points.push({ dist, pt: pathElement.getPointAtLength(dist) });
+  }
+
+  // 2. 递归细分
+  let i = 0;
+  while (i < points.length - 2 && points.length < maxSamples) {
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2];
+
+    // 3. 计算 P2 到 P1-P3 连线的垂直距离
+    const dx = p3.pt.x - p1.pt.x;
+    const dy = p3.pt.y - p1.pt.y;
+    const segmentLenSq = dx * dx + dy * dy;
+    let deviation = 0;
+    if (segmentLenSq > 1e-6) {
+      const t = ((p2.pt.x - p1.pt.x) * dx + (p2.pt.y - p1.pt.y) * dy) / segmentLenSq;
+      const closestX = p1.pt.x + t * dx;
+      const closestY = p1.pt.y + t * dy;
+      deviation = Math.hypot(p2.pt.x - closestX, p2.pt.y - closestY);
+    }
+
+    // 4. 判断是否需要细分
+    if (deviation > curvatureThreshold) {
+      // 在 P1-P2 和 P2-P3 中间插入新点
+      const dist1 = (p1.dist + p2.dist) / 2;
+      points.splice(i + 1, 0, { dist: dist1, pt: pathElement.getPointAtLength(dist1) });
+
+      const dist2 = (p2.dist + p3.dist) / 2;
+      points.splice(i + 3, 0, { dist: dist2, pt: pathElement.getPointAtLength(dist2) });
+
+      // 不需要移动 i，因为新插入的点需要重新评估
+    } else {
+      i++; // 如果线段足够平直，继续检查下一段
+    }
+  }
+
+  return points.map(p => ({ x: p.pt.x, y: p.pt.y }));
+}
+
+// 浏览器端简易 HPGL 解析器，仅支持 PU/PD/PA 指令
 function simpleParseHPGL(content: string) {
   // 返回 [{type: 'PU'|'PD'|'PA', points: [[x,y], ...]}]
   const cmds: { type: string; points: [number, number][] }[] = [];
@@ -629,46 +700,84 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       }
 
       // 处理path
+      // <<< MODIFIED >>> 重构 path 处理逻辑
       if (node.name === 'path' && node.attributes.d) {
-        // 只采样有填充的 path
-        //if (!node.attributes.fill || node.attributes.fill === 'none') return items;
         const d = node.attributes.d;
-        try {
-          const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-          const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          tempPath.setAttribute('d', d);
-          tempSvg.appendChild(tempPath);
-          const totalLength = tempPath.getTotalLength();
-          if (totalLength > 0) {
-            const sampleCount = Math.max(Math.floor(totalLength), 128);
-            const absPoints: { x: number, y: number }[] = [];
-            for (let i = 0; i <= sampleCount; i++) {
-              const len = (i / sampleCount) * totalLength;
-              const pt = tempPath.getPointAtLength(len);
-              const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
-              absPoints.push({ x: transformedPt.x * scaleX, y: transformedPt.y * scaleY });
-            }
-            if (absPoints.length >= 2) {
-              const minX = Math.min(...absPoints.map(p => p.x));
-              const maxX = Math.max(...absPoints.map(p => p.x));
-              const minY = Math.min(...absPoints.map(p => p.y));
-              const maxY = Math.max(...absPoints.map(p => p.y));
-              const centerX = (minX + maxX) / 2;
-              const centerY = (minY + maxY) / 2;
-              items.push({
-                type: CanvasItemType.DRAWING,
-                x: centerX,
-                y: centerY,
-                points: absPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY })),
-                fillColor: node.attributes.fill,
-                strokeWidth: Number(node.attributes['stroke-width']) || 0,
-                color: '',
-                rotation: 0,
+
+        // 使用正则表达式按 M/m 分割路径数据，同时保留分隔符
+        const subPaths = d.trim().split(/(?=[Mm])/).filter((sp: string) => sp.trim() !== '');
+
+        for (const subPathData of subPaths) {
+          try {
+            const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            tempPath.setAttribute('d', subPathData);
+            tempSvg.appendChild(tempPath);
+
+            const totalLength = tempPath.getTotalLength();
+            if (totalLength > 0.1) { // 忽略极小的路径段
+              // 这里将使用第3个问题中实现的自适应采样函数
+              const absPoints = adaptiveSamplePath(tempPath, { minSegmentLength: 2, curvatureThreshold: 0.2, maxSamples: 500 }).map(pt => {
+                const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+                return { x: transformedPt.x * scaleX, y: transformedPt.y * scaleY };
               });
+
+              if (absPoints.length >= 2) {
+                const drawing = createCenterCoordinateDrawing(absPoints, {
+                  fillColor: node.attributes.fill,
+                  strokeWidth: Number(node.attributes['stroke-width']) || 0,
+                  color: node.attributes.stroke || '#2563eb', // 使用stroke作为颜色
+                  rotation: 0,
+                });
+                if (drawing) items.push(drawing);
+              }
             }
+          } catch (e) {
+            console.warn("解析子路径时出错:", subPathData, e);
           }
-        } catch (e) { }
+        }
       }
+      // <<< END MODIFIED >>>
+      // if (node.name === 'path' && node.attributes.d) {
+      //   // 只采样有填充的 path
+      //   //if (!node.attributes.fill || node.attributes.fill === 'none') return items;
+      //   const d = node.attributes.d;
+      //   try {
+      //     const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      //     const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      //     tempPath.setAttribute('d', d);
+      //     tempSvg.appendChild(tempPath);
+      //     const totalLength = tempPath.getTotalLength();
+      //     if (totalLength > 0) {
+      //       const sampleCount = Math.max(Math.floor(totalLength), 128);
+      //       const absPoints: { x: number, y: number }[] = [];
+      //       for (let i = 0; i <= sampleCount; i++) {
+      //         const len = (i / sampleCount) * totalLength;
+      //         const pt = tempPath.getPointAtLength(len);
+      //         const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+      //         absPoints.push({ x: transformedPt.x * scaleX, y: transformedPt.y * scaleY });
+      //       }
+      //       if (absPoints.length >= 2) {
+      //         const minX = Math.min(...absPoints.map(p => p.x));
+      //         const maxX = Math.max(...absPoints.map(p => p.x));
+      //         const minY = Math.min(...absPoints.map(p => p.y));
+      //         const maxY = Math.max(...absPoints.map(p => p.y));
+      //         const centerX = (minX + maxX) / 2;
+      //         const centerY = (minY + maxY) / 2;
+      //         items.push({
+      //           type: CanvasItemType.DRAWING,
+      //           x: centerX,
+      //           y: centerY,
+      //           points: absPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY })),
+      //           fillColor: node.attributes.fill,
+      //           strokeWidth: Number(node.attributes['stroke-width']) || 0,
+      //           color: '',
+      //           rotation: 0,
+      //         });
+      //       }
+      //     }
+      //   } catch (e) { }
+      // }
       // 处理rect
       else if (node.name === 'rect') {
         const x = Number(node.attributes.x);
@@ -710,8 +819,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         });
         if (drawing) items.push(drawing);
       }
-      // 处理ellipse
-      else if (node.name === 'ellipse') {
+      // 处理eclipse
+      else if (node.name === 'eclipse') {
         const cx = Number(node.attributes.cx);
         const cy = Number(node.attributes.cy);
         const rx = Number(node.attributes.rx);
@@ -1251,22 +1360,33 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
         // 保存原始SVG内容用于G代码生成
         const originalContent = svgo.optimize(svgString, {
-           plugins: [
-          // 使用 SVGO 的默认插件集，这已经能完成大部分优化工作
-          {
-            name: 'preset-default',
-            params: {
-              overrides: {
-                // 您的解析器需要 <g> 标签来处理变换，所以不要合并它们
-                collapseGroups: false, 
+          plugins: [
+            {
+              name: 'preset-default',
+              params: {
+                overrides: {
+                  convertShapeToPath: {
+                    convertArcs: true,
+                  },
+                  convertPathData: {
+                    applyTransforms: true,
+                    makeAbsolute: true,
+                  },
+                  mergePaths: {
+                    force: false,
+                    floatPrecision: 3,
+                    noSpaceAfterFlags: false
+                  }
+                },
               },
             },
-          },
-          'removeStyleElement', // 移除 <style> 标签，因为解析器不处理它
-          'removeScripts', // 移除 <script> 标签，保证安全
-          'cleanupIds', // 清理无用的ID
-        ],
+
+            'collapseGroups',
+            'cleanupIds',
+            'removeOffCanvasPaths'
+          ],
         }).data;
+        console.log(originalContent);
 
         // 解析SVG为矢量对象
         let parsedItems: CanvasItemData[] = [];
@@ -1279,19 +1399,46 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
         const img = new Image();
         img.onload = () => {
-          // 创建图像对象时包含矢量源数据
+
+          let originalWidth = img.width;
+          let originalHeight = img.height;
+
+          // 尝试从SVG内容中直接解析viewBox
+          const viewBoxMatch = originalContent.match(/viewBox="([^"]*)"/);
+          if (viewBoxMatch && viewBoxMatch[1]) {
+            const viewBoxParts = viewBoxMatch[1].split(/\s+|,/).map(Number);
+            if (viewBoxParts.length === 4) {
+              // 使用 viewBox 的宽度和高度作为最精确的原始尺寸
+              originalWidth = viewBoxParts[2];
+              originalHeight = viewBoxParts[3];
+              console.log('成功解析 viewBox，使用其尺寸作为原始尺寸:', originalWidth, originalHeight);
+            }
+          } else {
+            // 如果没有viewBox，则回退到使用浏览器计算的渲染尺寸
+            // 这种情况等价于 viewBox="0 0 width height"
+            console.log('未找到 viewBox，回退使用渲染尺寸作为原始尺寸:', originalWidth, originalHeight);
+          }
+
+          // 如果解析出的尺寸为0，则使用渲染尺寸作为最后的保障
+          if (originalWidth === 0 || originalHeight === 0) {
+            originalWidth = img.width;
+            originalHeight = img.height;
+          }
+
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
             x: canvasWidth / 2,
             y: canvasHeight / 2,
-            width: img.width,
-            height: img.height,
+            width: img.width,  // 显示尺寸仍然是渲染尺寸
+            height: img.height, // 显示尺寸仍然是渲染尺寸
             href: dataUrl,
             rotation: 0,
             vectorSource: {
               type: 'svg',
               content: originalContent,
-              parsedItems: parsedItems
+              parsedItems: parsedItems,
+              // 将我们精确解析出的 viewBox 尺寸存储起来
+              originalDimensions: { width: originalWidth, height: originalHeight }
             }
           };
 
@@ -1309,23 +1456,33 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
         // 保存原始SVG内容用于G代码生成
         const originalContent = svgo.optimize(new Helper(dxfString).toSVG(), {
-           plugins: [
-          // 使用 SVGO 的默认插件集，这已经能完成大部分优化工作
-          {
-            name: 'preset-default',
-            params: {
-              overrides: {
-                // 您的解析器需要 <g> 标签来处理变换，所以不要合并它们
-                collapseGroups: false, 
+          plugins: [
+            {
+              name: 'preset-default',
+              params: {
+                overrides: {
+                  convertShapeToPath: {
+                    convertArcs: true,
+                  },
+                  convertPathData: {
+                    applyTransforms: true,
+                    makeAbsolute: true,
+                  },
+                  mergePaths: {
+                    force: false,
+                    floatPrecision: 3,
+                    noSpaceAfterFlags: false
+                  }
+                },
               },
             },
-          },
-          'removeStyleElement', // 移除 <style> 标签，因为解析器不处理它
-          'removeScripts', // 移除 <script> 标签，保证安全
-          'cleanupIds', // 清理无用的ID
-        ],
+
+            'collapseGroups',
+            'cleanupIds',
+            'removeOffCanvasPaths'
+          ],
         }).data;
-        //console.log(originalContent);
+        console.log(originalContent);
 
         // 解析SVG为矢量对象
         let parsedItems: CanvasItemData[] = [];
@@ -1338,22 +1495,47 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
         const img = new Image();
         img.onload = () => {
-          // 创建图像对象时包含矢量源数据
+          let originalWidth = img.width;
+          let originalHeight = img.height;
+
+          // 尝试从SVG内容中直接解析viewBox
+          const viewBoxMatch = originalContent.match(/viewBox="([^"]*)"/);
+          if (viewBoxMatch && viewBoxMatch[1]) {
+            const viewBoxParts = viewBoxMatch[1].split(/\s+|,/).map(Number);
+            if (viewBoxParts.length === 4) {
+              // 使用 viewBox 的宽度和高度作为最精确的原始尺寸
+              originalWidth = viewBoxParts[2];
+              originalHeight = viewBoxParts[3];
+              console.log('成功解析 viewBox，使用其尺寸作为原始尺寸:', originalWidth, originalHeight);
+            }
+          } else {
+            // 如果没有viewBox，则回退到使用浏览器计算的渲染尺寸
+            // 这种情况等价于 viewBox="0 0 width height"
+            console.log('未找到 viewBox，回退使用渲染尺寸作为原始尺寸:', originalWidth, originalHeight);
+          }
+
+          // 如果解析出的尺寸为0，则使用渲染尺寸作为最后的保障
+          if (originalWidth === 0 || originalHeight === 0) {
+            originalWidth = img.width;
+            originalHeight = img.height;
+          }
+
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
             x: canvasWidth / 2,
             y: canvasHeight / 2,
-            width: img.width,
-            height: img.height,
+            width: img.width,  // 显示尺寸仍然是渲染尺寸
+            height: img.height, // 显示尺寸仍然是渲染尺寸
             href: dataUrl,
             rotation: 0,
             vectorSource: {
               type: 'svg',
               content: originalContent,
-              parsedItems: parsedItems
+              parsedItems: parsedItems,
+              // 将我们精确解析出的 viewBox 尺寸存储起来
+              originalDimensions: { width: originalWidth, height: originalHeight }
             }
           };
-
           addItem(imageData);
         };
         img.src = dataUrl;
@@ -1632,7 +1814,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
         setGenerationProgress('正在保存文件...');
         downloadGCode(gcode, `${fileName}_${layer.name.replace(/\s+/g, '_')}.nc`);
-        
+
         // 关闭弹窗
         setIsGeneratingGCode(false);
       } else {
@@ -1678,7 +1860,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
         setGenerationProgress('正在保存文件...');
         downloadGCode(gcode, `${fileName}_${layer.name.replace(/\s+/g, '_')}.nc`);
-        
+
         // 关闭弹窗
         setIsGeneratingGCode(false);
       }
@@ -1708,7 +1890,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       // 遍历所有图层
       for (const layer of layers) {
         const layerItems = items.filter(item => item.layerId === layer.id);
-        
+
         if (layerItems.length === 0) {
           continue; // 跳过空图层
         }
@@ -1727,7 +1909,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         try {
           if (layer.printingMethod === PrintingMethod.SCAN) {
             const layerImageItems = layerItems.filter(item => item.type === CanvasItemType.IMAGE);
-            
+
             if (layerImageItems.length > 0) {
               const settings: GCodeScanSettings = {
                 lineDensity: 1 / (layer.lineDensity || 10),
@@ -1802,7 +1984,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       setGenerationProgress('正在保存文件...');
       // 下载合并后的文件
       downloadGCode(mergedGCode, `${fileName}.nc`);
-      
+
       // 关闭弹窗
       setIsGeneratingGCode(false);
     } catch (error) {
@@ -1831,7 +2013,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   // 下载G代码文件的辅助函数
   const downloadGCode = (gcode: string, fileName: string) => {
     const platform = detectPlatform();
-    
+
     // 检查是否在原生移动应用环境中
     if (platform === 'android' && window.Android && typeof window.Android.saveBlobFile === 'function') {
       // 在 Android 原生环境中，直接通过 Android 接口保存文件
@@ -1887,7 +2069,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     // 检测并设置画布大小 - 支持Android和iOS
     const setPlatformCanvasSize = () => {
       let size: any = null;
-      
+
       // 尝试从Android获取画布大小
       if (window.Android && typeof window.Android.getPlatformSize === 'function') {
         try {
@@ -1896,7 +2078,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           console.error('Android获取画布大小失败:', e);
         }
       }
-      
+
       // 如果Android没有获取到，尝试从iOS获取
       if (!size && window.iOS && typeof window.iOS.getPlatformSize === 'function') {
         try {
@@ -1905,7 +2087,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           console.error('iOS获取画布大小失败:', e);
         }
       }
-      
+
       // 处理获取到的大小数据
       if (size) {
         let obj: any = size;
@@ -1922,7 +2104,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         }
       }
     };
-    
+
     setPlatformCanvasSize();
     return () => {
       delete (window as any).setCanvasSize;
@@ -2096,7 +2278,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 confirmBtn.addEventListener('click', async () => {
                   const fileName = fileNameInput.value.trim() || '激光雕刻项目';
                   const mergeAllLayers = mergeAllLayersInput.checked;
-                  
+
                   cleanup();
 
                   if (mergeAllLayers) {
