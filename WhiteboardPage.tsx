@@ -97,6 +97,8 @@ function adaptiveSamplePath(
   return points.map(p => ({ x: p.pt.x, y: p.pt.y }));
 }
 
+
+
 // 浏览器端简易 HPGL 解析器，仅支持 PU/PD/PA 指令
 function simpleParseHPGL(content: string) {
   // 返回 [{type: 'PU'|'PD'|'PA', points: [[x,y], ...]}]
@@ -699,25 +701,62 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         }
       }
 
+      const viewboxDiagonalLength = Math.sqrt(viewBox[2] ** 2 + viewBox[3] ** 2);
+
       // 处理path
-      // <<< MODIFIED >>> 重构 path 处理逻辑
+      // 处理path
+      // <<< MODIFIED & FIXED >>> 重构 path 处理逻辑
       if (node.name === 'path' && node.attributes.d) {
         const d = node.attributes.d;
 
-        // 使用正则表达式按 M/m 分割路径数据，同时保留分隔符
-        const subPaths = d.trim().split(/(?=[Mm])/).filter((sp: string) => sp.trim() !== '');
+        const subPathChunks = d.trim().split(/(?=[Mm])/).filter((sp: string) => sp.trim() !== '');
 
-        for (const subPathData of subPaths) {
+        let lastEndPoint = { x: 0, y: 0 };
+
+        for (const subPathData of subPathChunks) {
           try {
+            let effectiveD: string;
+            const command = subPathData.trim()[0];
+            const isRelative = command === 'm';
+
+            // 提取出 'm' 或 'M' 后面的坐标和剩余指令
+            // 正则表达式匹配指令字母，可选的空格，然后是两个数字，最后捕获剩余所有内容
+            //const pathRegex = /^[Mm]\s*(-?[\d.]+)\s*,?\s*(-?[\d.]+)(.*)/;
+            const numberPattern = '-?(?:\\d+\\.\\d*|\\.\\d+|\\d+)(?:[eE][-+]?\\d+)?';
+            const pathRegex = new RegExp(`^[Mm]\\s*(${numberPattern})\\s*,?\\s*(${numberPattern})(.*)`);
+            const match = subPathData.trim().match(pathRegex);
+
+            if (!match) {
+              // 如果路径段不是以 M/m 开头，或者格式不匹配，则跳过
+              // 这种情况可能发生在 SVG 格式非常不规范时
+              console.warn("跳过格式不正确的路径段:", subPathData);
+              continue;
+            }
+
+            const xVal = parseFloat(match[1]);
+            const yVal = parseFloat(match[2]);
+            const remainingD = match[3].trim(); // 捕获到的剩余路径指令，如 "a196.587..."
+
+            let newX = xVal;
+            let newY = yVal;
+
+            if (isRelative) {
+              newX += lastEndPoint.x;
+              newY += lastEndPoint.y;
+            }
+
+            // 构建以绝对坐标 'M' 开头的、可以被独立渲染的 d 属性
+            effectiveD = `M ${newX} ${newY} ${remainingD}`;
+
             const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
             const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            tempPath.setAttribute('d', subPathData);
+            tempPath.setAttribute('d', effectiveD);
             tempSvg.appendChild(tempPath);
 
             const totalLength = tempPath.getTotalLength();
-            if (totalLength > 0.1) { // 忽略极小的路径段
-              // 这里将使用第3个问题中实现的自适应采样函数
-              const absPoints = adaptiveSamplePath(tempPath, { minSegmentLength: 2, curvatureThreshold: 0.2, maxSamples: 500 }).map(pt => {
+
+            if (totalLength > viewboxDiagonalLength / 10000) {
+              const absPoints = adaptiveSamplePath(tempPath, { minSegmentLength: 2, curvatureThreshold: 0.1, maxSamples: 500 }).map(pt => {
                 const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
                 return { x: transformedPt.x * scaleX, y: transformedPt.y * scaleY };
               });
@@ -726,17 +765,26 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 const drawing = createCenterCoordinateDrawing(absPoints, {
                   fillColor: node.attributes.fill,
                   strokeWidth: Number(node.attributes['stroke-width']) || 0,
-                  color: node.attributes.stroke || '#2563eb', // 使用stroke作为颜色
+                  color: node.attributes.stroke || '#2563eb',
                   rotation: 0,
                 });
-                if (drawing) items.push(drawing);
+                if (drawing) {
+                  items.push(drawing);
+                }
               }
+
+              const endPoint = tempPath.getPointAtLength(totalLength);
+              lastEndPoint = { x: endPoint.x, y: endPoint.y };
+            } else {
+              // 如果路径长度为0（可能只有一个M指令），我们也需要更新终点位置
+              lastEndPoint = { x: newX, y: newY };
             }
           } catch (e) {
             console.warn("解析子路径时出错:", subPathData, e);
           }
         }
       }
+      // <<< END MODIFIED & FIXED >>>
       // <<< END MODIFIED >>>
       // if (node.name === 'path' && node.attributes.d) {
       //   // 只采样有填充的 path
@@ -939,6 +987,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   // 处理导入文件
   const handleImportFile = useCallback(async (file: { name: string; ext: string; content: string }) => {
     // SVG 导入
+    /* Descprated
     if (file.ext === 'svg') {
       //return;
       const parsedItems = await parseSvgWithSvgson(file.content);
@@ -1151,6 +1200,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       }
       return;
     }
+    */
     if (file.ext === 'plt') {
       try {
         const hpglCommands = simpleParseHPGL(file.content);
@@ -1252,7 +1302,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             strokeWidth: 2,
           });
         });
-
         // 保存原始PLT内容用于G代码生成
         const originalContent = file.content;
 
@@ -1356,8 +1405,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         const svgString = e.target?.result as string;
         if (!svgString) return;
 
-
-
         // 保存原始SVG内容用于G代码生成
         const originalContent = svgo.optimize(svgString, {
           plugins: [
@@ -1366,11 +1413,12 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               params: {
                 overrides: {
                   convertShapeToPath: {
-                    convertArcs: true,
+                    convertArcs: false,
                   },
                   convertPathData: {
                     applyTransforms: true,
                     makeAbsolute: true,
+                    forceAbsolutePath: true,
                   },
                   mergePaths: {
                     force: false,
@@ -1380,10 +1428,10 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 },
               },
             },
-
+            'removeStyleElement',
             'collapseGroups',
             'cleanupIds',
-            'removeOffCanvasPaths'
+
           ],
         }).data;
         console.log(originalContent);
@@ -1396,34 +1444,24 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           console.warn('SVG解析失败，将使用位图模式:', error);
         }
         console.log(parsedItems);
+
+        // 尝试从SVG内容中直接解析viewBox
+        const viewBoxMatch = originalContent.match(/viewBox="([^"]*)"/);
+        let viewBoxX = 0;
+        let viewBoxY = 0;
+        if (viewBoxMatch && viewBoxMatch[1]) {
+          const viewBoxParts = viewBoxMatch[1].split(/\s+|,/).map(Number);
+          if (viewBoxParts.length === 4) {
+            // 使用 viewBox 的宽度和高度作为最精确的原始尺寸
+            viewBoxX = viewBoxParts[0];
+            viewBoxY = viewBoxParts[1];
+            console.log('成功解析 viewBox，得到 viewBox 起点:', viewBoxX, viewBoxY);
+          }
+        }
+
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
         const img = new Image();
         img.onload = () => {
-
-          let originalWidth = img.width;
-          let originalHeight = img.height;
-
-          // 尝试从SVG内容中直接解析viewBox
-          const viewBoxMatch = originalContent.match(/viewBox="([^"]*)"/);
-          if (viewBoxMatch && viewBoxMatch[1]) {
-            const viewBoxParts = viewBoxMatch[1].split(/\s+|,/).map(Number);
-            if (viewBoxParts.length === 4) {
-              // 使用 viewBox 的宽度和高度作为最精确的原始尺寸
-              originalWidth = viewBoxParts[2];
-              originalHeight = viewBoxParts[3];
-              console.log('成功解析 viewBox，使用其尺寸作为原始尺寸:', originalWidth, originalHeight);
-            }
-          } else {
-            // 如果没有viewBox，则回退到使用浏览器计算的渲染尺寸
-            // 这种情况等价于 viewBox="0 0 width height"
-            console.log('未找到 viewBox，回退使用渲染尺寸作为原始尺寸:', originalWidth, originalHeight);
-          }
-
-          // 如果解析出的尺寸为0，则使用渲染尺寸作为最后的保障
-          if (originalWidth === 0 || originalHeight === 0) {
-            originalWidth = img.width;
-            originalHeight = img.height;
-          }
 
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
@@ -1438,7 +1476,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               content: originalContent,
               parsedItems: parsedItems,
               // 将我们精确解析出的 viewBox 尺寸存储起来
-              originalDimensions: { width: originalWidth, height: originalHeight }
+              originalDimensions: { width: img.width, height: img.height, imageCenterX: viewBoxX + img.width / 2, imageCenterY: viewBoxY + img.height / 2 }
             }
           };
 
@@ -1454,7 +1492,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         const dxfString = e.target?.result as string;
         if (!dxfString) return;
 
-        // 保存原始SVG内容用于G代码生成
+        // 保存转换后的SVG内容用于G代码生成
         const originalContent = svgo.optimize(new Helper(dxfString).toSVG(), {
           plugins: [
             {
@@ -1467,6 +1505,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                   convertPathData: {
                     applyTransforms: true,
                     makeAbsolute: true,
+                    forceAbsolutePath: true,
                   },
                   mergePaths: {
                     force: false,
@@ -1476,15 +1515,15 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 },
               },
             },
-
+            'removeStyleElement',
             'collapseGroups',
             'cleanupIds',
-            'removeOffCanvasPaths'
+
           ],
         }).data;
         console.log(originalContent);
 
-        // 解析SVG为矢量对象
+        // 解析DXF得到的SVG为矢量对象
         let parsedItems: CanvasItemData[] = [];
         try {
           parsedItems = await parseSvgWithSvgson(originalContent);
@@ -1492,33 +1531,26 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           console.warn('DXF解析失败，将使用位图模式:', error);
         }
         console.log(parsedItems);
+
+        // 尝试从SVG内容中直接解析viewBox
+        const viewBoxMatch = originalContent.match(/viewBox="([^"]*)"/);
+        let viewBoxX = 0;
+        let viewBoxY = 0;
+        if (viewBoxMatch && viewBoxMatch[1]) {
+          const viewBoxParts = viewBoxMatch[1].split(/\s+|,/).map(Number);
+          if (viewBoxParts.length === 4) {
+            // 使用 viewBox 的宽度和高度作为最精确的原始尺寸
+            viewBoxX = viewBoxParts[0];
+            viewBoxY = viewBoxParts[1];
+            console.log('成功解析 viewBox，得到 viewBox 起点:', viewBoxX, viewBoxY);
+          }
+        }
+
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
         const img = new Image();
         img.onload = () => {
           let originalWidth = img.width;
           let originalHeight = img.height;
-
-          // 尝试从SVG内容中直接解析viewBox
-          const viewBoxMatch = originalContent.match(/viewBox="([^"]*)"/);
-          if (viewBoxMatch && viewBoxMatch[1]) {
-            const viewBoxParts = viewBoxMatch[1].split(/\s+|,/).map(Number);
-            if (viewBoxParts.length === 4) {
-              // 使用 viewBox 的宽度和高度作为最精确的原始尺寸
-              originalWidth = viewBoxParts[2];
-              originalHeight = viewBoxParts[3];
-              console.log('成功解析 viewBox，使用其尺寸作为原始尺寸:', originalWidth, originalHeight);
-            }
-          } else {
-            // 如果没有viewBox，则回退到使用浏览器计算的渲染尺寸
-            // 这种情况等价于 viewBox="0 0 width height"
-            console.log('未找到 viewBox，回退使用渲染尺寸作为原始尺寸:', originalWidth, originalHeight);
-          }
-
-          // 如果解析出的尺寸为0，则使用渲染尺寸作为最后的保障
-          if (originalWidth === 0 || originalHeight === 0) {
-            originalWidth = img.width;
-            originalHeight = img.height;
-          }
 
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
@@ -1533,7 +1565,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               content: originalContent,
               parsedItems: parsedItems,
               // 将我们精确解析出的 viewBox 尺寸存储起来
-              originalDimensions: { width: originalWidth, height: originalHeight }
+              originalDimensions: { width: img.width, height: img.height, imageCenterX: viewBoxX + img.width / 2, imageCenterY: viewBoxY + img.height / 2 }
             }
           };
           addItem(imageData);

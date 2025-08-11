@@ -544,9 +544,13 @@ function rotatePoint(px: number, py: number, centerX: number, centerY: number, r
   const dx = px - centerX;
   const dy = py - centerY;
 
-  // 应用旋转
-  const rotatedX = dx * cos - dy * sin;
-  const rotatedY = dx * sin + dy * cos;
+  // // 应用旋转 -- 逆时针
+  // const rotatedX = dx * cos - dy * sin;
+  // const rotatedY = dx * sin + dy * cos;
+
+  // 应用旋转 -- 顺时针
+  const rotatedX = dx * cos + dy * sin;
+  const rotatedY = dy * cos - dx * sin;
 
   // 平移回去
   return {
@@ -1234,28 +1238,24 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
     // 检查是否有矢量源数据
     if (item.vectorSource && item.vectorSource.parsedItems && item.vectorSource.parsedItems.length > 0) {
       paths.push(`; 图像对象(矢量源)位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
-
-      // +++ ADDED +++ 核心改动：计算并应用缩放
       let scaleX = 1;
       let scaleY = 1;
-
-      let originalWidth = item.width;
-      let originalHeight = item.height;
       // 确保 originalDimensions 存在且有效
       if (item.vectorSource.originalDimensions) {
-        originalWidth = item.vectorSource.originalDimensions.width;
-        originalHeight = item.vectorSource.originalDimensions.height;
+        // +++ ADDED +++ 核心改动：计算并应用缩放
+        const originalWidth = item.vectorSource.originalDimensions.width;
+        const originalHeight = item.vectorSource.originalDimensions.height;
+        scaleX = item.width / originalWidth;
+        scaleY = item.height / originalHeight;
+        //const scale = Math.min(scaleX, scaleY);
 
-        if (originalWidth > 0 && originalHeight > 0) {
-          scaleX = item.width / originalWidth;
-          scaleY = item.height / originalHeight;
-          console.log(`矢量源原始尺寸: ${originalWidth}x${originalHeight}, 显示尺寸: ${item.width}x${item.height}`);
-          console.log(`矢量源缩放比例: X=${scaleX}, Y=${scaleY}`);
-          paths.push(`; 原始尺寸: ${originalWidth.toFixed(2)}x${originalHeight.toFixed(2)} -> 显示尺寸: ${item.width.toFixed(2)}x${item.height.toFixed(2)}`);
-          paths.push(`; 计算缩放比例: X=${scaleX.toFixed(4)}, Y=${scaleY.toFixed(4)}`);
-        } else {
-          paths.push(`; 警告: 原始尺寸无效, 使用默认缩放 1:1`);
-        }
+        scaleX = Math.min(scaleX, scaleY);
+        scaleY = Math.min(scaleX, scaleY);
+        console.log(`矢量源原始尺寸: ${originalWidth}x${originalHeight}, 显示尺寸: ${item.width}x${item.height}`);
+        console.log(`矢量源缩放比例: X=${scaleX}, Y=${scaleY}`);
+        paths.push(`; 原始尺寸: ${originalWidth.toFixed(2)}x${originalHeight.toFixed(2)} -> 显示尺寸: ${item.width.toFixed(2)}x${item.height.toFixed(2)}`);
+        paths.push(`; 计算缩放比例: X=${scaleX.toFixed(4)}, Y=${scaleY.toFixed(4)}`);
+
       } else {
         paths.push(`; 警告: 缺少原始尺寸信息, 使用默认缩放 1:1`);
       }
@@ -1267,15 +1267,32 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         let scaledVectorItem: CanvasItemData = { ...vectorItem };
 
         // 缩放子对象的相对位置
-        scaledVectorItem.x = ((vectorItem.x ?? 0) - originalWidth / 2) * scaleX + originalWidth / 2;
-        scaledVectorItem.y = ((vectorItem.y ?? 0) - originalHeight / 2) * scaleY + originalHeight / 2
+        // scaledVectorItem.x = ((vectorItem.x ?? 0) - originalWidth / 2) * scaleX + originalWidth / 2;
+        // scaledVectorItem.y = ((vectorItem.y ?? 0) - originalHeight / 2) * scaleY + originalHeight / 2
+        // 缩放子对象的相对位置
+
+        scaledVectorItem.x = (vectorItem.x ?? 0) * scaleX; // Correctly calculated
+        scaledVectorItem.y = (vectorItem.y ?? 0) * scaleY; // Correctly calculated
 
         // 如果是绘图对象，缩放其点坐标
         if ('points' in scaledVectorItem && Array.isArray(scaledVectorItem.points)) {
           scaledVectorItem.points = scaledVectorItem.points.map(point => ({
-            x: (point.x - originalWidth / 2) * scaleX + originalWidth / 2,
-            y: (point.y - originalHeight / 2) * scaleY + originalHeight / 2
+            // x: (point.x - originalWidth / 2) * scaleX + originalWidth / 2, // Correctly calculated
+            // y: (point.y - originalHeight / 2) * scaleY + originalHeight / 2 // Correctly calculated
+            x: point.x * scaleX,
+            y: point.y * scaleY,
           }));
+
+          // for (let point of scaledVectorItem.points) {
+          //   console.log('矢量对象调试信息:',
+          //     (vectorItem.x ?? 0),
+          //     (vectorItem.y ?? 0),
+          //     point.x,
+          //     point.y,
+          //     scaleX,
+          //     scaleY);
+          // }
+
         }
 
         // // 如果是参数化对象，缩放其参数 (注意：这里需要根据具体参数进行合理缩放)
@@ -1297,8 +1314,10 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         // <<< END MODIFIED >>>
 
         // 先应用图像对象的旋转到缩放后子对象的相对位置
-        const rotatedPos = rotatePoint(x + scaledVectorItem.x, y + scaledVectorItem.y, x, y, rotation);
-
+        const imageCenterX = item.vectorSource.originalDimensions?.imageCenterX || item.x;
+        const imageCenterY = item.vectorSource.originalDimensions?.imageCenterY || item.y;
+        const rotatedPos = rotatePoint(x, y, imageCenterX, imageCenterY, rotation);
+        console.log("x", x, "y", y, "item.width", item.width, "item.height", item.height, "scaleX", scaleX, "scaleY", scaleY, "item.x", item.x, "item.y", item.y, "scaledVectorX", scaledVectorItem.x, "scaledVectorY", scaledVectorItem.y, "rotatedPosX", rotatedPos.x, "rotatedPosY", rotatedPos.y);
         const finalVectorItem: CanvasItem = {
           ...scaledVectorItem,
           x: rotatedPos.x,
