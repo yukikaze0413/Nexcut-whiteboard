@@ -124,6 +124,7 @@ export interface ImageObject {
   layerId: string;
   // 新增：原始矢量数据，用于G代码生成
   vectorSource?: {
+    originalDimensions: any;
     type: 'svg' | 'dxf' | 'plt';
     content: string; // 原始文件内容
     parsedItems?: CanvasItemData[]; // 解析后的矢量对象
