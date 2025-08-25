@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Potrace测试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        #result {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            min-height: 100px;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Potrace位图转SVG测试</h1>
+    
+    <div class="container">
+        <h2>测试说明</h2>
+        <p>这个页面用于测试Potrace库的位图转SVG功能。</p>
+        <p>请上传一张图片，然后点击"转换为SVG"按钮进行测试。</p>
+    </div>
+
+    <div class="container">
+        <h2>图片上传</h2>
+        <input type="file" id="imageInput" accept="image/*">
+        <button onclick="loadImage()">加载图片</button>
+    </div>
+
+    <div class="container">
+        <h2>图片预览</h2>
+        <img id="preview" style="display: none;">
+    </div>
+
+    <div class="container">
+        <h2>转换控制</h2>
+        <button onclick="convertToSVG()">转换为SVG</button>
+        <button onclick="downloadSVG()" id="downloadBtn" style="display: none;">下载SVG</button>
+    </div>
+
+    <div class="container">
+        <h2>转换结果</h2>
+        <div id="result"></div>
+    </div>
+
+    <script type="module">
+        // 模拟Potrace功能（实际项目中会导入真实的Potrace库）
+        let currentSVG = '';
+        
+        function loadImage() {
+            const input = document.getElementById('imageInput');
+            const preview = document.getElementById('preview');
+            
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        function convertToSVG() {
+            const preview = document.getElementById('preview');
+            const result = document.getElementById('result');
+            const downloadBtn = document.getElementById('downloadBtn');
+            
+            if (!preview.src) {
+                alert('请先加载一张图片');
+                return;
+            }
+
+            result.innerHTML = '<p>正在转换...</p>';
+            
+            // 模拟转换过程
+            setTimeout(() => {
+                // 生成一个简单的SVG示例
+                const width = preview.naturalWidth || 300;
+                const height = preview.naturalHeight || 200;
+                
+                currentSVG = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="100%" height="100%" fill="white"/>
+                    <text x="50%" y="50%" text-anchor="middle" dy=".3em" font-size="16" fill="black">
+                        转换后的SVG内容
+                    </text>
+                    <circle cx="50" cy="50" r="20" fill="black"/>
+                    <rect x="100" y="100" width="50" height="30" fill="gray"/>
+                </svg>`;
+                
+                result.innerHTML = `
+                    <h3>转换完成！</h3>
+                    <p>SVG代码预览：</p>
+                    <pre style="background: #f5f5f5; padding: 10px; overflow-x: auto;">${currentSVG}</pre>
+                `;
+                
+                downloadBtn.style.display = 'inline-block';
+            }, 2000);
+        }
+
+        function downloadSVG() {
+            if (!currentSVG) {
+                alert('请先转换图片');
+                return;
+            }
+            
+            const blob = new Blob([currentSVG], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'converted_image.svg';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
+
+        // 将函数暴露到全局作用域
+        window.loadImage = loadImage;
+        window.convertToSVG = convertToSVG;
+        window.downloadSVG = downloadSVG;
+    </script>
+</body>
+</html> 

@@ -1,5 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import * as potrace from 'potrace';
+import { parse as parseSvgson } from 'svgson';
+import type { CanvasItemData } from './types';
+import { CanvasItemType } from './types';
+import { parseSvgWithSvgson, createCenterCoordinateDrawing } from './WhiteboardPage';
 
 // 全局类型声明，用于Android WebView接口
 declare global {
@@ -22,8 +27,13 @@ const HomePage: React.FC = () => {
   const [brightness, setBrightness] = useState(0); // 亮度调节值
   const [contrast, setContrast] = useState(0); // 对比度调节值
   const [originalImage, setOriginalImage] = useState<string | null>(null); // 原始图片（用于撤销操作）
+  const [isLoading, setIsLoading] = useState(false); // 加载状态
 
   const fileInputRef = useRef<HTMLInputElement>(null); // 文件输入框引用
+
+
+
+
 
   // 提供给Android调用的图片设置接口
   useEffect(() => {
@@ -433,6 +443,7 @@ const HomePage: React.FC = () => {
       const edges = new window.cv.Mat();
       window.cv.cvtColor(src, gray, window.cv.COLOR_RGBA2GRAY, 0);
       window.cv.Canny(gray, edges, threshold1, threshold2);
+      
       // 反色，让线条变白，背景变黑
       window.cv.bitwise_not(edges, edges);
       // Canny输出是单通道，需要转回4通道显示
@@ -444,6 +455,165 @@ const HomePage: React.FC = () => {
       callback(resultBase64);
     });
   }
+
+  // 使用potrace库将图片转换为SVG
+  const convertImageToSVG = async (base64Image: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      try {
+        // 创建canvas来处理图片
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        
+        img.onload = () => {
+          canvas.width = img.width;
+          canvas.height = img.height;
+          
+          if (ctx) {
+            // 绘制图片到canvas
+            ctx.drawImage(img, 0, 0);
+            
+            // 将canvas转换为blob
+            canvas.toBlob((blob) => {
+              if (blob) {
+                // 将blob转换为buffer
+                const reader = new FileReader();
+                reader.onload = () => {
+                  const arrayBuffer = reader.result as ArrayBuffer;
+                  const buffer = Buffer.from(arrayBuffer);
+                  
+                  // 使用Potrace将位图转换为SVG
+                  potrace.trace(buffer, {
+                    threshold: 128,
+                    turdSize: 2,
+                    alphaMax: 1,
+                    optTolerance: 0.2,
+                    optCurve: true
+                  }, (err: any, svg: string) => {
+                    if (err) {
+                      console.error('SVG转换失败:', err);
+                      reject(new Error('SVG转换失败'));
+                      return;
+                    }
+                    
+                    console.log('Potrace转换成功，生成SVG内容长度:', svg.length);
+                    resolve(svg);
+                  });
+                };
+                reader.readAsArrayBuffer(blob);
+              } else {
+                reject(new Error('无法创建Blob'));
+              }
+            }, 'image/png');
+          } else {
+            reject(new Error('无法获取Canvas上下文'));
+          }
+        };
+        
+        img.onerror = () => {
+          reject(new Error('图片加载失败'));
+        };
+        
+        img.src = base64Image;
+      } catch (error) {
+        reject(error);
+      }
+    });
+  };
+
+  // 新增：线框提取并转换为矢量图功能
+  const handleEdgeExtractionAndVectorization = async () => {
+    if (!image) {
+      alert('请先选择一张图片');
+      return;
+    }
+
+    // 设置加载状态
+    setIsLoading(true);
+
+    try {
+      // 第一步：将原始图片转换为矢量图
+      const originalSvgContent = await convertImageToSVG(image);
+      
+      if (originalSvgContent) {
+        try {
+          // 第二步：解析SVG数据，将解析后的数据放到parsedItems中
+          const parsedItems = await parseSvgWithSvgson(originalSvgContent);
+          
+          // 第三步：提取线框
+          applyCannyEdgeDetectionOpenCV(image, 120, 250, async (edgeImage) => {
+            // 创建单一ImageObject的数据结构
+            // href显示线框位图，vectorSource包含原始矢量图数据和解析后的数据
+            const whiteboardData = {
+              displayImage: edgeImage, // 用于显示的线框位图
+              vectorSource: {
+                type: 'svg',
+                content: originalSvgContent,
+                parsedItems: parsedItems // 解析后的矢量数据
+              }
+            };
+
+            // 将数据存储到localStorage，供白板页面读取
+            localStorage.setItem('whiteboardImageData', JSON.stringify(whiteboardData));
+            
+            // 设置加载状态为false
+            setIsLoading(false);
+            
+            // 跳转到白板页面
+            navigate('/whiteboard', { 
+              state: { 
+                hasVectorData: true,
+                displayImage: edgeImage, // 用于显示的线框位图
+                vectorSource: {
+                  type: 'svg',
+                  content: originalSvgContent,
+                  parsedItems: parsedItems // 解析后的矢量数据
+                }
+              } 
+            });
+          });
+        } catch (parseError) {
+          console.error('SVG解析失败:', parseError);
+          
+          // 即使解析失败，也继续处理，只是parsedItems为空数组
+          applyCannyEdgeDetectionOpenCV(image, 120, 250, async (edgeImage) => {
+            const whiteboardData = {
+              displayImage: edgeImage,
+              vectorSource: {
+                type: 'svg',
+                content: originalSvgContent,
+                parsedItems: []
+              }
+            };
+
+            localStorage.setItem('whiteboardImageData', JSON.stringify(whiteboardData));
+            
+            // 设置加载状态为false
+            setIsLoading(false);
+            
+            navigate('/whiteboard', { 
+              state: { 
+                hasVectorData: true,
+                displayImage: edgeImage,
+                vectorSource: {
+                  type: 'svg',
+                  content: originalSvgContent,
+                  parsedItems: []
+                }
+              } 
+            });
+          });
+        }
+      } else {
+        alert('原始图片矢量化失败，请重试');
+        setIsLoading(false);
+      }
+    } catch (error) {
+      console.error('线框提取和矢量化失败:', error);
+      alert('处理失败，请重试');
+      setIsLoading(false);
+    }
+  };
 
   // OpenCV.js 90度旋转：顺时针旋转图片90度
   function applyRotate90OpenCV(base64: string, callback: (result: string) => void) {
@@ -481,6 +651,10 @@ const HomePage: React.FC = () => {
     });
   }
 
+
+
+
+
   // 重置到原始图片：恢复图片到最初状态
   const resetToOriginal = () => {
     if (originalImage) {
@@ -498,8 +672,6 @@ const HomePage: React.FC = () => {
       navigate('/whiteboard');
     }
   };
-
-
 
   // 页面加载时根据路由state显示裁剪结果
   useEffect(() => {
@@ -584,6 +756,17 @@ const HomePage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
+      {/* 加载框 */}
+      {isLoading && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 flex flex-col items-center shadow-lg">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
+            <p className="text-lg font-medium text-gray-700">正在解析数据...</p>
+            <p className="text-sm text-gray-500 mt-2">请稍候</p>
+          </div>
+        </div>
+      )}
+
       {/* 标题区域 */}
       <div className="bg-white shadow-sm border-b border-gray-200 px-4 py-3">
         <h1 className="text-lg font-semibold text-gray-800">图片编辑</h1>
@@ -693,7 +876,7 @@ const HomePage: React.FC = () => {
             <button onClick={() => applyFilter('binary')} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">二值化</button>
             <button onClick={() => applyFilter('invert')} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">反色</button>
             <button onClick={() => { if (!image) return; if (window.cv && window.cv.GaussianBlur) { applyGaussianBlurOpenCV(image, 15, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">高斯模糊</button>
-            <button onClick={() => { if (!image) return; if (window.cv && window.cv.Canny) { applyCannyEdgeDetectionOpenCV(image, 120, 250, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">线框提取</button>
+            <button onClick={handleEdgeExtractionAndVectorization} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">线框提取</button>
             <button onClick={() => { if (!image) return; if (window.cv && window.cv.rotate) { applyRotate90OpenCV(image, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">旋转</button>
             <button onClick={() => { if (!image) return; navigate('/crop', { state: { image, original: originalImage } }); }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">裁剪</button>
             <button onClick={() => { if (!image) return; if (window.cv && window.cv.flip) { applyFlipHorizontalOpenCV(image, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">水平翻转</button>
@@ -702,6 +885,10 @@ const HomePage: React.FC = () => {
           </div>
         </div>
       </div>
+
+
+
+
 
       {/* 下一步按钮区域 */}
       <div className="bg-white border-t border-gray-200 px-4 py-3">
@@ -730,4 +917,4 @@ const HomePage: React.FC = () => {
   );
 };
 
-export default HomePage;
+export default HomePage; 
