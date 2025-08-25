@@ -1371,8 +1371,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       });
       return [{
         type: 'GROUP',
-        x: groupX,
-        y: groupY,
+        x: 0,
+        y: 0,
         width: groupWidth,
         height: groupHeight,
         rotation: 0,

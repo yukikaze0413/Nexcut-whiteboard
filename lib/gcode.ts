@@ -602,6 +602,7 @@ function rotatePoint(px: number, py: number, centerX: number, centerY: number, r
 function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): string[] {
   const paths: string[] = [];
   const { x = 0, y = 0 } = item;
+  const { scalex=1, scaley=1 } = item ;
   const rotation = 'rotation' in item ? item.rotation || 0 : 0;
 
   // 激光功率设置 (0-100范围)
@@ -1181,7 +1182,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
       }
 
       case CanvasItemType.POLYLINE: {
-        const { seg1 = 40, seg2 = 50, seg3 = 30, angle1 = 90, angle2 = 90 } = item.parameters;
+        const { seg1 = 40, seg2 = 50, seg3 = 30, angle } = item.parameters;
 
         console.log(`折线参数 - 段1: ${seg1}, 段2: ${seg2}, 段3: ${seg3}`);
 
@@ -1189,8 +1190,8 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const polylinePoints = [
           { x: x, y: y },                         // 起点
           { x: x + seg1, y: y },                  // 第一段终点
-          { x: x + seg1, y: y + seg2 },           // 第二段终点（垂直）
-          { x: x + seg1 + seg3, y: y + seg2 },    // 第三段终点（水平）
+          { x: x + seg1 + seg2*Math.cos((angle+180)/180*Math.PI), y: y + seg2*Math.sin((angle+180)/180*Math.PI) },           // 第二段终点（垂直）
+          { x: x + seg1 + seg2*Math.cos((angle+180)/180*Math.PI) + seg3, y: y + seg2*Math.sin((angle+180)/180*Math.PI) },    // 第三段终点（水平）
         ];
 
         // 应用旋转变换
@@ -1262,7 +1263,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         
         // 对当前笔段的所有点应用旋转和坐标转换
         const transformedPoints = stroke.map((point: { x: number; y: number }) => {
-          const rotated = rotatePoint(x + point.x, y + point.y, x, y, rotation);
+          const rotated = rotatePoint(x + point.x * scalex, y + point.y * scaley, x, y, rotation);
           return transformCoordinate(rotated.x, rotated.y, settings);
         });
 
@@ -1291,7 +1292,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         
         // 对当前笔段的所有点应用旋转和坐标转换
         const transformedPoints = stroke.map((point: { x: number; y: number }) => {
-          const rotated = rotatePoint(x + point.x, y + point.y, x, y, rotation);
+          const rotated = rotatePoint(x + point.x*scalex, y + point.y*scaley, x, y, rotation);
           return transformCoordinate(rotated.x, rotated.y, settings);
         });
 
@@ -1320,7 +1321,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
 
         // 对所有点应用旋转和坐标转换
         const transformedPoints = pointsToUse.map((point: { x: number; y: number }) => {
-          const rotated = rotatePoint(x + point.x, y + point.y, x, y, rotation);
+          const rotated = rotatePoint(x + point.x*scalex, y + point.y*scaley, x, y, rotation);
           return transformCoordinate(rotated.x, rotated.y, settings);
         });
 
@@ -1467,7 +1468,9 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
             // 将图像对象的旋转角度传递给矢量子对象
             rotation: rotation + (('rotation' in vectorItem ? vectorItem.rotation : 0) || 0),
             id: `vector_${Date.now()}_${Math.random()}`, // 临时ID
-            layerId: item.layerId
+            layerId: item.layerId,
+            scalex: scalex,
+            scaley: scaley
           } as CanvasItem;
 
           // 递归处理矢量对象
@@ -1486,8 +1489,8 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
     paths.push(`; 开始组合对象 位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
     for (const child of item.children) {
       // 先应用组合对象的旋转到子对象的位置
-      const childX = child.x || 0;
-      const childY = child.y || 0;
+      const childX = (child.x || 0)*scalex;
+      const childY = (child.y || 0)*scaley;
       const rotatedPos = rotatePoint(x + childX, y + childY, x, y, rotation);
 
       // 递归处理子对象，并相对于父对象的位置进行变换，同时传递旋转角度

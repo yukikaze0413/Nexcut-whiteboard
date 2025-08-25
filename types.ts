@@ -79,6 +79,8 @@ export interface Part {
   parameters: PartParameters;
   rotation: number;
   layerId: string;
+  scalex?:number;
+  scaley?:number;
 }
 
 export interface Drawing {
@@ -138,6 +140,8 @@ export interface GroupObject {
   rotation: number; // 新增
   children: CanvasItem[];
   layerId: string;
+  scalex?:number;
+  scaley?:number;
 }
 
 export type CanvasItem = Part | Drawing | TextObject | ImageObject | GroupObject;
