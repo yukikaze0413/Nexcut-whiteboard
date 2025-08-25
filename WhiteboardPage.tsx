@@ -81,7 +81,7 @@ function getGroupBoundingBox(items: CanvasItemData[]): { minX: number, minY: num
 /**
  * 辅助函数：创建使用中心坐标的绘图对象
  */
-function createCenterCoordinateDrawing(points: { x: number; y: number }[], attributes: any = {}): any {
+export function createCenterCoordinateDrawing(points: { x: number; y: number }[], attributes: any = {}): any {
   if (points.length < 2) return null;
   const minX = Math.min(...points.map(p => p.x));
   const maxX = Math.max(...points.map(p => p.x));
@@ -219,6 +219,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   const [processedImage, setProcessedImage] = useState<string | null>(null); // 跟踪已处理的图片
   const [showPerformanceConfig, setShowPerformanceConfig] = useState(false); // 性能配置面板
   const [showPerformanceMonitor, setShowPerformanceMonitor] = useState(false); // 性能监控面板
+  const [processedLocationState, setProcessedLocationState] = useState<any>(null); // 跟踪已处理的图片
 
   // 添加G代码生成进度弹窗状态
   const [isGeneratingGCode, setIsGeneratingGCode] = useState(false);
@@ -437,10 +438,91 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     } as Omit<ImageObject, 'id' | 'layerId'>);
   }, [addItem, canvasWidth, canvasHeight]);
 
-  // 处理从路由传递的图片数据
+  // 处理从路由传递的图片数据 - 分离处理location.state的变化
   useEffect(() => {
+    // 检查是否已经处理过这个location.state，避免重复处理
+    if (processedLocationState === location.state) {
+      return;
+    }
+
+    // 处理线框提取和矢量化的数据
+    if (location.state?.hasVectorData) {
+      console.log('接收到矢量图数据:', location.state);
+      
+      // 标记已处理
+      setProcessedLocationState(location.state);
+      
+      // 创建单一ImageObject：显示线框位图，但包含原始矢量数据用于G代码生成
+      if (location.state.displayImage && location.state.vectorSource) {
+        const displayImage = location.state.displayImage;
+        const vectorSource = location.state.vectorSource;
+        
+        const img = new Image();
+        img.onload = async () => {
+          // 根据画布大小动态设定图片最大尺寸（占画布的40%）
+          const MAX_IMAGE_WIDTH = canvasWidth * 0.4;
+          const MAX_IMAGE_HEIGHT = canvasHeight * 0.4;
+
+          let newWidth = img.width;
+          let newHeight = img.height;
+
+          // 计算缩放比例，保持原图宽高比
+          const scale = Math.min(MAX_IMAGE_WIDTH / img.width, MAX_IMAGE_HEIGHT / img.height, 1);
+          if (scale < 1) {
+            newWidth = img.width * scale;
+            newHeight = img.height * scale;
+          }
+
+          // 如果图片太小，设定一个最小尺寸
+          const MIN_SIZE = Math.min(canvasWidth, canvasHeight) * 0.05;
+          if (Math.max(newWidth, newHeight) < MIN_SIZE) {
+            const minScale = MIN_SIZE / Math.max(newWidth, newHeight);
+            newWidth *= minScale;
+            newHeight *= minScale;
+          }
+
+          // 使用从HomePage传递过来的已解析的parsedItems数据，如果没有则重新解析
+          let parsedItems: CanvasItemData[] = vectorSource.parsedItems || [];
+          if (parsedItems.length === 0 && vectorSource.type === 'svg' && vectorSource.content) {
+            try {
+              parsedItems = await parseSvgWithSvgson(vectorSource.content);
+              console.log('重新解析SVG内容成功，得到', parsedItems.length, '个矢量对象');
+            } catch (error) {
+              console.error('解析SVG内容失败:', error);
+            }
+          } else if (parsedItems.length > 0) {
+            console.log('使用已解析的SVG数据，包含', parsedItems.length, '个矢量对象');
+          }
+
+          // 添加单一ImageObject到画布
+          // href显示线框位图，vectorSource包含原始矢量数据
+          addItem({
+            type: CanvasItemType.IMAGE,
+            x: canvasWidth / 2,
+            y: canvasHeight / 2,
+            href: displayImage, // 显示线框位图
+            width: newWidth,
+            height: newHeight,
+            rotation: 0,
+            vectorSource: {
+              ...vectorSource,
+              parsedItems: parsedItems // 使用解析后的矢量数据
+            }
+          } as Omit<ImageObject, 'id' | 'layerId'>);
+        };
+        img.src = displayImage;
+      }
+
+      // 清除路由状态，避免重复处理
+      window.history.replaceState({}, document.title);
+      return;
+    }
+
+    // 处理普通图片数据（原有逻辑）
     if (location.state?.image && location.state.image !== processedImage) {
       setProcessedImage(location.state.image);
+      setProcessedLocationState(location.state);
+      
       const img = new Image();
       img.onload = () => {
         // 根据画布大小动态设定图片最大尺寸（占画布的70%）
@@ -477,7 +559,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       };
       img.src = location.state.image;
     }
-  }, [location.state?.image, canvasWidth, canvasHeight, addItem, processedImage]);
+  }, [location.state, canvasWidth, canvasHeight, addItem, processedImage, processedLocationState]);
 
   const updateItem = useCallback((itemId: string, updates: Partial<CanvasItem>) => {
     setItems(prevItems =>
@@ -827,13 +909,13 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           const cachedMatrix = transformCache.get(transformKey)!;
           currentTransform.multiplySelf(cachedMatrix);
         } else {
-          const tempG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        const tempG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
           tempG.setAttribute('transform', transformKey);
-          tempSvg.appendChild(tempG);
-          const ctm = tempG.getCTM();
+        tempSvg.appendChild(tempG);
+        const ctm = tempG.getCTM();
           if (ctm) {
             transformCache.set(transformKey, ctm);
-            currentTransform.multiplySelf(ctm);
+          currentTransform.multiplySelf(ctm);
           }
           tempSvg.removeChild(tempG);
         }
@@ -910,7 +992,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
               // 应用变换和缩放
               const allPoints: { x: number; y: number }[] = rawPoints.map(pt => {
-                const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+              const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
                 return { x: transformedPt.x * scaleX, y: transformedPt.y * scaleY };
               });
 
@@ -1168,7 +1250,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
               const absPoints = highPrecisionPoints;
 
-              if (absPoints.length >= 2) {
+            if (absPoints.length >= 2) {
                 let minX = absPoints[0].x, maxX = absPoints[0].x;
                 let minY = absPoints[0].y, maxY = absPoints[0].y;
                 for (let i = 1; i < absPoints.length; i++) {
@@ -1179,8 +1261,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                   if (p.y > maxY) maxY = p.y;
                 }
 
-                const centerX = (minX + maxX) / 2;
-                const centerY = (minY + maxY) / 2;
+              const centerX = (minX + maxX) / 2;
+              const centerY = (minY + maxY) / 2;
 
                 const originalPoints = highPrecisionPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY }));
                 const shouldSimplify = absPoints.length > performanceConfig.maxPointsPerPath / 2;
@@ -1191,19 +1273,19 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
                 console.log(`单路径采样: 高精度 ${highPrecisionPoints.length} 点 → 界面显示 ${displayPoints.length} 点`);
 
-                items.push({
-                  type: CanvasItemType.DRAWING,
-                  x: centerX,
-                  y: centerY,
+              items.push({
+                type: CanvasItemType.DRAWING,
+                x: centerX,
+                y: centerY,
                   points: displayPoints,
                   originalPoints: originalPoints,
-                  fillColor: node.attributes.fill,
-                  strokeWidth: Number(node.attributes['stroke-width']) || 0,
-                  color: '',
-                  rotation: 0,
-                });
-              }
+                fillColor: node.attributes.fill,
+                strokeWidth: Number(node.attributes['stroke-width']) || 0,
+                color: '',
+                rotation: 0,
+              });
             }
+          }
           }
           tempSvg.removeChild(tempPath);
         } catch (e) { 
@@ -1391,42 +1473,42 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         setIsImporting(true);
         setImportProgress(0);
 
-        const parsedItems = await parseSvgWithSvgson(file.content);
+      const parsedItems = await parseSvgWithSvgson(file.content);
         
-        if (parsedItems.length === 0) {
-          alert('SVG未识别到可导入的线条');
+      if (parsedItems.length === 0) {
+        alert('SVG未识别到可导入的线条');
           setIsImporting(false);
-        } else {
-          // 保存原始SVG内容用于G代码生成
-          const originalContent = file.content;
+      } else {
+        // 保存原始SVG内容用于G代码生成
+        const originalContent = file.content;
 
-          // 创建SVG图像用于显示
-          const dataUrl = 'data:image/svg+xml;base64,' + btoa(file.content);
-          const img = new Image();
-          img.onload = () => {
-            // 创建图像对象时包含矢量源数据
-            const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-              type: CanvasItemType.IMAGE,
-              x: canvasWidth / 2,
-              y: canvasHeight / 2,
-              width: img.width,
-              height: img.height,
-              href: dataUrl,
-              rotation: 0,
-              vectorSource: {
-                type: 'svg',
-                content: originalContent,
-                parsedItems: parsedItems,
-              }
-            };
+        // 创建SVG图像用于显示
+        const dataUrl = 'data:image/svg+xml;base64,' + btoa(file.content);
+        const img = new Image();
+        img.onload = () => {
+          // 创建图像对象时包含矢量源数据
+          const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
+            type: CanvasItemType.IMAGE,
+            x: canvasWidth / 2,
+            y: canvasHeight / 2,
+            width: img.width,
+            height: img.height,
+            href: dataUrl,
+            rotation: 0,
+            vectorSource: {
+              type: 'svg',
+              content: originalContent,
+              parsedItems: parsedItems,
+            }
+          };
 
-            addItem(imageData);
+          addItem(imageData);
             
             // 隐藏进度条
             setIsImporting(false);
             setImportProgress(0);
-          };
-          img.src = dataUrl;
+        };
+        img.src = dataUrl;
         }
       } catch (error) {
         console.error('SVG导入失败:', error);
@@ -2934,7 +3016,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl pointer-events-auto">
             <div className="flex items-center justify-center mb-4">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-            </div>
+    </div>
             <h3 className="text-lg font-semibold text-center mb-2">正在导入矢量文件</h3>
             <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
               <div
@@ -2994,5 +3076,205 @@ declare global {
     };
   }
 }
+
+// 导出SVG解析函数供其他组件使用
+export const parseSvgWithSvgson = async (svgContent: string): Promise<CanvasItemData[]> => {
+  const svgJson = await parseSvgson(svgContent);
+  // 获取viewBox和缩放
+  let viewBox: number[] = [0, 0, 0, 0];
+  let scaleX = 1, scaleY = 1;
+  if (svgJson.attributes.viewBox) {
+    viewBox = svgJson.attributes.viewBox.split(/\s+/).map(Number);
+  }
+  if (svgJson.attributes.width && svgJson.attributes.height && viewBox.length === 4 && viewBox[2] > 0 && viewBox[3] > 0) {
+    scaleX = parseFloat(svgJson.attributes.width) / viewBox[2];
+    scaleY = parseFloat(svgJson.attributes.height) / viewBox[3];
+  }
+
+  // 递归处理
+  function walk(node: any, parentTransform: DOMMatrix, items: CanvasItemData[] = []) {
+    // 跳过无关元素
+    const skipTags = ['defs', 'clipPath', 'mask', 'marker', 'symbol', 'use', 'style', 'title'];
+    if (skipTags.includes(node.name)) return items;
+
+    // 合并transform
+    let currentTransform = parentTransform.translate(0, 0); // 创建副本
+    if (node.attributes.transform) {
+      const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const tempG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      tempG.setAttribute('transform', node.attributes.transform);
+      tempSvg.appendChild(tempG);
+      const ctm = tempG.getCTM();
+      if (ctm) { // FIX: Check for null before using
+        currentTransform.multiplySelf(ctm);
+      }
+    }
+
+    // 处理path
+    if (node.name === 'path' && node.attributes.d) {
+      const d = node.attributes.d;
+      try {
+        const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        tempPath.setAttribute('d', d);
+        tempSvg.appendChild(tempPath);
+        const totalLength = tempPath.getTotalLength();
+        if (totalLength > 0) {
+          const sampleCount = Math.max(Math.floor(totalLength), 128);
+          const absPoints: { x: number, y: number }[] = [];
+          for (let i = 0; i <= sampleCount; i++) {
+            const len = (i / sampleCount) * totalLength;
+            const pt = tempPath.getPointAtLength(len);
+            const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+            absPoints.push({ x: transformedPt.x * scaleX, y: transformedPt.y * scaleY });
+          }
+          if (absPoints.length >= 2) {
+            const minX = Math.min(...absPoints.map(p => p.x));
+            const maxX = Math.max(...absPoints.map(p => p.x));
+            const minY = Math.min(...absPoints.map(p => p.y));
+            const maxY = Math.max(...absPoints.map(p => p.y));
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+            items.push({
+              type: CanvasItemType.DRAWING,
+              x: centerX,
+              y: centerY,
+              points: absPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY })),
+              fillColor: node.attributes.fill,
+              strokeWidth: Number(node.attributes['stroke-width']) || 0,
+              color: '',
+              rotation: 0,
+            });
+          }
+        }
+      } catch (e) { }
+    }
+    // 处理rect
+    else if (node.name === 'rect') {
+      const x = Number(node.attributes.x);
+      const y = Number(node.attributes.y);
+      const w = Number(node.attributes.width);
+      const h = Number(node.attributes.height);
+      const pts = [
+        { x: x, y: y },
+        { x: x + w, y: y },
+        { x: x + w, y: y + h },
+        { x: x, y: y + h },
+        { x: x, y: y },
+      ].map(pt => {
+        const tpt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+        return { x: tpt.x * scaleX, y: tpt.y * scaleY };
+      });
+      const drawing = createCenterCoordinateDrawing(pts, {
+        color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+        strokeWidth: Number(node.attributes['stroke-width']) || 2,
+        fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+      });
+      if (drawing) items.push(drawing);
+    }
+    // 处理circle
+    else if (node.name === 'circle') {
+      const cx = Number(node.attributes.cx);
+      const cy = Number(node.attributes.cy);
+      const r = Number(node.attributes.r);
+      const segs = 64;
+      const pts = Array.from({ length: segs + 1 }, (_, i) => {
+        const angle = (i / segs) * 2 * Math.PI;
+        const pt = new DOMPoint(cx + r * Math.cos(angle), cy + r * Math.sin(angle)).matrixTransform(currentTransform);
+        return { x: pt.x * scaleX, y: pt.y * scaleY };
+      });
+      const drawing = createCenterCoordinateDrawing(pts, {
+        color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+        strokeWidth: Number(node.attributes['stroke-width']) || 2,
+        fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+      });
+      if (drawing) items.push(drawing);
+    }
+    // 处理ellipse
+    else if (node.name === 'ellipse') {
+      const cx = Number(node.attributes.cx);
+      const cy = Number(node.attributes.cy);
+      const rx = Number(node.attributes.rx);
+      const ry = Number(node.attributes.ry);
+      const segs = 64;
+      const pts = Array.from({ length: segs + 1 }, (_, i) => {
+        const angle = (i / segs) * 2 * Math.PI;
+        const pt = new DOMPoint(cx + rx * Math.cos(angle), cy + ry * Math.sin(angle)).matrixTransform(currentTransform);
+        return { x: pt.x * scaleX, y: pt.y * scaleY };
+      });
+      const drawing = createCenterCoordinateDrawing(pts, {
+        color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+        strokeWidth: Number(node.attributes['stroke-width']) || 2,
+        fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+      });
+      if (drawing) items.push(drawing);
+    }
+    // 处理line
+    else if (node.name === 'line') {
+      const x1 = Number(node.attributes.x1);
+      const y1 = Number(node.attributes.y1);
+      const x2 = Number(node.attributes.x2);
+      const y2 = Number(node.attributes.y2);
+      const pts = [
+        new DOMPoint(x1, y1).matrixTransform(currentTransform),
+        new DOMPoint(x2, y2).matrixTransform(currentTransform),
+      ].map(pt => ({ x: pt.x * scaleX, y: pt.y * scaleY }));
+      const drawing = createCenterCoordinateDrawing(pts, {
+        color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+        strokeWidth: Number(node.attributes['stroke-width']) || 2,
+      });
+      if (drawing) items.push(drawing);
+    }
+    // 处理polygon
+    else if (node.name === 'polygon' && node.attributes.points) {
+      const rawPoints = node.attributes.points.trim().split(/\s+/).map((pair: string) => pair.split(',').map(Number));
+      const pts = rawPoints.map(([x, y]: [number, number]) => {
+        const pt = new DOMPoint(x, y).matrixTransform(currentTransform);
+        return { x: pt.x * scaleX, y: pt.y * scaleY };
+      });
+      if (pts.length >= 2) {
+        // polygon自动闭合
+        let points = pts;
+        if (pts.length < 2 || pts[0].x !== pts[pts.length - 1].x || pts[0].y !== pts[pts.length - 1].y) {
+          points = [...pts, pts[0]];
+        }
+        const drawing = createCenterCoordinateDrawing(points, {
+          color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+          strokeWidth: Number(node.attributes['stroke-width']) || 2,
+          fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+        });
+        if (drawing) items.push(drawing);
+      }
+    }
+    // 处理polyline
+    else if (node.name === 'polyline' && node.attributes.points) {
+      const rawPoints = node.attributes.points.trim().split(/\s+/).map((pair: string) => pair.split(',').map(Number));
+      const pts = rawPoints.map(([x, y]: [number, number]) => {
+        const pt = new DOMPoint(x, y).matrixTransform(currentTransform);
+        return { x: pt.x * scaleX, y: pt.y * scaleY };
+      });
+      if (pts.length >= 2) {
+        const drawing = createCenterCoordinateDrawing(pts, {
+          color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+          strokeWidth: Number(node.attributes['stroke-width']) || 2,
+          fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+        });
+        if (drawing) items.push(drawing);
+      }
+    }
+
+    // 递归children
+    if (node.children && node.children.length > 0) {
+      node.children.forEach((child: any) => walk(child, currentTransform, items));
+    }
+
+    return items;
+  }
+
+  const items: CanvasItemData[] = [];
+  const rootTransform = new DOMMatrix();
+  walk(svgJson, rootTransform, items);
+  return items;
+};
 
 export default WhiteboardPage;
