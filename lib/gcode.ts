@@ -1517,9 +1517,11 @@ function rotatePoint(px: number, py: number, centerX: number, centerY: number, r
  * @param settings 雕刻设置
  * @returns G代码路径数组
  */
+//MARK: 将矢量对象直接转换为G代码路径
 function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): string[] {
   const paths: string[] = [];
   const { x = 0, y = 0 } = item;
+  const { scalex = 1, scaley = 1 } = item;
   const rotation = 'rotation' in item ? item.rotation || 0 : 0;
 
   // 激光功率设置
@@ -2159,7 +2161,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
 
       // 对所有点应用旋转和坐标转换
       const transformedPoints = item.points.map(point => {
-        const rotated = rotatePoint(x + point.x, y + point.y, x, y, rotation);
+        const rotated = rotatePoint(x + point.x * scalex, y + point.y * scaley, x, y, rotation);
         return transformCoordinate(rotated.x, rotated.y, settings);
       });
 
@@ -2183,7 +2185,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
 
   // 处理图像对象
   // 8.8
-  // 处理图像对象
+  //MARK: 处理图像对象
   if (item.type === CanvasItemType.IMAGE) {
     const transformedPos = transformCoordinate(x, y, settings);
 
@@ -2269,11 +2271,14 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const imageCenterX = item.vectorSource.originalDimensions?.imageCenterX || item.x;
         const imageCenterY = item.vectorSource.originalDimensions?.imageCenterY || item.y;
         const rotatedPos = rotatePoint(x, y, imageCenterX, imageCenterY, rotation);
+        console.log('旋转调试:', x, y, imageCenterX, imageCenterY, rotation, '=>', rotatedPos);
         console.log("x", x, "y", y, "item.width", item.width, "item.height", item.height, "scaleX", scaleX, "scaleY", scaleY, "item.x", item.x, "item.y", item.y, "scaledVectorX", scaledVectorItem.x, "scaledVectorY", scaledVectorItem.y, "rotatedPosX", rotatedPos.x, "rotatedPosY", rotatedPos.y);
         const finalVectorItem: CanvasItem = {
           ...scaledVectorItem,
-          x: rotatedPos.x,
-          y: rotatedPos.y,
+          x: x,
+          y: y,
+          scalex: scaleX,
+          scaley: scaleY,
           rotation: rotation + (('rotation' in vectorItem ? vectorItem.rotation : 0) || 0),
           id: `vector_${Date.now()}_${Math.random()}`,
           layerId: item.layerId
@@ -2384,14 +2389,14 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
   //   }
   // }
 
-  // 处理组合对象
+  //MARK: 处理组合对象
   if (item.type === 'GROUP' && 'children' in item && Array.isArray(item.children)) {
     const transformedPos = transformCoordinate(x, y, settings);
     paths.push(`; 开始组合对象 位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
     for (const child of item.children) {
       // 先应用组合对象的旋转到子对象的位置
-      const childX = child.x || 0;
-      const childY = child.y || 0;
+      const childX = (child.x || 0) * scalex;
+      const childY = (child.y || 0) * scaley;
       const rotatedPos = rotatePoint(x + childX, y + childY, x, y, rotation);
 
       // 递归处理子对象，并相对于父对象的位置进行变换，同时传递旋转角度
@@ -2399,6 +2404,8 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         ...child,
         x: rotatedPos.x,
         y: rotatedPos.y,
+        scalex: scalex,
+        scaley: scaley,
         // 将组合对象的旋转角度传递给子对象
         rotation: rotation + (('rotation' in child ? child.rotation : 0) || 0)
       } as CanvasItem;
