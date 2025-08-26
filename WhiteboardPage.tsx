@@ -689,7 +689,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       min-width: 400px;
       max-width: 500px;
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      max-height: 80vh;
+      max-height: 80vh;n
       overflow-y: auto;
     `;
 
@@ -2654,26 +2654,36 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         const svgString = e.target?.result as string;
         if (!svgString) return;
 
-
-
         // 保存原始SVG内容用于G代码生成
         const originalContent = svgo.optimize(svgString, {
           plugins: [
-            // 使用 SVGO 的默认插件集，这已经能完成大部分优化工作
             {
               name: 'preset-default',
               params: {
                 overrides: {
-                  // 您的解析器需要 <g> 标签来处理变换，所以不要合并它们
-                  collapseGroups: false,
+                  convertShapeToPath: {
+                    convertArcs: false,
+                  },
+                  convertPathData: {
+                    applyTransforms: true,
+                    makeAbsolute: true,
+                    forceAbsolutePath: true,
+                  },
+                  mergePaths: {
+                    force: false,
+                    floatPrecision: 3,
+                    noSpaceAfterFlags: false
+                  }
                 },
               },
             },
-            'removeStyleElement', // 移除 <style> 标签，因为解析器不处理它
-            'removeScripts', // 移除 <script> 标签，保证安全
-            'cleanupIds', // 清理无用的ID
+            'removeStyleElement',
+            'collapseGroups',
+            'cleanupIds',
+
           ],
         }).data;
+        console.log(originalContent);
 
         // 解析SVG为矢量对象
         let parsedItems: CanvasItemData[] = [];
@@ -2683,22 +2693,39 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           console.warn('SVG解析失败，将使用位图模式:', error);
         }
         console.log(parsedItems);
+
+        // 尝试从SVG内容中直接解析viewBox
+        const viewBoxMatch = originalContent.match(/viewBox="([^"]*)"/);
+        let viewBoxX = 0;
+        let viewBoxY = 0;
+        if (viewBoxMatch && viewBoxMatch[1]) {
+          const viewBoxParts = viewBoxMatch[1].split(/\s+|,/).map(Number);
+          if (viewBoxParts.length === 4) {
+            // 使用 viewBox 的宽度和高度作为最精确的原始尺寸
+            viewBoxX = viewBoxParts[0];
+            viewBoxY = viewBoxParts[1];
+            console.log('成功解析 viewBox，得到 viewBox 起点:', viewBoxX, viewBoxY);
+          }
+        }
+        
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
         const img = new Image();
         img.onload = () => {
-          // 创建图像对象时包含矢量源数据
+
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
             x: canvasWidth / 2,
             y: canvasHeight / 2,
-            width: img.width,
-            height: img.height,
+            width: img.width,  // 显示尺寸仍然是渲染尺寸
+            height: img.height, // 显示尺寸仍然是渲染尺寸
             href: dataUrl,
             rotation: 0,
             vectorSource: {
               type: 'svg',
               content: originalContent,
-              parsedItems: parsedItems
+              parsedItems: parsedItems,
+              // 将我们精确解析出的 viewBox 尺寸存储起来
+              originalDimensions: { width: img.width, height: img.height, imageCenterX: viewBoxX + img.width / 2, imageCenterY: viewBoxY + img.height / 2 }
             }
           };
 
@@ -2714,27 +2741,38 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         const dxfString = e.target?.result as string;
         if (!dxfString) return;
 
-        // 保存原始SVG内容用于G代码生成
+        // 保存转换后的SVG内容用于G代码生成
         const originalContent = svgo.optimize(new Helper(dxfString).toSVG(), {
           plugins: [
-            // 使用 SVGO 的默认插件集，这已经能完成大部分优化工作
             {
               name: 'preset-default',
               params: {
                 overrides: {
-                  // 您的解析器需要 <g> 标签来处理变换，所以不要合并它们
-                  collapseGroups: false,
+                  convertShapeToPath: {
+                    convertArcs: true,
+                  },
+                  convertPathData: {
+                    applyTransforms: true,
+                    makeAbsolute: true,
+                    forceAbsolutePath: true,
+                  },
+                  mergePaths: {
+                    force: false,
+                    floatPrecision: 3,
+                    noSpaceAfterFlags: false
+                  }
                 },
               },
             },
-            'removeStyleElement', // 移除 <style> 标签，因为解析器不处理它
-            'removeScripts', // 移除 <script> 标签，保证安全
-            'cleanupIds', // 清理无用的ID
+            'removeStyleElement',
+            'collapseGroups',
+            'cleanupIds',
+
           ],
         }).data;
-        //console.log(originalContent);
+        console.log(originalContent);
 
-        // 解析SVG为矢量对象
+        // 解析DXF得到的SVG为矢量对象
         let parsedItems: CanvasItemData[] = [];
         try {
           parsedItems = await parseSvgWithSvgson(originalContent);
@@ -2742,30 +2780,48 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           console.warn('DXF解析失败，将使用位图模式:', error);
         }
         console.log(parsedItems);
+
+        // 尝试从SVG内容中直接解析viewBox
+        const viewBoxMatch = originalContent.match(/viewBox="([^"]*)"/);
+        let viewBoxX = 0;
+        let viewBoxY = 0;
+        if (viewBoxMatch && viewBoxMatch[1]) {
+          const viewBoxParts = viewBoxMatch[1].split(/\s+|,/).map(Number);
+          if (viewBoxParts.length === 4) {
+            // 使用 viewBox 的宽度和高度作为最精确的原始尺寸
+            viewBoxX = viewBoxParts[0];
+            viewBoxY = viewBoxParts[1];
+            console.log('成功解析 viewBox，得到 viewBox 起点:', viewBoxX, viewBoxY);
+          }
+        }
+
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
         const img = new Image();
         img.onload = () => {
-          // 创建图像对象时包含矢量源数据
+          let originalWidth = img.width;
+          let originalHeight = img.height;
+
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
             x: canvasWidth / 2,
             y: canvasHeight / 2,
-            width: img.width,
-            height: img.height,
+            width: img.width,  // 显示尺寸仍然是渲染尺寸
+            height: img.height, // 显示尺寸仍然是渲染尺寸
             href: dataUrl,
             rotation: 0,
             vectorSource: {
               type: 'svg',
               content: originalContent,
-              parsedItems: parsedItems
+              parsedItems: parsedItems,
+              // 将我们精确解析出的 viewBox 尺寸存储起来
+              originalDimensions: { width: img.width, height: img.height, imageCenterX: viewBoxX + img.width / 2, imageCenterY: viewBoxY + img.height / 2 }
             }
           };
-
           addItem(imageData);
         };
         img.src = dataUrl;
       };
-      reader.readAsText(file);
+      reader.readAsText(file);    
       //   reader.onload = async (e) => {
       //     try {
       //       const dxfContents = e.target?.result as string;
