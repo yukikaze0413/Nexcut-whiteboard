@@ -2655,7 +2655,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         if (!svgString) return;
 
         // 保存原始SVG内容用于G代码生成
-        const originalContent = svgo.optimize(svgString, {
+        var originalContent = svgo.optimize(svgString, {
           plugins: [
             {
               name: 'preset-default',
@@ -2685,14 +2685,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         }).data;
         console.log(originalContent);
 
-        // 解析SVG为矢量对象
-        let parsedItems: CanvasItemData[] = [];
-        try {
-          parsedItems = await parseSvgWithSvgson(originalContent);
-        } catch (error) {
-          console.warn('SVG解析失败，将使用位图模式:', error);
-        }
-        console.log(parsedItems);
+        
 
         // 尝试从SVG内容中直接解析viewBox
         const viewBoxMatch = originalContent.match(/viewBox="([^"]*)"/);
@@ -2707,11 +2700,28 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             console.log('成功解析 viewBox，得到 viewBox 起点:', viewBoxX, viewBoxY);
           }
         }
-        
+
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
         const img = new Image();
-        img.onload = () => {
+        img.onload = async () => {
 
+          // 尝试从SVG内容中直接解析viewBox
+        const widthMatch = originalContent.match(/width="([^"]*)"/);
+        if (!widthMatch) {
+          originalContent = originalContent.replace(
+            /(<\s*svg\b[^>]*)(>)/i,
+            `$1 width="${img.width}" height="${img.height}"$2`
+          );
+        }
+        // 解析SVG为矢量对象
+        let parsedItems: CanvasItemData[] = [];
+        try {
+          parsedItems = await parseSvgWithSvgson(originalContent);
+        } catch (error) {
+          console.warn('SVG解析失败，将使用位图模式:', error);
+        }
+        console.log(parsedItems);
+        
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
             x: canvasWidth / 2,
@@ -2724,13 +2734,13 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               type: 'svg',
               content: originalContent,
               parsedItems: parsedItems,
-              // 将我们精确解析出的 viewBox 尺寸存储起来
+              //MARK: 将我们精确解析出的 viewBox 尺寸存储起来
               originalDimensions: { width: img.width, height: img.height, imageCenterX: viewBoxX + img.width / 2, imageCenterY: viewBoxY + img.height / 2 }
             }
           };
-
           addItem(imageData);
         };
+
         img.src = dataUrl;
       };
       reader.readAsText(file);
