@@ -27,6 +27,16 @@ import PropertyIcon from './assets/属性.svg';
 import { Converter } from 'svg-to-gcode';
 import * as svgo from 'svgo';
 
+// UTF-8 安全的 base64 编码（用于包含中文的 SVG 文本）
+function toBase64Utf8(str: string): string {
+  try {
+    return window.btoa(unescape(encodeURIComponent(str)));
+  } catch (e) {
+    // 兜底：如果编码失败，退回原字符串（可能导致后续失败，但不阻塞）
+    return window.btoa(str);
+  }
+}
+
 // 浏览器端简易 HPGL 解析器，仅支持 PU/PD/PA 指令
 
 function simpleParseHPGL(content: string) {
@@ -1466,25 +1476,30 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
   // 处理导入文件
   const handleImportFile = useCallback(async (file: { name: string; ext: string; content: string }) => {
+    //alert(file.content);
     // SVG 导入
     if (file.ext === 'svg') {
       try {
+        alert("1");
         // 显示导入进度
         setIsImporting(true);
         setImportProgress(0);
-
+        alert("2");
       const parsedItems = await parseSvgWithSvgson(file.content);
-        
+      alert("3");
       if (parsedItems.length === 0) {
         alert('SVG未识别到可导入的线条');
           setIsImporting(false);
       } else {
+        alert("4");
         // 保存原始SVG内容用于G代码生成
         const originalContent = file.content;
-
+        alert("5");
         // 创建SVG图像用于显示
-        const dataUrl = 'data:image/svg+xml;base64,' + btoa(file.content);
+        const dataUrl = 'data:image/svg+xml;base64,' + toBase64Utf8(file.content);
+        alert("6");
         const img = new Image();
+        alert("7");
         img.onload = () => {
           // 创建图像对象时包含矢量源数据
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
@@ -1508,7 +1523,9 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             setIsImporting(false);
             setImportProgress(0);
         };
+        alert("8");
         img.src = dataUrl;
+        alert("9");
         }
       } catch (error) {
         console.error('SVG导入失败:', error);
@@ -1669,7 +1686,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         alert('DXF未识别到可导入的线条');
       } else {
         // 创建SVG图像用于显示
-        const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
+        const dataUrl = 'data:image/svg+xml;base64,' + toBase64Utf8(originalContent);
         const img = new Image();
         img.onload = () => {
           // 创建图像对象时包含矢量源数据
@@ -1800,7 +1817,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         const originalContent = file.content;
 
         // 创建PLT图像用于显示（这里简化处理，实际可能需要更复杂的转换）
-        const dataUrl = 'data:image/svg+xml;base64,' + btoa(`<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+        const dataUrl = 'data:image/svg+xml;base64,' + toBase64Utf8(`<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
           <rect width="100%" height="100%" fill="none"/>
           ${polylines.map(polyline => {
           const points = polyline.map(p => {
@@ -1862,9 +1879,34 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       };
       img.src = base64ata;
     };
+    // 提供给Android/iOS调用的矢量导入接口
+    (window as any).importVectorToWhiteboard = async (content: string, ext: string = 'svg') => {
+      try {
+        // 仅支持内联 SVG 文本（允许前置 XML 声明、DOCTYPE、注释）
+        const svgPattern = /^\s*(?:<\?xml[^>]*>\s*)?(?:<!DOCTYPE[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg[\s>]/i;
+        if (!svgPattern.test(content)) {
+          alert('仅支持内联 SVG 文本');
+          return;
+        }
+        const file = new File([content], 'android_import.svg', { type: 'image/svg+xml' });
+        const fakeEvent = { target: { files: [file] }, currentTarget: { value: '' } } as any;
+        handleImport(fakeEvent);
+      } catch (e) {
+        console.error('importVectorToWhiteboard 失败:', e);
+        alert('矢量数据导入失败');
+      }
+    };
+
+    // 如有来自首页的待处理矢量导入，立即处理
+    if ((window as any).__pendingVectorImport) {
+      const pending = (window as any).__pendingVectorImport;
+      (window as any).__pendingVectorImport = null;
+      (window as any).importVectorToWhiteboard?.(pending.content, pending.ext);
+    }
     // 可选：卸载时清理
     return () => {
       delete (window as any).setWhiteboardImage;
+      delete (window as any).importVectorToWhiteboard;
     };
   }, [addImage]);
 
@@ -1898,9 +1940,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       reader.onload = async (e) => {
         const svgString = e.target?.result as string;
         if (!svgString) return;
-
-
-
         // 保存原始SVG内容用于G代码生成
         const originalContent = svgo.optimize(svgString, {
            plugins: [
@@ -1928,7 +1967,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           console.warn('SVG解析失败，将使用位图模式:', error);
         }
         console.log(parsedItems);
-        const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
+        const dataUrl = 'data:image/svg+xml;base64,' + toBase64Utf8(originalContent);
         const img = new Image();
         img.onload = () => {
           // 创建图像对象时包含矢量源数据
@@ -2228,7 +2267,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     svgString: string,
     onComplete: (dataUrl: string, width: number, height: number) => void
   ) => {
-    const dataUrl = 'data:image/svg+xml;base64,' + btoa(svgString);
+    const dataUrl = 'data:image/svg+xml;base64,' + toBase64Utf8(svgString);
     const img = new Image();
     img.onload = () => {
       onComplete(dataUrl, img.width, img.height);
@@ -3074,6 +3113,10 @@ declare global {
       getPlatformSize?: () => string | { width: number | string; height: number | string }; // iOS获取画布大小接口
       saveBlobFile?: (base64: string, fileName: string, mimeType: string) => void; // iOS保存文件接口
     };
+    // 由原生(Android/iOS)调用，将矢量图数据导入白板。ext 支持 'svg' | 'dxf' | 'plt'
+    importVectorToWhiteboard?: (content: string, ext?: string) => void;
+    // 当白板未就绪时，暂存待导入的矢量数据
+    __pendingVectorImport?: { content: string; ext: string } | null;
   }
 }
 

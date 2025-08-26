@@ -16,8 +16,10 @@ import android.app.Activity;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.widget.Toast;
+
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+
 import android.os.Environment;
 import android.content.Context;
 import android.app.DownloadManager;
@@ -46,7 +48,7 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
     private final static int FILE_CHOOSER_RESULT_CODE = 10000;
     private final static int CAMERA_PERMISSION_REQUEST_CODE = 10001;
     private final static int STORAGE_PERMISSION_REQUEST_CODE = 10002;
-    
+
     // 自定义下载路径，默认为 Downloads 文件夹
     private String customDownloadPath = Environment.DIRECTORY_DOWNLOADS;
 
@@ -81,13 +83,13 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
             // 返回原始 insets，让系统继续处理
             return insets;
         });
-        
+
         // 设置自定义下载路径为 gcodes 文件夹
         File gcodesDir = getExternalFilesDir("gcodes");
         if (gcodesDir != null) {
             customDownloadPath = gcodesDir.getAbsolutePath();
         }
-        
+
         // 实例化 WebView 并设置为内容视图 (只执行一次)
         webView = findViewById(R.id.webView);
 //        webView = new WebView(this);
@@ -99,7 +101,7 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
         webSettings.setAllowUniversalAccessFromFileURLs(true);
         webSettings.setDomStorageEnabled(true);
         webSettings.setAllowContentAccess(true);
-        
+
         // 启用摄像头和麦克风权限
         webSettings.setMediaPlaybackRequiresUserGesture(false);
         webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
@@ -114,18 +116,18 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
                     handleBlobDownload(url, contentDisposition, mimeType);
                     return;
                 }
-                
+
                 // 检查存储权限
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    if (ContextCompat.checkSelfPermission(WebWhiteBoardActivity.this, 
+                    if (ContextCompat.checkSelfPermission(WebWhiteBoardActivity.this,
                             Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                        ActivityCompat.requestPermissions(WebWhiteBoardActivity.this, 
-                                new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 
+                        ActivityCompat.requestPermissions(WebWhiteBoardActivity.this,
+                                new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
                                 STORAGE_PERMISSION_REQUEST_CODE);
                         return;
                     }
                 }
-                
+
                 // 开始下载
                 startDownload(url, contentDisposition, mimeType);
             }
@@ -146,7 +148,7 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
                 startActivityForResult(Intent.createChooser(intent, "选择图片"), FILE_CHOOSER_RESULT_CODE);
                 return true;
             }
-            
+
             // 处理摄像头权限请求
             @Override
             public void onPermissionRequest(android.webkit.PermissionRequest request) {
@@ -154,11 +156,11 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
                 for (String resource : resources) {
                     if (resource.equals(android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
                         // 检查摄像头权限
-                        if (ContextCompat.checkSelfPermission(WebWhiteBoardActivity.this, 
+                        if (ContextCompat.checkSelfPermission(WebWhiteBoardActivity.this,
                                 Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                             // 请求摄像头权限
-                            ActivityCompat.requestPermissions(WebWhiteBoardActivity.this, 
-                                    new String[]{Manifest.permission.CAMERA}, 
+                            ActivityCompat.requestPermissions(WebWhiteBoardActivity.this,
+                                    new String[]{Manifest.permission.CAMERA},
                                     CAMERA_PERMISSION_REQUEST_CODE);
                         } else {
                             // 权限已授予，允许访问
@@ -183,6 +185,7 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
                     // finish();
                 });
             }
+
             @JavascriptInterface
             public String saveTempFile(String base64, String fileName) {
                 try {
@@ -198,12 +201,13 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
                     return "";
                 }
             }
+
             // 新增：前端主动请求画布大小
             @JavascriptInterface
             public String getPlatformSize() {
                 return String.format("{\"width\":%d,\"height\":%d}", Constant.PlatformWidth, Constant.PlatformHeight);
             }
-            
+
             // 新增：设置自定义下载路径
             @JavascriptInterface
             public void setDownloadPath(String path) {
@@ -212,13 +216,13 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
                     Toast.makeText(WebWhiteBoardActivity.this, "下载路径已设置为: " + path, Toast.LENGTH_SHORT).show();
                 });
             }
-            
+
             // 新增：获取当前下载路径
             @JavascriptInterface
             public String getDownloadPath() {
                 return customDownloadPath;
             }
-            
+
             // 新增：保存 blob 文件
             @JavascriptInterface
             public void saveBlobFile(String base64, String fileName, String mimeType) {
@@ -226,7 +230,7 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
                     try {
                         // 解码 base64 数据
                         byte[] decodedBytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
-                        
+
                         // 创建目标文件
                         File targetFile;
                         if (customDownloadPath.startsWith("/")) {
@@ -241,21 +245,21 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
                             File downloadDir = new File(Environment.getExternalStoragePublicDirectory(customDownloadPath), fileName);
                             targetFile = downloadDir;
                         }
-                        
+
                         // 写入文件
                         java.io.FileOutputStream fos = new java.io.FileOutputStream(targetFile);
                         fos.write(decodedBytes);
                         fos.close();
-                        
-                        Toast.makeText(WebWhiteBoardActivity.this, 
-                            "文件已保存: " + fileName + " 到 " + customDownloadPath, 
-                            Toast.LENGTH_SHORT).show();
-                            
+
+                        Toast.makeText(WebWhiteBoardActivity.this,
+                                "文件已保存: " + fileName + " 到 " + customDownloadPath,
+                                Toast.LENGTH_SHORT).show();
+
                     } catch (Exception e) {
                         e.printStackTrace();
-                        Toast.makeText(WebWhiteBoardActivity.this, 
-                            "保存文件失败: " + e.getMessage(), 
-                            Toast.LENGTH_SHORT).show();
+                        Toast.makeText(WebWhiteBoardActivity.this,
+                                "保存文件失败: " + e.getMessage(),
+                                Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -269,6 +273,7 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
 
                 // 处理图片传递
                 String imagePath = getIntent().getStringExtra("imagePath");
+                String vectorIMAGE = getIntent().getStringExtra("vectorIMAGE");
                 //Uri imageUri = getIntent().getParcelableExtra("imageUri");
 
                 if (imagePath != null && !imagePath.isEmpty()) {
@@ -319,11 +324,64 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
+                } else if (vectorIMAGE != null && !vectorIMAGE.isEmpty()) {
+                    try {
+                        File file;
+                        if (vectorIMAGE.startsWith("content://")) {
+                            Uri uri = Uri.parse(vectorIMAGE);
+                            InputStream is = getContentResolver().openInputStream(uri);
+                            // 读取为字符串
+                            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                            byte[] buffer = new byte[4096];
+                            int len;
+                            while ((len = is.read(buffer)) > 0) {
+                                baos.write(buffer, 0, len);
+                            }
+                            is.close();
+                            String content = new String(baos.toByteArray(), "UTF-8");
+
+                            // 尝试从 uri 推断扩展名
+                            String ext = "svg";
+                            String path = uri.getPath();
+                            if (path != null) {
+                                String lower = path.toLowerCase();
+                                if (lower.endsWith(".dxf")) ext = "dxf";
+                                else if (lower.endsWith(".plt")) ext = "plt";
+                                else if (lower.endsWith(".svg")) ext = "svg";
+                            }
+
+                            String js = "window.setWhiteboardVector(" + JSONObject.quote(content) + ", '" + ext + "')";
+                            webView.evaluateJavascript(js, null);
+                        } else {
+                            if (vectorIMAGE.startsWith("file://")) {
+                                vectorIMAGE = vectorIMAGE.substring(7);
+                            }
+                            file = new File(vectorIMAGE);
+                            if (file.exists()) {
+                                FileInputStream fis = new FileInputStream(file);
+                                byte[] bytes = new byte[(int) file.length()];
+                                int read = fis.read(bytes);
+                                fis.close();
+                                String content = new String(bytes, "UTF-8");
+
+                                String ext = "svg";
+                                String fileName = file.getName().toLowerCase();
+                                if (fileName.endsWith(".dxf")) ext = "dxf";
+                                else if (fileName.endsWith(".plt")) ext = "plt";
+                                else if (fileName.endsWith(".svg")) ext = "svg";
+
+                                String js = "window.setWhiteboardVector(" + JSONObject.quote(content) + ", '" + ext + "')";
+                                webView.evaluateJavascript(js, null);
+                            }
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
                 } else {
                     // 当imagePath为空或不存在时，直接跳转到白板界面
                     String jsCode = "window.setWhiteboardImage();";
                     webView.evaluateJavascript(jsCode, null);
-                    
+
                     // 旧方案：通过base64参数传递（已注释，保留作为备份）
                     /*
                     String imageBase64 = getIntent().getStringExtra("imageBase64");
@@ -341,6 +399,7 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
 
     /**
      * 设置自定义下载路径
+     *
      * @param path 下载路径，可以是相对路径或绝对路径
      */
     public void setCustomDownloadPath(String path) {
@@ -349,6 +408,7 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
 
     /**
      * 获取当前下载路径
+     *
      * @return 当前下载路径
      */
     public String getCustomDownloadPath() {
@@ -362,13 +422,13 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
         try {
             // 获取文件名
             String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
-            
+
             // 创建下载请求
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
             request.setTitle("下载文件");
             request.setDescription("正在下载: " + fileName);
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            
+
             // 根据自定义路径设置下载位置
             if (customDownloadPath.startsWith("/")) {
                 // 绝对路径
@@ -381,9 +441,9 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
                 // 相对路径（相对于外部存储）
                 request.setDestinationInExternalPublicDir(customDownloadPath, fileName);
             }
-            
+
             request.setMimeType(mimeType);
-            
+
             // 获取下载管理器
             DownloadManager downloadManager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
             if (downloadManager != null) {
@@ -405,24 +465,24 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
         try {
             // 获取文件名
             String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
-            
+
             // 通过 JavaScript 获取 blob 数据
             String jsCode = String.format(
-                "(function() {" +
-                "  var xhr = new XMLHttpRequest();" +
-                "  xhr.open('GET', '%s', false);" +
-                "  xhr.responseType = 'blob';" +
-                "  xhr.send();" +
-                "  var reader = new FileReader();" +
-                "  reader.onload = function() {" +
-                "    var base64 = reader.result.split(',')[1];" +
-                "    Android.saveBlobFile(base64, '%s', '%s');" +
-                "  };" +
-                "  reader.readAsDataURL(xhr.response);" +
-                "})();", url, fileName, mimeType);
-            
+                    "(function() {" +
+                            "  var xhr = new XMLHttpRequest();" +
+                            "  xhr.open('GET', '%s', false);" +
+                            "  xhr.responseType = 'blob';" +
+                            "  xhr.send();" +
+                            "  var reader = new FileReader();" +
+                            "  reader.onload = function() {" +
+                            "    var base64 = reader.result.split(',')[1];" +
+                            "    Android.saveBlobFile(base64, '%s', '%s');" +
+                            "  };" +
+                            "  reader.readAsDataURL(xhr.response);" +
+                            "})();", url, fileName, mimeType);
+
             webView.evaluateJavascript(jsCode, null);
-            
+
         } catch (Exception e) {
             e.printStackTrace();
             Toast.makeText(this, "下载失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
@@ -445,11 +505,11 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
             uploadMessage = null;
         }
     }
-    
+
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        
+
         if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 // 摄像头权限已授予
