@@ -15,6 +15,10 @@ declare global {
     setCanvasSize?: (width: number, height: number) => void; // Android设置画布尺寸接口
     __pendingHomePageImage?: string; // 缓存首页图片数据
     __pendingWhiteboardImage?: { base64Data?: string; timestamp: number }; // 缓存白板图片数据
+    // Android 调用：导入矢量并跳转白板
+    setWhiteboardVector?: (content: string, ext?: string) => void;
+    // 缓存矢量导入数据，供白板页面读取
+    __pendingVectorImport?: { content: string; ext: string } | null;
   }
 }
 
@@ -58,6 +62,17 @@ const HomePage: React.FC = () => {
       }
     };
 
+    // Android 调用：设置矢量并跳转白板
+    (window as any).setWhiteboardVector = (content: string, ext: string = 'svg') => {
+      try {
+        (window as any).__pendingVectorImport = { content, ext: (ext || 'svg').toLowerCase() };
+        navigate('/whiteboard');
+      } catch (e) {
+        console.error('setWhiteboardVector 失败:', e);
+        alert('无法导入矢量数据');
+      }
+    };
+
     // 检查是否有缓存的图片数据
     if ((window as any).__pendingHomePageImage) {
       const cachedData = (window as any).__pendingHomePageImage;
@@ -88,6 +103,7 @@ const HomePage: React.FC = () => {
     return () => {
       delete (window as any).setHomePageImage;
       delete (window as any).setWhiteboardImage;
+      delete (window as any).setWhiteboardVector;
     };
   }, [navigate]);
 
