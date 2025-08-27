@@ -517,7 +517,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       return;
     }
 
-    // 处理线框提取和矢量化的数据
+    //MARK: 处理线框提取和矢量化的数据
     if (location.state?.hasVectorData) {
       console.log('接收到矢量图数据:', location.state);
 
@@ -578,7 +578,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             rotation: 0,
             vectorSource: {
               ...vectorSource,
-              parsedItems: parsedItems // 使用解析后的矢量数据
+              parsedItems: parsedItems, // 使用解析后的矢量数据
+              originalDimensions: { width: img.width, height: img.height, imageCenterX:  img.width / 2, imageCenterY: img.height / 2 }
             }
           } as Omit<ImageObject, 'id' | 'layerId'>);
         };
@@ -2706,21 +2707,31 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         img.onload = async () => {
 
           // 尝试从SVG内容中直接解析viewBox
-        const widthMatch = originalContent.match(/width="([^"]*)"/);
-        if (!widthMatch) {
-          originalContent = originalContent.replace(
-            /(<\s*svg\b[^>]*)(>)/i,
+          // const widthMatch = originalContent.match(/width="([^"]*)"/);
+          // if (!widthMatch) {
+          //   originalContent = originalContent.replace(
+          //     /(<\s*svg\b[^>]*)(>)/i,
+          //     `$1 width="${img.width}" height="${img.height}"$2`
+          //   );
+          // }
+          let newContent = originalContent
+            .replace(/\s*\bwidth\s*=\s*"[^"]*"/g, '')   // 去掉 width
+            .replace(/\s*\bheight\s*=\s*"[^"]*"/g, ''); // 去掉 height
+          // 再插入新的 width / height
+          newContent = newContent.replace(
+            /(<\s*svg\b)([^>]*>)/i,
             `$1 width="${img.width}" height="${img.height}"$2`
           );
-        }
-        // 解析SVG为矢量对象
-        let parsedItems: CanvasItemData[] = [];
-        try {
-          parsedItems = await parseSvgWithSvgson(originalContent);
-        } catch (error) {
-          console.warn('SVG解析失败，将使用位图模式:', error);
-        }
-        console.log(parsedItems);
+
+          originalContent = newContent;
+          // 解析SVG为矢量对象
+          let parsedItems: CanvasItemData[] = [];
+          try {
+            parsedItems = await parseSvgWithSvgson(originalContent);
+          } catch (error) {
+            console.warn('SVG解析失败，将使用位图模式:', error);
+          }
+          console.log(parsedItems);
         
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
