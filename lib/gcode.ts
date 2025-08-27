@@ -2101,17 +2101,18 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
       }
 
       case CanvasItemType.POLYLINE: {
-        const { seg1 = 40, seg2 = 50, seg3 = 30, angle1 = 90, angle2 = 90 } = item.parameters;
+        const { seg1 = 40, seg2 = 50, seg3 = 30, angle } = item.parameters;
 
         console.log(`折线参数 - 段1: ${seg1}, 段2: ${seg2}, 段3: ${seg3}`);
 
         // 折线的关键点（简化处理）
         const polylinePoints = [
-          { x: x, y: y },                         // 起点
-          { x: x + seg1, y: y },                  // 第一段终点
-          { x: x + seg1, y: y + seg2 },           // 第二段终点（垂直）
-          { x: x + seg1 + seg3, y: y + seg2 },    // 第三段终点（水平）
-        ];
+                    { x: x  - seg1 - seg2*Math.cos((angle+180)/180*Math.PI)/2, y: y - seg2*Math.sin((angle+180)/180*Math.PI)/2 },           // 第一段起点
+                    { x: x  - seg2*Math.cos((angle+180)/180*Math.PI)/2, y: y - seg2*Math.sin((angle+180)/180*Math.PI)/2 },           // 第二段起点（转折开始）
+                    { x: x, y: y },                         // 中心点
+                    { x: x  + seg2*Math.cos((angle+180)/180*Math.PI)/2 , y: y + seg2*Math.sin((angle+180)/180*Math.PI)/2 },    // 第二段终点（转折结束）
+                    { x: x  + seg3 + seg2*Math.cos((angle+180)/180*Math.PI)/2 , y: y + seg2*Math.sin((angle+180)/180*Math.PI)/2 },    // 第二段终点（转折结束）
+         ];
 
         // 应用旋转变换
         const rotatedPolylinePoints = polylinePoints.map(point =>

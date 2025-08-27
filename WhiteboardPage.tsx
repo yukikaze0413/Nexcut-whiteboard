@@ -1546,10 +1546,10 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     if (svgJson.attributes.viewBox) {
       viewBox = svgJson.attributes.viewBox.split(/\s+/).map(Number);
     }
-    if (svgJson.attributes.width && svgJson.attributes.height && viewBox.length === 4 && viewBox[2] > 0 && viewBox[3] > 0) {
-      scaleX = parseFloat(svgJson.attributes.width) / viewBox[2];
-      scaleY = parseFloat(svgJson.attributes.height) / viewBox[3];
-    }
+    // if (svgJson.attributes.width && svgJson.attributes.height && viewBox.length === 4 && viewBox[2] > 0 && viewBox[3] > 0) {
+    //   scaleX = parseFloat(svgJson.attributes.width) / viewBox[2];
+    //   scaleY = parseFloat(svgJson.attributes.height) / viewBox[3];
+    // }
 
     // 递归处理
     function walk(node: any, parentTransform: DOMMatrix, items: CanvasItemData[] = []) {
