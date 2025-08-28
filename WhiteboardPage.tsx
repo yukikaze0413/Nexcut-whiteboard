@@ -2706,24 +2706,21 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         const img = new Image();
         img.onload = async () => {
 
-          // 尝试从SVG内容中直接解析viewBox
-          // const widthMatch = originalContent.match(/width="([^"]*)"/);
-          // if (!widthMatch) {
-          //   originalContent = originalContent.replace(
-          //     /(<\s*svg\b[^>]*)(>)/i,
-          //     `$1 width="${img.width}" height="${img.height}"$2`
-          //   );
-          // }
-          let newContent = originalContent
-            .replace(/\s*\bwidth\s*=\s*"[^"]*"/g, '')   // 去掉 width
-            .replace(/\s*\bheight\s*=\s*"[^"]*"/g, ''); // 去掉 height
-          // 再插入新的 width / height
-          newContent = newContent.replace(
-            /(<\s*svg\b)([^>]*>)/i,
-            `$1 width="${img.width}" height="${img.height}"$2`
-          );
+          // let newContent = originalContent
+          //   .replace(/\s*\bwidth\s*=\s*"[^"]*"/g, '')   // 去掉 width
+          //   .replace(/\s*\bheight\s*=\s*"[^"]*"/g, ''); // 去掉 height
+          // // 再插入新的 width / height
+          // newContent = newContent.replace(
+          //   /(<\s*svg\b)([^>]*>)/i,
+          //   `$1 width="${img.width}" height="${img.height}"$2`
+          // );
+          // originalContent = newContent;
 
-          originalContent = newContent;
+          // 2. 提取旧 viewBox
+          const vbMatch = originalContent.match(/viewBox="([^"]+)"/);
+          if (!vbMatch) throw new Error('No viewBox found');
+          const [x, y, w, h] = vbMatch[1].split(/\s+/).map(Number);
+          
           // 解析SVG为矢量对象
           let parsedItems: CanvasItemData[] = [];
           try {
@@ -2746,7 +2743,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               content: originalContent,
               parsedItems: parsedItems,
               //MARK: 将我们精确解析出的 viewBox 尺寸存储起来
-              originalDimensions: { width: img.width, height: img.height, imageCenterX: viewBoxX + img.width / 2, imageCenterY: viewBoxY + img.height / 2 }
+              originalDimensions: { width: w, height: h, imageCenterX: viewBoxX + w / 2, imageCenterY: viewBoxY + h / 2 }
             }
           };
           addItem(imageData);
@@ -2763,7 +2760,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         if (!dxfString) return;
 
         // 保存转换后的SVG内容用于G代码生成
-        const originalContent = svgo.optimize(new Helper(dxfString).toSVG(), {
+        var originalContent = svgo.optimize(new Helper(dxfString).toSVG(), {
           plugins: [
             {
               name: 'preset-default',
@@ -2791,16 +2788,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
           ],
         }).data;
+        
         console.log(originalContent);
-
-        // 解析DXF得到的SVG为矢量对象
-        let parsedItems: CanvasItemData[] = [];
-        try {
-          parsedItems = await parseSvgWithSvgson(originalContent);
-        } catch (error) {
-          console.warn('DXF解析失败，将使用位图模式:', error);
-        }
-        console.log(parsedItems);
 
         // 尝试从SVG内容中直接解析viewBox
         const viewBoxMatch = originalContent.match(/viewBox="([^"]*)"/);
@@ -2818,9 +2807,34 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
         const img = new Image();
-        img.onload = () => {
+        img.onload = async () => {
           let originalWidth = img.width;
           let originalHeight = img.height;
+
+          // 2. 提取旧 viewBox
+          const vbMatch = originalContent.match(/viewBox="([^"]+)"/);
+          if (!vbMatch) throw new Error('No viewBox found');
+          const [x, y, w, h] = vbMatch[1].split(/\s+/).map(Number);
+
+          // let newContent = originalContent
+          //   .replace(/\s*\b width\s*=\s*"[^"]*"/g, ' ')   // 去掉 _width
+          //   .replace(/\s*\bheight\s*=\s*"[^"]*"/g, ''); // 去掉 height
+          // // 再插入新的 width / height
+          // newContent = newContent.replace(
+          //   /(<\s*svg\b)([^>]*>)/i,
+          //   `$1 width="${img.width}" height="${img.height}"$2`
+          // );
+          // originalContent = newContent;
+
+          // 解析DXF得到的SVG为矢量对象
+          let parsedItems: CanvasItemData[] = [];
+          try {
+            parsedItems = await parseSvgWithSvgson(originalContent);
+          } catch (error) {
+            console.warn('DXF解析失败，将使用位图模式:', error);
+          }
+          console.log('从DXF转换得到的SVG解析结果:'+ originalContent);
+          console.log(parsedItems);
 
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
@@ -2835,7 +2849,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               content: originalContent,
               parsedItems: parsedItems,
               // 将我们精确解析出的 viewBox 尺寸存储起来
-              originalDimensions: { width: img.width, height: img.height, imageCenterX: viewBoxX + img.width / 2, imageCenterY: viewBoxY + img.height / 2 }
+              // originalDimensions: { width: img.width, height: img.height, imageCenterX: viewBoxX + img.width / 2, imageCenterY: viewBoxY + img.height / 2 }
+              originalDimensions: { width: w, height: h, imageCenterX: viewBoxX + w / 2, imageCenterY: viewBoxY + h / 2 }
             }
           };
           addItem(imageData);
