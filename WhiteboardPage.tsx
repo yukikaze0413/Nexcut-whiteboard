@@ -2795,15 +2795,28 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         const viewBoxMatch = originalContent.match(/viewBox="([^"]*)"/);
         let viewBoxX = 0;
         let viewBoxY = 0;
+        let viewBoxW = 0;
+        let viewBoxH = 0;
         if (viewBoxMatch && viewBoxMatch[1]) {
           const viewBoxParts = viewBoxMatch[1].split(/\s+|,/).map(Number);
           if (viewBoxParts.length === 4) {
             // 使用 viewBox 的宽度和高度作为最精确的原始尺寸
             viewBoxX = viewBoxParts[0];
             viewBoxY = viewBoxParts[1];
+            viewBoxW = viewBoxParts[2];
+            viewBoxH = viewBoxParts[3];
             console.log('成功解析 viewBox，得到 viewBox 起点:', viewBoxX, viewBoxY);
           }
         }
+        let newContent = originalContent
+          .replace(/\s*\b width\s*=\s*"[^"]*"/g, ' ')   // 去掉 width
+          .replace(/\s*\b height\s*=\s*"[^"]*"/g, ' '); // 去掉 height
+        // 再插入新的 width / height
+        newContent = newContent.replace(
+          /(<\s*svg\b)([^>]*>)/i,
+          `$1 width="${300}" height="${300/viewBoxW*viewBoxH}"$2`
+        );
+        originalContent = newContent;
 
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
         const img = new Image();
