@@ -2810,7 +2810,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         }
         let newContent = originalContent
           .replace(/\s*\b width\s*=\s*"[^"]*"/g, ' ')   // 去掉 width
-          .replace(/\s*\b height\s*=\s*"[^"]*"/g, ' '); // 去掉 height
+          .replace(/\s*\b height\s*=\s*"[^"]*"/g, ' ') // 去掉 height
+          .replace(/\s*preserveAspectRatio="[^"]*"/g, ''); //dxf生成的svg，有了这个属性，img里的svg显示不居中了，g代码是居中的，所以去掉
         // 再插入新的 width / height
         newContent = newContent.replace(
           /(<\s*svg\b)([^>]*>)/i,
