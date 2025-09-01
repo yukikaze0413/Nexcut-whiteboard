@@ -12,6 +12,7 @@ import { generatePlatformScanGCode, GCodeScanSettings } from './lib/gcode';
 import LayerSettingsPanel from './components/LayerSettingsPanel';
 import PerformanceConfigPanel from './components/PerformanceConfigPanel';
 import PerformanceMonitor from './components/PerformanceMonitor';
+import ImportProgressModal from './components/ImportProgressModal';
 // @ts-ignore
 import { Helper, parseString as parseDxf } from 'dxf';
 import { parse as parseSvgson } from 'svgson';
@@ -308,7 +309,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     simplificationTolerance: 2.0,  // 路径简化容差
     batchSize: 50,                // 批处理大小
     enableLOD: true,              // 启用细节层次
-    maxTotalPoints: 5000          // 总点数限制
+    maxTotalPoints: 100000         // 总点数限制
   });
 
 
@@ -1537,7 +1538,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   //   return items;
   // }, []);
 
-  // svgson + svg.js递归解析SVG节点 8-25
+  // svgson + svg.js递归解析SVG节点 8-25 - 增强版本支持分帧处理
   const parseSvgWithSvgson = useCallback(async (svgContent: string): Promise<CanvasItemData[]> => {
     const svgJson = await parseSvgson(svgContent);
     // 获取viewBox和缩放
@@ -1551,8 +1552,32 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     //   scaleY = parseFloat(svgJson.attributes.height) / viewBox[3];
     // }
 
-    // 递归处理
-    function walk(node: any, parentTransform: DOMMatrix, items: CanvasItemData[] = []) {
+    // 分帧处理辅助函数
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    
+    let processedCount = 0;
+    let totalPathCount = 0;
+    
+    // 预计算总路径数量
+    const countPaths = (node: any): number => {
+      let count = 0;
+      if (node.name === 'path' && node.attributes.d) count = 1;
+      if (node.children) {
+        node.children.forEach((child: any) => count += countPaths(child));
+      }
+      return count;
+    };
+    
+    totalPathCount = countPaths(svgJson);
+    console.log(`开始解析SVG，预计包含 ${totalPathCount} 个路径`);
+    
+    // 更新导入状态
+    setIsImporting(true);
+    setImportProgress(0);
+    setImportStatus(`开始解析SVG，预计包含 ${totalPathCount} 个路径`);
+
+    // 递归处理 - 增强版本
+    async function walk(node: any, parentTransform: DOMMatrix, items: CanvasItemData[] = []): Promise<CanvasItemData[]> {
       // 跳过无关元素
       const skipTags = ['defs', 'clipPath', 'mask', 'marker', 'symbol', 'use', 'style', 'title'];
       if (skipTags.includes(node.name)) return items;
@@ -1584,6 +1609,16 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
         for (const subPathData of subPathChunks) {
           try {
+            // 每处理一定数量的路径后让出控制权
+            processedCount++;
+            if (processedCount % performanceConfig.batchSize === 0) {
+              const progress = (processedCount / totalPathCount) * 100;
+              console.log(`已处理 ${processedCount}/${totalPathCount} 个路径 (${progress.toFixed(1)}%)`);
+              setImportProgress(progress);
+              setImportStatus(`正在解析路径 ${processedCount}/${totalPathCount}`);
+              await sleep(0); // 让出控制权给UI线程
+            }
+
             let effectiveD: string;
             const command = subPathData.trim()[0];
             const isRelative = command === 'm';
@@ -1625,20 +1660,45 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             const totalLength = tempPath.getTotalLength();
 
             if (totalLength > viewboxDiagonalLength / 10000) {
-              const absPoints = adaptiveSamplePath(tempPath, { minSegmentLength: 2, curvatureThreshold: 0.1, maxSamples: 500 }).map(pt => {
+              // 使用性能配置动态调整采样参数
+              const maxSamples = Math.min(performanceConfig.maxPointsPerPath, 500);
+              const curvatureThreshold = Math.max(0.1, performanceConfig.simplificationTolerance / 20);
+              
+              let absPoints = adaptiveSamplePath(tempPath, { 
+                minSegmentLength: 2, 
+                curvatureThreshold: curvatureThreshold, 
+                maxSamples: maxSamples 
+              }).map(pt => {
                 const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
                 return { x: transformedPt.x * scaleX, y: transformedPt.y * scaleY };
               });
 
+              // 如果点数仍然过多，使用道格拉斯-普克算法进一步简化
+              if (absPoints.length > performanceConfig.maxPointsPerPath) {
+                absPoints = simplifyPath(absPoints, performanceConfig.simplificationTolerance, performanceConfig.maxPointsPerPath);
+              }
+
               if (absPoints.length >= 2) {
-                const drawing = createCenterCoordinateDrawing(absPoints, {
-                  fillColor: node.attributes.fill,
-                  strokeWidth: Number(node.attributes['stroke-width']) || 0,
-                  color: node.attributes.stroke || '#2563eb',
-                  rotation: 0,
-                });
-                if (drawing) {
-                  items.push(drawing);
+                // 检查总点数限制
+                const currentTotalPoints = items.reduce((total, item) => {
+                  if (item.type === 'DRAWING' && item.points) {
+                    return total + item.points.length;
+                  }
+                  return total;
+                }, 0);
+                
+                if (currentTotalPoints + absPoints.length <= performanceConfig.maxTotalPoints) {
+                  const drawing = createCenterCoordinateDrawing(absPoints, {
+                    fillColor: node.attributes.fill,
+                    strokeWidth: Number(node.attributes['stroke-width']) || 0,
+                    color: node.attributes.stroke || '#2563eb',
+                    rotation: 0,
+                  });
+                  if (drawing) {
+                    items.push(drawing);
+                  }
+                } else {
+                  console.warn(`跳过路径：总点数将超过限制 (${currentTotalPoints + absPoints.length} > ${performanceConfig.maxTotalPoints})`);
                 }
               }
 
@@ -1809,16 +1869,26 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         }
       }
 
-      // 递归children
+      // 递归children - 使用异步处理
       if (node.children && node.children.length > 0) {
-        node.children.forEach((child: any) => walk(child, currentTransform, items));
+        for (const child of node.children) {
+          await walk(child, currentTransform, items);
+        }
       }
 
       return items;
     }
     const items: CanvasItemData[] = [];
     const rootTransform = new DOMMatrix();
-    walk(svgJson, rootTransform, items);
+    await walk(svgJson, rootTransform, items);
+    console.log(`SVG解析完成，共生成 ${items.length} 个对象`);
+    
+    // 完成导入
+    setImportProgress(100);
+    setImportStatus(`解析完成，共生成 ${items.length} 个对象`);
+    setTimeout(() => {
+      setIsImporting(false);
+    }, 1000); // 显示完成状态1秒后关闭
     // 合并为GROUP（如果有多个子物体）
     if (items.length > 1) {
       const bbox = getGroupBoundingBox(items);
@@ -3909,6 +3979,14 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           onClose={() => setShowPerformanceConfig(false)}
         />
       )}
+
+      {/* 导入进度模态框 */}
+      <ImportProgressModal
+        isVisible={isImporting}
+        progress={importProgress}
+        status={importStatus}
+        onCancel={() => setIsImporting(false)}
+      />
 
       {/* 性能监控组件 */}
       <PerformanceMonitor
