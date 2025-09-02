@@ -305,11 +305,11 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
   // 添加性能优化配置
   const [performanceConfig, setPerformanceConfig] = useState({
-    maxPointsPerPath: 500,        // 每个路径最大点数
+    maxPointsPerPath: Infinity,        // 每个路径最大点数
     simplificationTolerance: 2.0,  // 路径简化容差
     batchSize: 50,                // 批处理大小
     enableLOD: true,              // 启用细节层次
-    maxTotalPoints: 100000         // 总点数限制
+    maxTotalPoints: 500000         // 总点数限制
   });
 
 
@@ -2708,10 +2708,29 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                     force: false,
                     floatPrecision: 3,
                     noSpaceAfterFlags: false
-                  }
+                  },
+                  removeAttrs: {
+                    attrs: 'svg:preserveAspectRatio',
+                  },
                 },
               },
             },
+            {
+              name: 'removeAttrs',
+              params: {
+                attrs: 'svg:preserveAspectRatio',
+              }
+            },
+            // {
+            //   name: 'addAttributesToSVGElement',
+            //   params: {
+            //     attributes: [
+            //       {
+            //         preserveAspectRatio: 'none',
+            //       },
+            //     ],
+            //   },
+            // },
             'removeStyleElement',
             'collapseGroups',
             'cleanupIds',
@@ -2812,10 +2831,26 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                     force: false,
                     floatPrecision: 3,
                     noSpaceAfterFlags: false
-                  }
+                  },
                 },
               },
             },
+            {
+              name: 'removeAttrs',
+              params: {
+                attrs: 'svg:preserveAspectRatio',
+              }
+            },
+            // {
+            //   name: 'addAttributesToSVGElement',
+            //   params: {
+            //     attributes: [
+            //       {
+            //         preserveAspectRatio: 'none',
+            //       },
+            //     ],
+            //   },
+            // },
             'removeStyleElement',
             'collapseGroups',
             'cleanupIds',
