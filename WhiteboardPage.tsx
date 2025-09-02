@@ -580,7 +580,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             vectorSource: {
               ...vectorSource,
               parsedItems: parsedItems, // 使用解析后的矢量数据
-              originalDimensions: { width: img.width, height: img.height, imageCenterX:  img.width / 2, imageCenterY: img.height / 2 }
+              originalDimensions: { width: img.width, height: img.height, imageCenterX: img.width / 2, imageCenterY: img.height / 2 }
             }
           } as Omit<ImageObject, 'id' | 'layerId'>);
         };
@@ -1554,23 +1554,29 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
     // 分帧处理辅助函数
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-    
+
     let processedCount = 0;
     let totalPathCount = 0;
-    
-    // 预计算总路径数量
+
+    // 预计算总路径数量 - 修正版本
     const countPaths = (node: any): number => {
       let count = 0;
-      if (node.name === 'path' && node.attributes.d) count = 1;
+      if (node.name === 'path' && node.attributes.d) {
+        // 使用与 walk 函数中完全相同的逻辑来计算子路径段的数量
+        const d = node.attributes.d as string;
+        const subPathChunks = d.trim().split(/(?=[Mm])/).filter((sp: string) => sp.trim() !== '');
+        count = subPathChunks.length; // 关键改动：count 等于子路径段的数量，而不是 1
+      }
+      // 递归累加子节点的路径段数量
       if (node.children) {
         node.children.forEach((child: any) => count += countPaths(child));
       }
       return count;
     };
-    
+
     totalPathCount = countPaths(svgJson);
     console.log(`开始解析SVG，预计包含 ${totalPathCount} 个路径`);
-    
+
     // 更新导入状态
     setIsImporting(true);
     setImportProgress(0);
@@ -1663,11 +1669,11 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               // 使用性能配置动态调整采样参数
               const maxSamples = Math.min(performanceConfig.maxPointsPerPath, 500);
               const curvatureThreshold = Math.max(0.1, performanceConfig.simplificationTolerance / 20);
-              
-              let absPoints = adaptiveSamplePath(tempPath, { 
-                minSegmentLength: 2, 
-                curvatureThreshold: curvatureThreshold, 
-                maxSamples: maxSamples 
+
+              let absPoints = adaptiveSamplePath(tempPath, {
+                minSegmentLength: 2,
+                curvatureThreshold: curvatureThreshold,
+                maxSamples: maxSamples
               }).map(pt => {
                 const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
                 return { x: transformedPt.x * scaleX, y: transformedPt.y * scaleY };
@@ -1686,7 +1692,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                   }
                   return total;
                 }, 0);
-                
+
                 if (currentTotalPoints + absPoints.length <= performanceConfig.maxTotalPoints) {
                   const drawing = createCenterCoordinateDrawing(absPoints, {
                     fillColor: node.attributes.fill,
@@ -1713,48 +1719,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           }
         }
       }
-      // <<< END MODIFIED & FIXED >>>
-      // <<< END MODIFIED >>>
-      // if (node.name === 'path' && node.attributes.d) {
-      //   // 只采样有填充的 path
-      //   //if (!node.attributes.fill || node.attributes.fill === 'none') return items;
-      //   const d = node.attributes.d;
-      //   try {
-      //     const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      //     const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      //     tempPath.setAttribute('d', d);
-      //     tempSvg.appendChild(tempPath);
-      //     const totalLength = tempPath.getTotalLength();
-      //     if (totalLength > 0) {
-      //       const sampleCount = Math.max(Math.floor(totalLength), 128);
-      //       const absPoints: { x: number, y: number }[] = [];
-      //       for (let i = 0; i <= sampleCount; i++) {
-      //         const len = (i / sampleCount) * totalLength;
-      //         const pt = tempPath.getPointAtLength(len);
-      //         const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
-      //         absPoints.push({ x: transformedPt.x * scaleX, y: transformedPt.y * scaleY });
-      //       }
-      //       if (absPoints.length >= 2) {
-      //         const minX = Math.min(...absPoints.map(p => p.x));
-      //         const maxX = Math.max(...absPoints.map(p => p.x));
-      //         const minY = Math.min(...absPoints.map(p => p.y));
-      //         const maxY = Math.max(...absPoints.map(p => p.y));
-      //         const centerX = (minX + maxX) / 2;
-      //         const centerY = (minY + maxY) / 2;
-      //         items.push({
-      //           type: CanvasItemType.DRAWING,
-      //           x: centerX,
-      //           y: centerY,
-      //           points: absPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY })),
-      //           fillColor: node.attributes.fill,
-      //           strokeWidth: Number(node.attributes['stroke-width']) || 0,
-      //           color: '',
-      //           rotation: 0,
-      //         });
-      //       }
-      //     }
-      //   } catch (e) { }
-      // }
       // 处理rect
       else if (node.name === 'rect') {
         const x = Number(node.attributes.x);
@@ -1882,7 +1846,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     const rootTransform = new DOMMatrix();
     await walk(svgJson, rootTransform, items);
     console.log(`SVG解析完成，共生成 ${items.length} 个对象`);
-    
+
     // 完成导入
     setImportProgress(100);
     setImportStatus(`解析完成，共生成 ${items.length} 个对象`);
@@ -2756,7 +2720,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         }).data;
         console.log(originalContent);
 
-        
+
 
         // 尝试从SVG内容中直接解析viewBox
         const viewBoxMatch = originalContent.match(/viewBox="([^"]*)"/);
@@ -2790,7 +2754,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           const vbMatch = originalContent.match(/viewBox="([^"]+)"/);
           if (!vbMatch) throw new Error('No viewBox found');
           const [x, y, w, h] = vbMatch[1].split(/\s+/).map(Number);
-          
+
           // 解析SVG为矢量对象
           let parsedItems: CanvasItemData[] = [];
           try {
@@ -2799,7 +2763,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             console.warn('SVG解析失败，将使用位图模式:', error);
           }
           console.log(parsedItems);
-        
+
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
             x: canvasWidth / 2,
@@ -2858,7 +2822,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
           ],
         }).data;
-        
+
         console.log(originalContent);
 
         // 尝试从SVG内容中直接解析viewBox
@@ -2885,7 +2849,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         // 再插入新的 width / height
         newContent = newContent.replace(
           /(<\s*svg\b)([^>]*>)/i,
-          `$1 width="${300}" height="${300/viewBoxW*viewBoxH}"$2`
+          `$1 width="${300}" height="${300 / viewBoxW * viewBoxH}"$2`
         );
         originalContent = newContent;
 
@@ -2917,7 +2881,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           } catch (error) {
             console.warn('DXF解析失败，将使用位图模式:', error);
           }
-          console.log('从DXF转换得到的SVG解析结果:'+ originalContent);
+          console.log('从DXF转换得到的SVG解析结果:' + originalContent);
           console.log(parsedItems);
 
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
@@ -2941,7 +2905,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         };
         img.src = dataUrl;
       };
-      reader.readAsText(file);    
+      reader.readAsText(file);
       //   reader.onload = async (e) => {
       //     try {
       //       const dxfContents = e.target?.result as string;
