@@ -1887,749 +1887,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     return items;
   }, []);
 
-  // // 处理导入文件
-  // const handleImportFile = useCallback(async (file: { name: string; ext: string; content: string }) => {
-  //   // SVG 导入
-  //   if (file.ext === 'svg') {
-  //     try {
-  //       // 显示导入进度
-  //       setIsImporting(true);
-  //       setImportProgress(0);
-
-  //       const parsedItems = await parseSvgWithSvgson(file.content);
-
-  //       if (parsedItems.length === 0) {
-  //         alert('SVG未识别到可导入的线条');
-  //         setIsImporting(false);
-  //       } else {
-  //         // 保存原始SVG内容用于G代码生成
-  //         const originalContent = file.content;
-
-  //         // 创建SVG图像用于显示
-  //         const dataUrl = 'data:image/svg+xml;base64,' + btoa(file.content);
-  //         const img = new Image();
-  //         img.onload = () => {
-  //           // 创建图像对象时包含矢量源数据
-  //           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-  //             type: CanvasItemType.IMAGE,
-  //             x: canvasWidth / 2,
-  //             y: canvasHeight / 2,
-  //             width: img.width,
-  //             height: img.height,
-  //             href: dataUrl,
-  //             rotation: 0,
-  //             vectorSource: {
-  //               type: 'svg',
-  //               content: originalContent,
-  //               parsedItems: parsedItems,
-  //             }
-  //           };
-
-  //           addItem(imageData);
-
-  //           // 隐藏进度条
-  //           setIsImporting(false);
-  //           setImportProgress(0);
-  //         };
-  //         img.src = dataUrl;
-  //       }
-  //     } catch (error) {
-  //       console.error('SVG导入失败:', error);
-  //       alert('SVG导入失败，请检查文件格式');
-  //       setIsImporting(false);
-  //       setImportProgress(0);
-  //     }
-  //     return;
-  //   }
-  //   // DXF 导入
-  //   if (file.ext === 'dxf') {
-  //     //return;
-  //     // try {
-  //     //   const dxf = parseDxf(file.content);
-  //     //   const items: CanvasItemData[] = [];
-  //     //   if (!dxf || !dxf.entities) {
-  //     //     alert('DXF文件内容无效');
-  //     //     return;
-  //     //   }
-  //     //   (dxf.entities as any[]).forEach((ent: any) => {
-  //     //     if (ent.type === 'LINE') {
-  //     //       const minX = Math.min(ent.vertices[0].x, ent.vertices[1].x);
-  //     //       const minY = Math.min(ent.vertices[0].y, ent.vertices[1].y);
-  //     //       items.push({
-  //     //         type: CanvasItemType.DRAWING,
-  //     //         x: minX,
-  //     //         y: minY,
-  //     //         points: [
-  //     //           { x: ent.vertices[0].x - minX, y: ent.vertices[0].y - minY },
-  //     //           { x: ent.vertices[1].x - minX, y: ent.vertices[1].y - minY },
-  //     //         ],
-  //     //         color: '#16a34a',
-  //     //         strokeWidth: 2,
-  //     //       });
-  //     //     } else if (ent.type === 'LWPOLYLINE' && ent.vertices) {
-  //     //       const points = (ent.vertices as any[]).map((v: any) => ({ x: v.x, y: v.y }));
-  //     //       if (points.length < 2) return;
-  //     //       const minX = Math.min(...points.map(p => p.x));
-  //     //       const minY = Math.min(...points.map(p => p.y));
-  //     //       items.push({
-  //     //         type: CanvasItemType.DRAWING,
-  //     //         x: minX,
-  //     //         y: minY,
-  //     //         points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-  //     //         color: '#16a34a',
-  //     //         strokeWidth: 2,
-  //     //       });
-  //     //     } else if (ent.type === 'CIRCLE') {
-  //     //       const cx = ent.center.x, cy = ent.center.y, r = ent.radius;
-  //     //       const points = Array.from({ length: 36 }, (_, i) => {
-  //     //         const angle = (i / 36) * 2 * Math.PI;
-  //     //         return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
-  //     //       });
-  //     //       const minX = Math.min(...points.map(p => p.x));
-  //     //       const minY = Math.min(...points.map(p => p.y));
-  //     //       items.push({
-  //     //         type: CanvasItemType.DRAWING,
-  //     //         x: minX,
-  //     //         y: minY,
-  //     //         points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-  //     //         color: '#16a34a',
-  //     //         strokeWidth: 2,
-  //     //       });
-  //     //     } else if (ent.type === 'ARC') {
-  //     //       const cx = ent.center.x, cy = ent.center.y, r = ent.radius;
-  //     //       const start = ent.startAngle * Math.PI / 180;
-  //     //       const end = ent.endAngle * Math.PI / 180;
-  //     //       const segs = 24;
-  //     //       const points = Array.from({ length: segs + 1 }, (_, i) => {
-  //     //         const angle = start + (end - start) * (i / segs);
-  //     //         return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
-  //     //       });
-  //     //       const minX = Math.min(...points.map(p => p.x));
-  //     //       const minY = Math.min(...points.map(p => p.y));
-  //     //       items.push({
-  //     //         type: CanvasItemType.DRAWING,
-  //     //         x: minX,
-  //     //         y: minY,
-  //     //         points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-  //     //         color: '#16a34a',
-  //     //         strokeWidth: 2,
-  //     //       });
-  //     //     } else if (ent.type === 'SPLINE' && ent.controlPoints) {
-  //     //       // 采样样条曲线
-  //     //       const ctrl = ent.controlPoints;
-  //     //       const sampleCount = Math.max(ctrl.length * 8, 64);
-  //     //       const points: { x: number; y: number }[] = [];
-  //     //       for (let i = 0; i <= sampleCount; i++) {
-  //     //         const t = i / sampleCount;
-  //     //         // De Casteljau算法贝塞尔插值
-  //     //         let temp = ctrl.map((p: any) => ({ x: p.x, y: p.y }));
-  //     //         for (let k = 1; k < ctrl.length; k++) {
-  //     //           for (let j = 0; j < ctrl.length - k; j++) {
-  //     //             temp[j] = {
-  //     //               x: temp[j].x * (1 - t) + temp[j + 1].x * t,
-  //     //               y: temp[j].y * (1 - t) + temp[j + 1].y * t,
-  //     //             };
-  //     //           }
-  //     //         }
-  //     //         points.push(temp[0]);
-  //     //       }
-  //     //       if (points.length < 2) return;
-  //     //       const minX = Math.min(...points.map(p => p.x));
-  //     //       const minY = Math.min(...points.map(p => p.y));
-  //     //       items.push({
-  //     //         type: CanvasItemType.DRAWING,
-  //     //         x: minX,
-  //     //         y: minY,
-  //     //         points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-  //     //         color: '#16a34a',
-  //     //         strokeWidth: 2,
-  //     //       });
-  //     //     }
-  //     //   });
-  //     //   if (items.length === 0) {
-  //     //     alert('DXF未识别到可导入的线条');
-  //     //   } else {
-  //     //     // 保存原始DXF内容用于G代码生成
-  //     //     const originalContent = file.content;
-
-  //     //     // 创建DXF图像用于显示
-  //     //     const helper = new Helper(file.content);
-  //     //     const generatedSvg = helper.toSVG();
-  //     //     const dataUrl = 'data:image/svg+xml;base64,' + btoa(generatedSvg);
-  //     //     const img = new Image();
-  //     //     img.onload = () => {
-  //     //       // 创建图像对象时包含矢量源数据
-  //     //       const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-  //     //         type: CanvasItemType.IMAGE,
-  //     //         x: 0,
-  //     //         y: 0,
-  //     //         width: img.width,
-  //     //         height: img.height,
-  //     //         href: dataUrl,
-  //     //         rotation: 0,
-  //     //         vectorSource: {
-  //     //           type: 'dxf',
-  //     //           content: originalContent,
-  //     //           parsedItems: items
-  //     //         }
-  //     //       };
-
-  //     //       addItem(imageData);
-  //     //     };
-  //     //     img.src = dataUrl;
-  //     //   }
-  //     // } catch (e) {
-  //     //   alert('DXF解析失败');
-  //     // }
-  //     // return;
-
-  //     // 8.5
-  //     const helper = new Helper(file.content);
-  //     // 保存dxf转换得到的原始SVG内容用于G代码生成
-  //     const originalContent = helper.toSVG();
-  //     const parsedItems = await parseSvgWithSvgson(originalContent);
-  //     if (parsedItems.length === 0) {
-  //       alert('DXF未识别到可导入的线条');
-  //     } else {
-  //       // 创建SVG图像用于显示
-  //       const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
-  //       const img = new Image();
-  //       img.onload = () => {
-  //         // 创建图像对象时包含矢量源数据
-  //         const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-  //           type: CanvasItemType.IMAGE,
-  //           x: canvasWidth / 2,
-  //           y: canvasHeight / 2,
-  //           width: img.width,
-  //           height: img.height,
-  //           href: dataUrl,
-  //           rotation: 0,
-  //           vectorSource: {
-  //             type: 'svg',
-  //             content: originalContent,
-  //             parsedItems: parsedItems
-  //           }
-  //         };
-
-  //         addItem(imageData);
-  //       };
-  //       img.src = dataUrl;
-  //     }
-  //     return;
-  //   }
-  //   if (file.ext === 'plt') {
-  //     try {
-  //       const hpglCommands = simpleParseHPGL(file.content);
-
-  //       const polylines: { x: number; y: number }[][] = [];
-  //       let currentPolyline: { x: number; y: number }[] = [];
-  //       let currentPos = { x: 0, y: 0 };
-  //       let isPenDown = false;
-
-  //       const finishCurrentPolyline = () => {
-  //         if (currentPolyline.length > 1) {
-  //           polylines.push(currentPolyline);
-  //         }
-  //         currentPolyline = [];
-  //       };
-
-  //       hpglCommands.forEach((cmd: any) => {
-  //         if (!cmd || !cmd.type) return;
-
-  //         if (cmd.type.startsWith('PU')) {
-  //           finishCurrentPolyline();
-  //           isPenDown = false;
-  //           if (cmd.points && cmd.points.length > 0) {
-  //             cmd.points.forEach((pt: [number, number]) => currentPos = { x: pt[0], y: pt[1] });
-  //           }
-  //         }
-  //         else if (cmd.type.startsWith('PD')) {
-  //           finishCurrentPolyline();
-  //           isPenDown = true;
-  //           currentPolyline.push({ ...currentPos });
-  //           if (cmd.points && cmd.points.length > 0) {
-  //             cmd.points.forEach((pt: [number, number]) => {
-  //               currentPos = { x: pt[0], y: pt[1] };
-  //               currentPolyline.push({ ...currentPos });
-  //             });
-  //           }
-  //         }
-  //         else if (cmd.type.startsWith('PA')) {
-  //           if (cmd.points && cmd.points.length > 0) {
-  //             cmd.points.forEach((pt: [number, number]) => {
-  //               currentPos = { x: pt[0], y: pt[1] };
-  //               if (isPenDown) {
-  //                 currentPolyline.push({ ...currentPos });
-  //               }
-  //             });
-  //           }
-  //         }
-  //       });
-  //       finishCurrentPolyline();
-
-  //       if (polylines.length === 0) {
-  //         alert('PLT未识别到可导入的线条');
-  //         return;
-  //       }
-
-  //       const allPoints = polylines.flat();
-  //       const minX = Math.min(...allPoints.map(p => p.x));
-  //       const minY = Math.min(...allPoints.map(p => p.y));
-  //       const maxX = Math.max(...allPoints.map(p => p.x));
-  //       const maxY = Math.max(...allPoints.map(p => p.y));
-
-  //       const drawingWidth = maxX - minX;
-  //       const drawingHeight = maxY - minY;
-
-  //       if (drawingWidth === 0 || drawingHeight === 0) {
-  //         alert('图形尺寸无效，无法进行缩放');
-  //         return;
-  //       }
-
-  //       const CANVAS_WIDTH = 400;
-  //       const CANVAS_HEIGHT = 400;
-  //       const PADDING = 20;
-
-  //       const targetWidth = CANVAS_WIDTH - PADDING * 2;
-  //       const targetHeight = CANVAS_HEIGHT - PADDING * 2;
-
-  //       const scaleX = targetWidth / drawingWidth;
-  //       const scaleY = targetHeight / drawingHeight;
-  //       const scaleFactor = Math.min(scaleX, scaleY);
-
-  //       const scaledDrawingWidth = drawingWidth * scaleFactor;
-  //       const scaledDrawingHeight = drawingHeight * scaleFactor;
-  //       const offsetX = (CANVAS_WIDTH - scaledDrawingWidth) / 2;
-  //       const offsetY = (CANVAS_HEIGHT - scaledDrawingHeight) / 2;
-
-  //       const finalItems: CanvasItemData[] = polylines.map(polyline => {
-  //         const transformedPoints = polyline.map(p => {
-  //           const translatedX = p.x - minX;
-  //           const translatedY = maxY - p.y;
-
-  //           return {
-  //             x: translatedX * scaleFactor + offsetX,
-  //             y: translatedY * scaleFactor + offsetY,
-  //           };
-  //         });
-
-  //         return createCenterCoordinateDrawing(transformedPoints, {
-  //           color: '#eab308',
-  //           strokeWidth: 2,
-  //         });
-  //       });
-
-  //       // 保存原始PLT内容用于G代码生成
-  //       const originalContent = file.content;
-
-  //       // 创建PLT图像用于显示（这里简化处理，实际可能需要更复杂的转换）
-  //       const dataUrl = 'data:image/svg+xml;base64,' + btoa(`<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-  //         <rect width="100%" height="100%" fill="none"/>
-  //         ${polylines.map(polyline => {
-  //         const points = polyline.map(p => {
-  //           const translatedX = p.x - minX;
-  //           const translatedY = maxY - p.y;
-  //           return `${translatedX * scaleFactor + offsetX},${translatedY * scaleFactor + offsetY}`;
-  //         }).join(' ');
-  //         return `<polyline points="${points}" fill="none" stroke="#eab308" stroke-width="2"/>`;
-  //       }).join('')}
-  //       </svg>`);
-
-  //       const img = new Image();
-  //       img.onload = () => {
-  //         // 创建图像对象时包含矢量源数据
-  //         const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-  //           type: CanvasItemType.IMAGE,
-  //           x: canvasWidth / 2,
-  //           y: canvasHeight / 2,
-  //           width: img.width,
-  //           height: img.height,
-  //           href: dataUrl,
-  //           rotation: 0,
-  //           vectorSource: {
-  //             type: 'plt',
-  //             content: originalContent,
-  //             parsedItems: finalItems
-  //           }
-  //         };
-
-  //         addItem(imageData);
-  //       };
-  //       img.src = dataUrl;
-
-  //     } catch (e: any) {
-  //       console.error(e);
-  //       alert(`PLT解析失败: ${e.message}`);
-  //     }
-  //     return;
-  //   }
-
-  //   alert('不支持的文件类型');
-  // }, [addItem, parseSvgWithSvgson]);
-
   // 处理导入文件 8-25
   const handleImportFile = useCallback(async (file: { name: string; ext: string; content: string }) => {
-    // SVG 导入
-    /* Descprated
-    if (file.ext === 'svg') {
-      //return;
-      const parsedItems = await parseSvgWithSvgson(file.content);
-      //const test = await parseSvgWithSvgson("");
-      if (parsedItems.length === 0) {
-        alert('SVG未识别到可导入的线条');
-      } else {
-        // 保存原始SVG内容用于G代码生成
-        const originalContent = file.content;
-
-        // 创建SVG图像用于显示
-        const dataUrl = 'data:image/svg+xml;base64,' + btoa(file.content);
-        const img = new Image();
-        img.onload = () => {
-          // 创建图像对象时包含矢量源数据
-          const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-            type: CanvasItemType.IMAGE,
-            x: canvasWidth / 2,
-            y: canvasHeight / 2,
-            width: img.width,
-            height: img.height,
-            href: dataUrl,
-            rotation: 0,
-            vectorSource: {
-              type: 'svg',
-              content: originalContent,
-              parsedItems: parsedItems,
-            }
-          };
-
-          addItem(imageData);
-        };
-        img.src = dataUrl;
-      }
-      return;
-    }
-    // DXF 导入
-    if (file.ext === 'dxf') {
-      //return;
-      // try {
-      //   const dxf = parseDxf(file.content);
-      //   const items: CanvasItemData[] = [];
-      //   if (!dxf || !dxf.entities) {
-      //     alert('DXF文件内容无效');
-      //     return;
-      //   }
-      //   (dxf.entities as any[]).forEach((ent: any) => {
-      //     if (ent.type === 'LINE') {
-      //       const minX = Math.min(ent.vertices[0].x, ent.vertices[1].x);
-      //       const minY = Math.min(ent.vertices[0].y, ent.vertices[1].y);
-      //       items.push({
-      //         type: CanvasItemType.DRAWING,
-      //         x: minX,
-      //         y: minY,
-      //         points: [
-      //           { x: ent.vertices[0].x - minX, y: ent.vertices[0].y - minY },
-      //           { x: ent.vertices[1].x - minX, y: ent.vertices[1].y - minY },
-      //         ],
-      //         color: '#16a34a',
-      //         strokeWidth: 2,
-      //       });
-      //     } else if (ent.type === 'LWPOLYLINE' && ent.vertices) {
-      //       const points = (ent.vertices as any[]).map((v: any) => ({ x: v.x, y: v.y }));
-      //       if (points.length < 2) return;
-      //       const minX = Math.min(...points.map(p => p.x));
-      //       const minY = Math.min(...points.map(p => p.y));
-      //       items.push({
-      //         type: CanvasItemType.DRAWING,
-      //         x: minX,
-      //         y: minY,
-      //         points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-      //         color: '#16a34a',
-      //         strokeWidth: 2,
-      //       });
-      //     } else if (ent.type === 'CIRCLE') {
-      //       const cx = ent.center.x, cy = ent.center.y, r = ent.radius;
-      //       const points = Array.from({ length: 36 }, (_, i) => {
-      //         const angle = (i / 36) * 2 * Math.PI;
-      //         return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
-      //       });
-      //       const minX = Math.min(...points.map(p => p.x));
-      //       const minY = Math.min(...points.map(p => p.y));
-      //       items.push({
-      //         type: CanvasItemType.DRAWING,
-      //         x: minX,
-      //         y: minY,
-      //         points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-      //         color: '#16a34a',
-      //         strokeWidth: 2,
-      //       });
-      //     } else if (ent.type === 'ARC') {
-      //       const cx = ent.center.x, cy = ent.center.y, r = ent.radius;
-      //       const start = ent.startAngle * Math.PI / 180;
-      //       const end = ent.endAngle * Math.PI / 180;
-      //       const segs = 24;
-      //       const points = Array.from({ length: segs + 1 }, (_, i) => {
-      //         const angle = start + (end - start) * (i / segs);
-      //         return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
-      //       });
-      //       const minX = Math.min(...points.map(p => p.x));
-      //       const minY = Math.min(...points.map(p => p.y));
-      //       items.push({
-      //         type: CanvasItemType.DRAWING,
-      //         x: minX,
-      //         y: minY,
-      //         points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-      //         color: '#16a34a',
-      //         strokeWidth: 2,
-      //       });
-      //     } else if (ent.type === 'SPLINE' && ent.controlPoints) {
-      //       // 采样样条曲线
-      //       const ctrl = ent.controlPoints;
-      //       const sampleCount = Math.max(ctrl.length * 8, 64);
-      //       const points: { x: number; y: number }[] = [];
-      //       for (let i = 0; i <= sampleCount; i++) {
-      //         const t = i / sampleCount;
-      //         // De Casteljau算法贝塞尔插值
-      //         let temp = ctrl.map((p: any) => ({ x: p.x, y: p.y }));
-      //         for (let k = 1; k < ctrl.length; k++) {
-      //           for (let j = 0; j < ctrl.length - k; j++) {
-      //             temp[j] = {
-      //               x: temp[j].x * (1 - t) + temp[j + 1].x * t,
-      //               y: temp[j].y * (1 - t) + temp[j + 1].y * t,
-      //             };
-      //           }
-      //         }
-      //         points.push(temp[0]);
-      //       }
-      //       if (points.length < 2) return;
-      //       const minX = Math.min(...points.map(p => p.x));
-      //       const minY = Math.min(...points.map(p => p.y));
-      //       items.push({
-      //         type: CanvasItemType.DRAWING,
-      //         x: minX,
-      //         y: minY,
-      //         points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-      //         color: '#16a34a',
-      //         strokeWidth: 2,
-      //       });
-      //     }
-      //   });
-      //   if (items.length === 0) {
-      //     alert('DXF未识别到可导入的线条');
-      //   } else {
-      //     // 保存原始DXF内容用于G代码生成
-      //     const originalContent = file.content;
-
-      //     // 创建DXF图像用于显示
-      //     const helper = new Helper(file.content);
-      //     const generatedSvg = helper.toSVG();
-      //     const dataUrl = 'data:image/svg+xml;base64,' + btoa(generatedSvg);
-      //     const img = new Image();
-      //     img.onload = () => {
-      //       // 创建图像对象时包含矢量源数据
-      //       const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-      //         type: CanvasItemType.IMAGE,
-      //         x: 0,
-      //         y: 0,
-      //         width: img.width,
-      //         height: img.height,
-      //         href: dataUrl,
-      //         rotation: 0,
-      //         vectorSource: {
-      //           type: 'dxf',
-      //           content: originalContent,
-      //           parsedItems: items
-      //         }
-      //       };
-
-      //       addItem(imageData);
-      //     };
-      //     img.src = dataUrl;
-      //   }
-      // } catch (e) {
-      //   alert('DXF解析失败');
-      // }
-      // return;
-
-      // 8.5
-      const helper = new Helper(file.content);
-      // 保存dxf转换得到的原始SVG内容用于G代码生成
-      const originalContent = helper.toSVG();
-      const parsedItems = await parseSvgWithSvgson(originalContent);
-      if (parsedItems.length === 0) {
-        alert('DXF未识别到可导入的线条');
-      } else {
-        // 创建SVG图像用于显示
-        const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
-        const img = new Image();
-        img.onload = () => {
-          // 创建图像对象时包含矢量源数据
-          const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-            type: CanvasItemType.IMAGE,
-            x: canvasWidth / 2,
-            y: canvasHeight / 2,
-            width: img.width,
-            height: img.height,
-            href: dataUrl,
-            rotation: 0,
-            vectorSource: {
-              type: 'svg',
-              content: originalContent,
-              parsedItems: parsedItems
-            }
-          };
-
-          addItem(imageData);
-        };
-        img.src = dataUrl;
-      }
-      return;
-    }
-    */
-    if (file.ext === 'plt') {
-      try {
-        const hpglCommands = simpleParseHPGL(file.content);
-
-        const polylines: { x: number; y: number }[][] = [];
-        let currentPolyline: { x: number; y: number }[] = [];
-        let currentPos = { x: 0, y: 0 };
-        let isPenDown = false;
-
-        const finishCurrentPolyline = () => {
-          if (currentPolyline.length > 1) {
-            polylines.push(currentPolyline);
-          }
-          currentPolyline = [];
-        };
-
-        hpglCommands.forEach((cmd: any) => {
-          if (!cmd || !cmd.type) return;
-
-          if (cmd.type.startsWith('PU')) {
-            finishCurrentPolyline();
-            isPenDown = false;
-            if (cmd.points && cmd.points.length > 0) {
-              cmd.points.forEach((pt: [number, number]) => currentPos = { x: pt[0], y: pt[1] });
-            }
-          }
-          else if (cmd.type.startsWith('PD')) {
-            finishCurrentPolyline();
-            isPenDown = true;
-            currentPolyline.push({ ...currentPos });
-            if (cmd.points && cmd.points.length > 0) {
-              cmd.points.forEach((pt: [number, number]) => {
-                currentPos = { x: pt[0], y: pt[1] };
-                currentPolyline.push({ ...currentPos });
-              });
-            }
-          }
-          else if (cmd.type.startsWith('PA')) {
-            if (cmd.points && cmd.points.length > 0) {
-              cmd.points.forEach((pt: [number, number]) => {
-                currentPos = { x: pt[0], y: pt[1] };
-                if (isPenDown) {
-                  currentPolyline.push({ ...currentPos });
-                }
-              });
-            }
-          }
-        });
-        finishCurrentPolyline();
-
-        if (polylines.length === 0) {
-          alert('PLT未识别到可导入的线条');
-          return;
-        }
-
-        const allPoints = polylines.flat();
-        const minX = Math.min(...allPoints.map(p => p.x));
-        const minY = Math.min(...allPoints.map(p => p.y));
-        const maxX = Math.max(...allPoints.map(p => p.x));
-        const maxY = Math.max(...allPoints.map(p => p.y));
-
-        const drawingWidth = maxX - minX;
-        const drawingHeight = maxY - minY;
-
-        if (drawingWidth === 0 || drawingHeight === 0) {
-          alert('图形尺寸无效，无法进行缩放');
-          return;
-        }
-
-        const CANVAS_WIDTH = 400;
-        const CANVAS_HEIGHT = 400;
-        const PADDING = 20;
-
-        const targetWidth = CANVAS_WIDTH - PADDING * 2;
-        const targetHeight = CANVAS_HEIGHT - PADDING * 2;
-
-        const scaleX = targetWidth / drawingWidth;
-        const scaleY = targetHeight / drawingHeight;
-        const scaleFactor = Math.min(scaleX, scaleY);
-
-        const scaledDrawingWidth = drawingWidth * scaleFactor;
-        const scaledDrawingHeight = drawingHeight * scaleFactor;
-        const offsetX = (CANVAS_WIDTH - scaledDrawingWidth) / 2;
-        const offsetY = (CANVAS_HEIGHT - scaledDrawingHeight) / 2;
-
-        const finalItems: CanvasItemData[] = polylines.map(polyline => {
-          const transformedPoints = polyline.map(p => {
-            const translatedX = p.x - minX;
-            const translatedY = maxY - p.y;
-
-            return {
-              x: translatedX * scaleFactor + offsetX,
-              y: translatedY * scaleFactor + offsetY,
-            };
-          });
-
-          return createCenterCoordinateDrawing(transformedPoints, {
-            color: '#eab308',
-            strokeWidth: 2,
-          });
-        });
-        // 保存原始PLT内容用于G代码生成
-        const originalContent = file.content;
-
-        // 创建PLT图像用于显示（这里简化处理，实际可能需要更复杂的转换）
-        const dataUrl = 'data:image/svg+xml;base64,' + btoa(`<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-          <rect width="100%" height="100%" fill="none"/>
-          ${polylines.map(polyline => {
-          const points = polyline.map(p => {
-            const translatedX = p.x - minX;
-            const translatedY = maxY - p.y;
-            return `${translatedX * scaleFactor + offsetX},${translatedY * scaleFactor + offsetY}`;
-          }).join(' ');
-          return `<polyline points="${points}" fill="none" stroke="#eab308" stroke-width="2"/>`;
-        }).join('')}
-        </svg>`);
-
-        const img = new Image();
-        img.onload = () => {
-          // 创建图像对象时包含矢量源数据
-          const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-            type: CanvasItemType.IMAGE,
-            x: canvasWidth / 2,
-            y: canvasHeight / 2,
-            width: img.width,
-            height: img.height,
-            href: dataUrl,
-            rotation: 0,
-            vectorSource: {
-              type: 'plt',
-              content: originalContent,
-              parsedItems: finalItems
-            }
-          };
-
-          addItem(imageData);
-        };
-        img.src = dataUrl;
-
-      } catch (e: any) {
-        console.error(e);
-        alert(`PLT解析失败: ${e.message}`);
-      }
-      return;
-    }
-
     alert('不支持的文件类型');
   }, [addItem, parseSvgWithSvgson]);
 
@@ -2796,7 +2055,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               content: originalContent,
               parsedItems: parsedItems,
               //MARK: 将我们精确解析出的 viewBox 尺寸存储起来
-              originalDimensions: { width: w, height: h, imageCenterX: viewBoxX + w / 2, imageCenterY: viewBoxY + h / 2, type: "svg" }
+              originalDimensions: { width: w, height: h, imageCenterX: viewBoxX + w / 2, imageCenterY: viewBoxY + h / 2 }
             }
           };
           addItem(imageData);
@@ -2941,105 +2200,27 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         img.src = dataUrl;
       };
       reader.readAsText(file);
-      //   reader.onload = async (e) => {
-      //     try {
-      //       const dxfContents = e.target?.result as string;
-      //       const originalContent = dxfContents;
-
-      //       // 解析DXF为矢量对象
-      //       let parsedItems: CanvasItemData[] = [];
-      //       try {
-      //         const dxf = parseDxf(dxfContents);
-      //         if (dxf && dxf.entities) {
-      //           (dxf.entities as any[]).forEach((ent: any) => {
-      //             if (ent.type === 'LINE') {
-      //               const minX = Math.min(ent.vertices[0].x, ent.vertices[1].x);
-      //               const minY = Math.min(ent.vertices[0].y, ent.vertices[1].y);
-      //               parsedItems.push({
-      //                 type: CanvasItemType.DRAWING,
-      //                 x: minX,
-      //                 y: minY,
-      //                 points: [
-      //                   { x: ent.vertices[0].x - minX, y: ent.vertices[0].y - minY },
-      //                   { x: ent.vertices[1].x - minX, y: ent.vertices[1].y - minY },
-      //                 ],
-      //                 color: '#16a34a',
-      //                 strokeWidth: 2,
-      //               });
-      //             } else if (ent.type === 'LWPOLYLINE' && ent.vertices) {
-      //               const points = (ent.vertices as any[]).map((v: any) => ({ x: v.x, y: v.y }));
-      //               if (points.length < 2) return;
-      //               const minX = Math.min(...points.map(p => p.x));
-      //               const minY = Math.min(...points.map(p => p.y));
-      //               parsedItems.push({
-      //                 type: CanvasItemType.DRAWING,
-      //                 x: minX,
-      //                 y: minY,
-      //                 points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-      //                 color: '#16a34a',
-      //                 strokeWidth: 2,
-      //               });
-      //             } else if (ent.type === 'CIRCLE') {
-      //               const cx = ent.center.x, cy = ent.center.y, r = ent.radius;
-      //               const points = Array.from({ length: 36 }, (_, i) => {
-      //                 const angle = (i / 36) * 2 * Math.PI;
-      //                 return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
-      //               });
-      //               const minX = Math.min(...points.map(p => p.x));
-      //               const minY = Math.min(...points.map(p => p.y));
-      //               parsedItems.push({
-      //                 type: CanvasItemType.DRAWING,
-      //                 x: minX,
-      //                 y: minY,
-      //                 points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-      //                 color: '#16a34a',
-      //                 strokeWidth: 2,
-      //               });
-      //             }
-      //           });
-      //         }
-      //       } catch (error) {
-      //         console.warn('DXF解析失败，将使用位图模式:', error);
-      //       }
-
-      //       const helper = new Helper(dxfContents);
-      //       const generatedSvg = helper.toSVG();
-      //       processSvgString(generatedSvg, (dataUrl, width, height) => {
-      //         // 创建图像对象时包含矢量源数据
-      //         const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-      //           type: CanvasItemType.IMAGE,
-      //           x: 0,
-      //           y: 0,
-      //           width: width,
-      //           height: height,
-      //           href: dataUrl,
-      //           rotation: 0,
-      //           vectorSource: {
-      //             type: 'dxf',
-      //             content: originalContent,
-      //             parsedItems: parsedItems
-      //           }
-      //         };
-
-      //         addItem(imageData);
-      //       });
-
-      //     } catch (err) {
-      //       alert("解析 DXF 文件时发生错误。");
-      //     }
-      //   };
-      //   reader.readAsText(file);
     }
     else if (ext === 'plt') {
-      reader.onload = async (e) => {
-        if (typeof e.target?.result === 'string') {
+      try {
+        // 将 reader.onload 设置为 async 函数
+        reader.onload = async (e) => {
+          if (typeof e.target?.result !== 'string') {
+            alert('无法读取PLT文件内容。');
+            return;
+          }
           const pltContent = e.target.result;
-          const originalContent = pltContent;
 
-          // 解析PLT为矢量对象
-          let parsedItems: CanvasItemData[] = [];
           try {
+            // --- 步骤 1-3: 从 PLT 解析、重建路径、坐标变换 (与之前相同) ---
             const hpglCommands = simpleParseHPGL(pltContent);
+
+            // ... [此处省略了从 hpglCommands 重建 polylines 并进行坐标变换的完整代码，
+            //      因为它与之前的版本完全相同，为了简洁，这里不再重复] ...
+            // 假设在这之后，我们已经得到了变换后的 polylines 和相关的变换参数
+            // (minX, minY, maxX, maxY, scaleFactor, offsetX, offsetY, CANVAS_WIDTH, CANVAS_HEIGHT)
+            // ...
+
             const polylines: { x: number; y: number }[][] = [];
             let currentPolyline: { x: number; y: number }[] = [];
             let currentPos = { x: 0, y: 0 };
@@ -3054,100 +2235,155 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
             hpglCommands.forEach((cmd: any) => {
               if (!cmd || !cmd.type) return;
-
               if (cmd.type.startsWith('PU')) {
-                finishCurrentPolyline();
-                isPenDown = false;
-                if (cmd.points && cmd.points.length > 0) {
-                  cmd.points.forEach((pt: [number, number]) => currentPos = { x: pt[0], y: pt[1] });
-                }
-              }
-              else if (cmd.type.startsWith('PD')) {
-                finishCurrentPolyline();
-                isPenDown = true;
-                currentPolyline.push({ ...currentPos });
-                if (cmd.points && cmd.points.length > 0) {
-                  cmd.points.forEach((pt: [number, number]) => {
-                    currentPos = { x: pt[0], y: pt[1] };
-                    currentPolyline.push({ ...currentPos });
-                  });
-                }
-              }
-              else if (cmd.type.startsWith('PA')) {
-                if (cmd.points && cmd.points.length > 0) {
-                  cmd.points.forEach((pt: [number, number]) => {
-                    currentPos = { x: pt[0], y: pt[1] };
-                    if (isPenDown) {
-                      currentPolyline.push({ ...currentPos });
-                    }
-                  });
-                }
+                finishCurrentPolyline(); isPenDown = false;
+                if (cmd.points && cmd.points.length > 0) { cmd.points.forEach((pt: [number, number]) => currentPos = { x: pt[0], y: pt[1] }); }
+              } else if (cmd.type.startsWith('PD')) {
+                finishCurrentPolyline(); isPenDown = true; currentPolyline.push({ ...currentPos });
+                if (cmd.points && cmd.points.length > 0) { cmd.points.forEach((pt: [number, number]) => { currentPos = { x: pt[0], y: pt[1] }; currentPolyline.push({ ...currentPos }); }); }
+              } else if (cmd.type.startsWith('PA')) {
+                if (cmd.points && cmd.points.length > 0) { cmd.points.forEach((pt: [number, number]) => { currentPos = { x: pt[0], y: pt[1] }; if (isPenDown) { currentPolyline.push({ ...currentPos }); } }); }
               }
             });
             finishCurrentPolyline();
 
-            if (polylines.length > 0) {
-              const allPoints = polylines.flat();
-              const minX = Math.min(...allPoints.map(p => p.x));
-              const minY = Math.min(...allPoints.map(p => p.y));
-              const maxX = Math.max(...allPoints.map(p => p.x));
-              const maxY = Math.max(...allPoints.map(p => p.y));
-
-              const drawingWidth = maxX - minX;
-              const drawingHeight = maxY - minY;
-
-              if (drawingWidth > 0 && drawingHeight > 0) {
-                const CANVAS_WIDTH = 400;
-                const CANVAS_HEIGHT = 400;
-                const PADDING = 20;
-
-                const targetWidth = CANVAS_WIDTH - PADDING * 2;
-                const targetHeight = CANVAS_HEIGHT - PADDING * 2;
-
-                const scaleX = targetWidth / drawingWidth;
-                const scaleY = targetHeight / drawingHeight;
-                const scaleFactor = Math.min(scaleX, scaleY);
-
-                const scaledDrawingWidth = drawingWidth * scaleFactor;
-                const scaledDrawingHeight = drawingHeight * scaleFactor;
-                const offsetX = (CANVAS_WIDTH - scaledDrawingWidth) / 2;
-                const offsetY = (CANVAS_HEIGHT - scaledDrawingHeight) / 2;
-
-                parsedItems = polylines.map(polyline => {
-                  const transformedPoints = polyline.map(p => {
-                    const translatedX = p.x - minX;
-                    const translatedY = maxY - p.y;
-
-                    return {
-                      x: translatedX * scaleFactor + offsetX,
-                      y: translatedY * scaleFactor + offsetY,
-                    };
-                  });
-
-                  return createCenterCoordinateDrawing(transformedPoints, {
-                    color: '#eab308',
-                    strokeWidth: 2,
-                  });
-                });
-              }
+            if (polylines.length === 0) {
+              alert('PLT未识别到可导入的线条'); return;
             }
-          } catch (error) {
-            console.warn('PLT解析失败，将使用位图模式:', error);
+            const allPoints = polylines.flat();
+            const minX = Math.min(...allPoints.map(p => p.x)); const minY = Math.min(...allPoints.map(p => p.y));
+            const maxX = Math.max(...allPoints.map(p => p.x)); const maxY = Math.max(...allPoints.map(p => p.y));
+            const drawingWidth = maxX - minX; const drawingHeight = maxY - minY;
+            if (drawingWidth === 0 || drawingHeight === 0) {
+              alert('图形尺寸无效，无法进行缩放'); return;
+            }
+            const CANVAS_WIDTH = 400; const CANVAS_HEIGHT = 400; const PADDING = 20;
+            const targetWidth = CANVAS_WIDTH - PADDING * 2; const targetHeight = CANVAS_HEIGHT - PADDING * 2;
+            const scaleX = targetWidth / drawingWidth; const scaleY = targetHeight / drawingHeight;
+            const scaleFactor = Math.min(scaleX, scaleY);
+            const scaledDrawingWidth = drawingWidth * scaleFactor; const scaledDrawingHeight = drawingHeight * scaleFactor;
+            const offsetX = (CANVAS_WIDTH - scaledDrawingWidth) / 2; const offsetY = (CANVAS_HEIGHT - scaledDrawingHeight) / 2;
+
+            // --- 步骤 4: 生成并优化SVG字符串 (与上一版修改相同) ---
+            const rawSvgString = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}">
+          ${polylines.map(polyline => {
+              const points = polyline.map(p => {
+                const translatedX = p.x - minX;
+                const translatedY = maxY - p.y;
+                return `${(translatedX * scaleFactor + offsetX).toFixed(3)},${(translatedY * scaleFactor + offsetY).toFixed(3)}`;
+              }).join(' ');
+              return `<polyline points="${points}" fill="none" stroke="#eab308" stroke-width="2"/>`;
+            }).join('')}
+        </svg>`;
+
+            const optimizedSvgString = svgo.optimize(rawSvgString, {
+              // ... svgo config ...
+              plugins: [
+                {
+                  name: 'preset-default',
+                  params: {
+                    overrides: {
+                      convertShapeToPath: {
+                        convertArcs: true,
+                      },
+                      convertPathData: {
+                        applyTransforms: true,
+                        makeAbsolute: true,
+                        forceAbsolutePath: true,
+                      },
+                      mergePaths: {
+                        force: false,
+                        floatPrecision: 3,
+                        noSpaceAfterFlags: false
+                      },
+                    },
+                  },
+                },
+                {
+                  name: 'removeAttrs',
+                  params: {
+                    attrs: 'svg:preserveAspectRatio',
+                  }
+                },
+                // {
+                //   name: 'addAttributesToSVGElement',
+                //   params: {
+                //     attributes: [
+                //       {
+                //         preserveAspectRatio: 'none',
+                //       },
+                //     ],
+                //   },
+                // },
+                'removeStyleElement',
+                'collapseGroups',
+                'cleanupIds',
+
+              ],
+            }).data;
+
+            // --- 步骤 5 (新): 使用 svgson 解析优化后的 SVG ---
+            let parsedItems: CanvasItemData[] = [];
+            try {
+              // 调用 await 等待解析完成
+              parsedItems = await parseSvgWithSvgson(optimizedSvgString);
+            } catch (error) {
+              console.error("解析由PLT生成的SVG时失败:", error);
+              alert(`从PLT文件生成的SVG解析失败，无法导入: ${error}`);
+              return;
+            }
+
+            if (parsedItems.length === 0) {
+              alert('PLT文件转换后未识别到可用的矢量图形。');
+              return;
+            }
+
+            // --- 步骤 6: 加载图像以获取尺寸并创建最终的 ImageObject ---
+            const dataUrl = 'data:image/svg+xml;base64,' + btoa(optimizedSvgString);
+            const img = new Image();
+
+            img.onload = () => {
+              // 在这里，我们拥有了所有需要的信息：
+              // - 预览图的 Data URL (href)
+              // - 预览图的尺寸 (img.width, img.height)
+              // - 优化后的 SVG 字符串 (vectorSource.content)
+              // - 解析后的矢量对象 (vectorSource.parsedItems)
+
+              const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
+                type: CanvasItemType.IMAGE,
+                x: canvasWidth / 2,
+                y: canvasHeight / 2,
+                width: img.width,
+                height: img.height,
+                href: dataUrl,
+                rotation: 0,
+                vectorSource: {
+                  type: 'svg', // **关键变更**: 类型统一为 'svg'
+                  content: optimizedSvgString, // 存储优化后的SVG内容
+                  parsedItems: parsedItems, // 存储从SVG解析出的矢量对象
+                  originalDimensions: { width: img.width, height: img.height } // 存储原始尺寸
+                }
+              };
+
+              // 将这个标准化的对象添加到画布
+              addItem(imageData);
+            };
+
+            img.onerror = () => {
+              alert("无法从PLT生成的SVG加载预览图像。");
+            };
+
+            img.src = dataUrl;
+
+          } catch (e: any) {
+            console.error(e);
+            alert(`PLT解析失败: ${e.message}`);
           }
-
-          // 使用现有的handleImportFile处理位图显示
-          handleImportFile({
-            name: file.name,
-            ext,
-            content: pltContent
-          });
-
-          // 注意：这里需要特殊处理，因为handleImportFile会直接添加多个对象
-          // 我们需要在最后添加一个包含矢量源的图像对象
-          // 这里简化处理，实际可能需要更复杂的逻辑
-        }
-      };
-      reader.readAsText(file);
+        };
+        reader.readAsText(file);
+      } catch (err) {
+        alert("读取PLT文件时发生错误。");
+      }
     }
     else alert('不支持的文件类型');
 
@@ -3970,6 +3206,14 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         </div>
       )}
 
+      {/* 性能配置面板 */}
+      {showPerformanceConfig && (
+        <PerformanceConfigPanel
+          config={performanceConfig}
+          onConfigChange={setPerformanceConfig}
+          onClose={() => setShowPerformanceConfig(false)}
+        />
+      )}
 
       {/* 导入进度模态框 */}
       <ImportProgressModal
@@ -3979,6 +3223,12 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         onCancel={() => setIsImporting(false)}
       />
 
+      {/* 性能监控组件 */}
+      <PerformanceMonitor
+        items={items}
+        isVisible={showPerformanceMonitor}
+        onToggle={() => setShowPerformanceMonitor(!showPerformanceMonitor)}
+      />
     </div>
   );
 };
