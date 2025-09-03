@@ -2195,6 +2195,8 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
       paths.push(`; 图像对象(矢量源)位置(${transformedPos.x}, ${transformedPos.y}) 旋转: ${rotation}°`);
       let scaleX = 1;
       let scaleY = 1;
+      let deltaX = 0;
+      let deltaY = 0;
       // 确保 originalDimensions 存在且有效
       if (item.vectorSource.originalDimensions) {
         // +++ ADDED +++ 核心改动：计算并应用缩放
@@ -2203,6 +2205,11 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         scaleX = item.width / originalWidth;
         scaleY = item.height / originalHeight;
         //const scale = Math.min(scaleX, scaleY);
+
+        if(item.vectorSource.originalDimensions.type == "svg"){
+          deltaX = (item.vectorSource.parsedItems[0].x - originalWidth/2) / originalWidth * item.width;
+          deltaY = (item.vectorSource.parsedItems[0].y - originalHeight/2) / originalHeight * item.height;
+        }
 
         scaleX = Math.min(scaleX, scaleY);
         scaleY = Math.min(scaleX, scaleY);
@@ -2276,8 +2283,8 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         console.log("x", x, "y", y, "item.width", item.width, "item.height", item.height, "scaleX", scaleX, "scaleY", scaleY, "item.x", item.x, "item.y", item.y, "scaledVectorX", scaledVectorItem.x, "scaledVectorY", scaledVectorItem.y, "rotatedPosX", rotatedPos.x, "rotatedPosY", rotatedPos.y);
         const finalVectorItem: CanvasItem = {
           ...scaledVectorItem,
-          x: x,
-          y: y,
+          x: x + deltaX,
+          y: y + deltaY,
           scalex: scaleX,
           scaley: scaleY,
           rotation: rotation + (('rotation' in vectorItem ? vectorItem.rotation : 0) || 0),
