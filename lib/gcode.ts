@@ -2207,8 +2207,11 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         //const scale = Math.min(scaleX, scaleY);
 
         if(item.vectorSource.originalDimensions.type == "svg"){
-          deltaX = (item.vectorSource.parsedItems[0].x - originalWidth/2) / originalWidth * item.width;
-          deltaY = (item.vectorSource.parsedItems[0].y - originalHeight/2) / originalHeight * item.height;
+          // deltax = (item.vectorSource.parsedItems[0].x - originalWidth/2) / (originalWidth) * item.width;
+          // deltay = (item.vectorSource.parsedItems[0].y - originalHeight/2) / (originalHeight) * item.height;
+          let Pos = rotatePoint(item.vectorSource.parsedItems[0].x, item.vectorSource.parsedItems[0].y, originalWidth/2, originalHeight/2, rotation);
+          deltaX = (Pos.x - originalWidth/2) / (originalWidth) * item.width;
+          deltaY = (Pos.y - originalHeight/2) / (originalHeight) * item.height;
         }
 
         scaleX = Math.min(scaleX, scaleY);
