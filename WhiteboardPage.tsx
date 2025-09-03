@@ -3970,14 +3970,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         </div>
       )}
 
-      {/* 性能配置面板 */}
-      {showPerformanceConfig && (
-        <PerformanceConfigPanel
-          config={performanceConfig}
-          onConfigChange={setPerformanceConfig}
-          onClose={() => setShowPerformanceConfig(false)}
-        />
-      )}
 
       {/* 导入进度模态框 */}
       <ImportProgressModal
@@ -3987,12 +3979,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         onCancel={() => setIsImporting(false)}
       />
 
-      {/* 性能监控组件 */}
-      <PerformanceMonitor
-        items={items}
-        isVisible={showPerformanceMonitor}
-        onToggle={() => setShowPerformanceMonitor(!showPerformanceMonitor)}
-      />
     </div>
   );
 };

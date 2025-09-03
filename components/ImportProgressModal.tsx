@@ -48,18 +48,6 @@ const ImportProgressModal: React.FC<ImportProgressModalProps> = ({
         <div className="text-sm text-gray-600 mb-4">
           <p>{status}</p>
         </div>
-
-        {/* 性能提示 */}
-        {progress > 0 && (
-          <div className="bg-blue-50 rounded-lg p-3">
-            <h4 className="text-sm font-medium text-blue-800 mb-1">性能提示</h4>
-            <ul className="text-xs text-blue-700 space-y-1">
-              <li>• 如果导入时间过长，可以在性能设置中降低精度</li>
-              <li>• 大型矢量文件建议使用"高性能"模式</li>
-              <li>• 导入完成后可以调整为"平衡"或"高质量"模式</li>
-            </ul>
-          </div>
-        )}
       </div>
     </div>
   );
