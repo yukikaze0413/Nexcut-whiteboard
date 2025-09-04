@@ -419,7 +419,19 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
                     onChange={handleLayerChange}
                     className="w-full bg-white text-gray-900 rounded-md p-2 border border-gray-300 focus:ring-teal-500 focus:border-teal-500"
                   >
-                    {layers.map(layer => (
+                    {layers
+                      .filter(layer => {
+                        // 如果选中的是普通图片 (没有矢量源), 则只显示扫描图层
+                        if (
+                          selectedItem.type === CanvasItemType.IMAGE &&
+                          !((selectedItem as any).vectorSource?.type)
+                        ) {
+                          return layer.printingMethod === PrintingMethod.SCAN;
+                        }
+                        // 否则 (是矢量内容或非图片), 显示所有图层
+                        return true;
+                      })
+                      .map(layer => (
                         <option key={layer.id} value={layer.id}>
                           {layer.name} ({layer.printingMethod === 'scan' ? '扫描' : '雕刻'})
                         </option>
