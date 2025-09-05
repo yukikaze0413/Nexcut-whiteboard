@@ -148,7 +148,7 @@ async function createPlatformImage(
 
     // 记录原始的纯白像素位置
     for (let i = 0; i < destData.length; i++) {
-      originalWhiteMask[i] = destData[i] >= 250 ? 1 : 0; // 原始白色区域
+      originalWhiteMask[i] = destData[i] >= 220 ? 1 : 0; // 原始白色区域
     }
 
     const matrix = [[0, 0, 0, 7, 5], [3, 5, 7, 5, 3], [1, 3, 5, 3, 1]];
@@ -321,7 +321,7 @@ export async function generatePlatformScanGCode(
     for (let x = 0; x < width; x++) {
       const pixelIndex = x + (height - 1 - y) * width; // Y坐标反转以匹配机器坐标系
       const c = data[pixelIndex];
-      if (c < 250) { // 非纯白色像素（使用更宽松的阈值）
+      if (c < 220) { // 非纯白色像素（使用更宽松的阈值）
         minY = Math.min(minY, y);
         maxY = Math.max(maxY, y);
         minX = Math.min(minX, x);
@@ -370,7 +370,7 @@ export async function generatePlatformScanGCode(
     for (let x = minX; x <= maxX; x++) {
       const pixelIndex = x + (height - 1 - y) * width; // Y坐标反转以匹配机器坐标系
       const c = data[pixelIndex];
-      if (c < 250) { // 非纯白色像素（使用更宽松的阈值）
+      if (c < 220) { // 非纯白色像素（使用更宽松的阈值）
         hasContent = true;
         rowMinX = Math.min(rowMinX, x);
         rowMaxX = Math.max(rowMaxX, x);
