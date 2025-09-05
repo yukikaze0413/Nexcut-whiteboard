@@ -12,6 +12,7 @@ import { generatePlatformScanGCode, GCodeScanSettings } from './lib/gcode';
 import LayerSettingsPanel from './components/LayerSettingsPanel';
 import PerformanceConfigPanel from './components/PerformanceConfigPanel';
 import PerformanceMonitor from './components/PerformanceMonitor';
+import ImportProgressModal from './components/ImportProgressModal';
 // @ts-ignore
 import { Helper, parseString as parseDxf } from 'dxf';
 import { parse as parseSvgson } from 'svgson';
@@ -37,8 +38,80 @@ function toBase64Utf8(str: string): string {
   }
 }
 
-// 浏览器端简易 HPGL 解析器，仅支持 PU/PD/PA 指令
+// 8.25
+interface AdaptiveSampleConfig {
+  minSegmentLength?: number; // 初始采样的最小段长（像素）
+  curvatureThreshold?: number; // 决定是否需要细分的曲率/偏差阈值
+  maxSamples?: number; // 防止无限递归的最大采样点数
+}
 
+/**
+ * 使用自适应算法对SVG路径进行采样
+ * @param pathElement - 要采样的 SVGPathElement
+ * @param config - 采样配置
+ * @returns 采样点数组
+ */
+function adaptiveSamplePath(
+  pathElement: SVGPathElement,
+  config: AdaptiveSampleConfig = {}
+): { x: number; y: number }[] {
+  const {
+    minSegmentLength = 5,
+    curvatureThreshold = 0.5,
+    maxSamples = 1000
+  } = config;
+
+  const totalLength = pathElement.getTotalLength();
+  if (totalLength === 0) return [];
+
+  const initialSampleCount = Math.max(2, Math.floor(totalLength / minSegmentLength));
+  const points: { dist: number; pt: DOMPoint }[] = [];
+
+  // 1. 初始粗略采样
+  for (let i = 0; i <= initialSampleCount; i++) {
+    const dist = (i / initialSampleCount) * totalLength;
+    points.push({ dist, pt: pathElement.getPointAtLength(dist) });
+  }
+
+  // 2. 递归细分
+  let i = 0;
+  while (i < points.length - 2 && points.length < maxSamples) {
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2];
+
+    // 3. 计算 P2 到 P1-P3 连线的垂直距离
+    const dx = p3.pt.x - p1.pt.x;
+    const dy = p3.pt.y - p1.pt.y;
+    const segmentLenSq = dx * dx + dy * dy;
+    let deviation = 0;
+    if (segmentLenSq > 1e-6) {
+      const t = ((p2.pt.x - p1.pt.x) * dx + (p2.pt.y - p1.pt.y) * dy) / segmentLenSq;
+      const closestX = p1.pt.x + t * dx;
+      const closestY = p1.pt.y + t * dy;
+      deviation = Math.hypot(p2.pt.x - closestX, p2.pt.y - closestY);
+    }
+
+    // 4. 判断是否需要细分
+    if (deviation > curvatureThreshold) {
+      // 在 P1-P2 和 P2-P3 中间插入新点
+      const dist1 = (p1.dist + p2.dist) / 2;
+      points.splice(i + 1, 0, { dist: dist1, pt: pathElement.getPointAtLength(dist1) });
+
+      const dist2 = (p2.dist + p3.dist) / 2;
+      points.splice(i + 3, 0, { dist: dist2, pt: pathElement.getPointAtLength(dist2) });
+
+      // 不需要移动 i，因为新插入的点需要重新评估
+    } else {
+      i++; // 如果线段足够平直，继续检查下一段
+    }
+  }
+
+  return points.map(p => ({ x: p.pt.x, y: p.pt.y }));
+}
+
+
+// 浏览器端简易 HPGL 解析器，仅支持 PU/PD/PA 指令
 function simpleParseHPGL(content: string) {
   // 返回 [{type: 'PU'|'PD'|'PA', points: [[x,y], ...]}]
   const cmds: { type: string; points: [number, number][] }[] = [];
@@ -242,11 +315,11 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
   // 添加性能优化配置
   const [performanceConfig, setPerformanceConfig] = useState({
-    maxPointsPerPath: 500,        // 每个路径最大点数
+    maxPointsPerPath: Infinity,        // 每个路径最大点数
     simplificationTolerance: 2.0,  // 路径简化容差
     batchSize: 50,                // 批处理大小
     enableLOD: true,              // 启用细节层次
-    maxTotalPoints: 5000          // 总点数限制
+    maxTotalPoints: 500000         // 总点数限制
   });
 
 
@@ -455,18 +528,18 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       return;
     }
 
-    // 处理线框提取和矢量化的数据
+    //MARK: 处理线框提取和矢量化的数据
     if (location.state?.hasVectorData) {
       console.log('接收到矢量图数据:', location.state);
-      
+
       // 标记已处理
       setProcessedLocationState(location.state);
-      
+
       // 创建单一ImageObject：显示线框位图，但包含原始矢量数据用于G代码生成
       if (location.state.displayImage && location.state.vectorSource) {
         const displayImage = location.state.displayImage;
         const vectorSource = location.state.vectorSource;
-        
+
         const img = new Image();
         img.onload = async () => {
           // 根据画布大小动态设定图片最大尺寸（占画布的40%）
@@ -516,7 +589,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             rotation: 0,
             vectorSource: {
               ...vectorSource,
-              parsedItems: parsedItems // 使用解析后的矢量数据
+              parsedItems: parsedItems, // 使用解析后的矢量数据
+              originalDimensions: { width: img.width, height: img.height, imageCenterX: img.width / 2, imageCenterY: img.height / 2 }
             }
           } as Omit<ImageObject, 'id' | 'layerId'>);
         };
@@ -532,7 +606,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     if (location.state?.image && location.state.image !== processedImage) {
       setProcessedImage(location.state.image);
       setProcessedLocationState(location.state);
-      
+
       const img = new Image();
       img.onload = () => {
         // 根据画布大小动态设定图片最大尺寸（占画布的70%）
@@ -627,7 +701,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       min-width: 400px;
       max-width: 500px;
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      max-height: 80vh;
+      max-height: 80vh;n
       overflow-y: auto;
     `;
 
@@ -869,7 +943,612 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     return points;
   }, []);
 
-  // 优化的SVG解析函数 - 支持性能配置和进度回调
+  // // 优化的SVG解析函数 - 支持性能配置和进度回调
+  // const parseSvgWithSvgson = useCallback(async (svgContent: string): Promise<CanvasItemData[]> => {
+  //   const svgJson = await parseSvgson(svgContent);
+  //   // 获取viewBox和缩放
+  //   let viewBox: number[] = [0, 0, 0, 0];
+  //   let scaleX = 1, scaleY = 1;
+  //   if (svgJson.attributes.viewBox) {
+  //     viewBox = svgJson.attributes.viewBox.split(/\s+/).map(Number);
+  //   }
+  //   if (svgJson.attributes.width && svgJson.attributes.height && viewBox.length === 4 && viewBox[2] > 0 && viewBox[3] > 0) {
+  //     scaleX = parseFloat(svgJson.attributes.width) / viewBox[2];
+  //     scaleY = parseFloat(svgJson.attributes.height) / viewBox[3];
+  //   }
+
+  //   // 优化: 缓存DOM元素以减少重复创建
+  //   const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  //   const transformCache = new Map<string, DOMMatrix>();
+
+  //   // 优化: 分帧处理以避免阻塞UI
+  //   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  //   // 收集所有需要处理的节点
+  //   const collectNodes = (node: any, nodes: any[] = []) => {
+  //     const skipTags = ['defs', 'clipPath', 'mask', 'marker', 'symbol', 'use', 'style', 'title'];
+  //     if (!skipTags.includes(node.name)) {
+  //       nodes.push(node);
+  //     }
+  //     if (node.children) {
+  //       node.children.forEach((child: any) => collectNodes(child, nodes));
+  //     }
+  //     return nodes;
+  //   };
+
+  //   const allNodes = collectNodes(svgJson);
+  //   let processedNodes = 0;
+
+  //   // 递归处理 - 优化版本
+  //   async function walk(node: any, parentTransform: DOMMatrix, items: CanvasItemData[] = []) {
+  //     // 跳过无关元素
+  //     const skipTags = ['defs', 'clipPath', 'mask', 'marker', 'symbol', 'use', 'style', 'title'];
+  //     if (skipTags.includes(node.name)) return items;
+
+  //     // 优化: 使用缓存的变换矩阵
+  //     let currentTransform = parentTransform.translate(0, 0); // 创建副本
+  //     if (node.attributes.transform) {
+  //       const transformKey = node.attributes.transform;
+  //       if (transformCache.has(transformKey)) {
+  //         const cachedMatrix = transformCache.get(transformKey)!;
+  //         currentTransform.multiplySelf(cachedMatrix);
+  //       } else {
+  //         const tempG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  //         tempG.setAttribute('transform', transformKey);
+  //         tempSvg.appendChild(tempG);
+  //         const ctm = tempG.getCTM();
+  //         if (ctm) {
+  //           transformCache.set(transformKey, ctm);
+  //           currentTransform.multiplySelf(ctm);
+  //         }
+  //         tempSvg.removeChild(tempG);
+  //       }
+  //     }
+
+  //     // 处理path - 支持多笔段
+  //     if (node.name === 'path' && node.attributes.d) {
+  //       const d = node.attributes.d;
+  //       try {
+  //         const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  //         tempPath.setAttribute('d', d);
+  //         tempSvg.appendChild(tempPath);
+  //         const totalLength = tempPath.getTotalLength();
+  //         if (totalLength > 0) {
+  //           // 检查是否包含多个 moveto 命令（表示多个子路径）
+  //           const movetoMatches = d.match(/[Mm]/g);
+  //           const hasMultipleSubpaths = movetoMatches && movetoMatches.length > 1;
+
+  //           if (hasMultipleSubpaths) {
+  //             console.log(`检测到包含 ${movetoMatches.length} 个子路径的复杂path，使用智能分段采样`);
+
+  //             // 解析 SVG path 的 d 属性，找到所有 M 命令的位置
+  //             const findMovetoPositions = (pathD: string): number[] => {
+  //               const movetoPositions: number[] = [];
+
+  //               // 使用正则表达式找到所有 M/m 命令及其位置
+  //               const movetoRegex = /[Mm][^MmZz]*/g;
+  //               let match;
+  //               const segments: string[] = [];
+
+  //               while ((match = movetoRegex.exec(pathD)) !== null) {
+  //                 segments.push(match[0]);
+  //               }
+
+  //               if (segments.length <= 1) return movetoPositions;
+
+  //               console.log(`找到 ${segments.length} 个 M 命令段`);
+
+  //               // 为每个段创建临时路径，计算其在总长度中的位置
+  //               let accumulatedLength = 0;
+
+  //               for (let i = 0; i < segments.length; i++) {
+  //                 if (i > 0) {
+  //                   // 从第二个段开始，记录断点位置
+  //                   const lengthRatio = accumulatedLength / totalLength;
+  //                   const sampleIndex = Math.round(lengthRatio * allPoints.length);
+  //                   movetoPositions.push(sampleIndex);
+  //                   console.log(`M命令 ${i + 1} 对应采样点索引: ${sampleIndex} (长度比例: ${(lengthRatio * 100).toFixed(1)}%)`);
+  //                 }
+
+  //                 // 计算当前段的长度
+  //                 try {
+  //                   // 构建到当前段结束的路径
+  //                   const partialPath = segments.slice(0, i + 1).join(' ');
+  //                   const tempPartialPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  //                   tempPartialPath.setAttribute('d', partialPath);
+  //                   tempSvg.appendChild(tempPartialPath);
+
+  //                   const partialLength = tempPartialPath.getTotalLength();
+  //                   accumulatedLength = partialLength;
+
+  //                   tempSvg.removeChild(tempPartialPath);
+  //                 } catch (error) {
+  //                   console.warn(`计算段 ${i + 1} 长度失败:`, error);
+  //                 }
+  //               }
+
+  //               return movetoPositions;
+  //             };
+
+  //             // 使用智能采样替代固定采样
+  //             const maxSamples = Math.min(performanceConfig.maxPointsPerPath, Math.max(Math.floor(totalLength), 64));
+  //             const rawPoints = smartSamplePath(tempPath, maxSamples);
+
+  //             // 应用变换和缩放
+  //             const allPoints: { x: number; y: number }[] = rawPoints.map(pt => {
+  //               const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+  //               return { x: transformedPt.x * scaleX, y: transformedPt.y * scaleY };
+  //             });
+
+  //             // 更新进度
+  //             setImportStatus(`处理复杂路径: ${allPoints.length} 个采样点`);
+
+  //             // 基于 M 命令位置检测断点
+  //             const totalSamples = allPoints.length;
+  //             const breakIndices = findMovetoPositions(d);
+
+  //             // 如果基于M命令的检测失败，使用多重几何检测策略
+  //             if (breakIndices.length === 0 && allPoints.length > 2) {
+  //               console.log('M命令检测未找到断点，使用多重几何检测策略');
+
+  //               // 1. 距离检测（更敏感的阈值）
+  //               const distances: number[] = [];
+  //               for (let i = 1; i < allPoints.length; i++) {
+  //                 const prev = allPoints[i - 1];
+  //                 const curr = allPoints[i];
+  //                 const dist = Math.sqrt(Math.pow(curr.x - prev.x, 2) + Math.pow(curr.y - prev.y, 2));
+  //                 distances.push(dist);
+  //               }
+
+  //               // 2. 方向变化检测（检测急剧转向）
+  //               const directionChanges: number[] = [];
+  //               for (let i = 2; i < allPoints.length; i++) {
+  //                 const p1 = allPoints[i - 2];
+  //                 const p2 = allPoints[i - 1];
+  //                 const p3 = allPoints[i];
+
+  //                 const v1 = { x: p2.x - p1.x, y: p2.y - p1.y };
+  //                 const v2 = { x: p3.x - p2.x, y: p3.y - p2.y };
+
+  //                 const dot = v1.x * v2.x + v1.y * v2.y;
+  //                 const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+  //                 const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+
+  //                 if (mag1 > 0 && mag2 > 0) {
+  //                   const cosAngle = dot / (mag1 * mag2);
+  //                   const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
+  //                   directionChanges.push(angle);
+  //                 } else {
+  //                   directionChanges.push(0);
+  //                 }
+  //               }
+
+  //               // 3. 曲率变化检测（检测从直线到曲线的转换）
+  //               const curvatureChanges: number[] = [];
+  //               for (let i = 3; i < allPoints.length; i++) {
+  //                 const p1 = allPoints[i - 3];
+  //                 const p2 = allPoints[i - 2];
+  //                 const p3 = allPoints[i - 1];
+  //                 const p4 = allPoints[i];
+
+  //                 // 计算前后两段的曲率差异
+  //                 const curvature1 = calculateCurvature(p1, p2, p3);
+  //                 const curvature2 = calculateCurvature(p2, p3, p4);
+  //                 const curvatureChange = Math.abs(curvature2 - curvature1);
+  //                 curvatureChanges.push(curvatureChange);
+  //               }
+
+  //               // 4. 速度变化检测（检测运动速度的突变）
+  //               const velocityChanges: number[] = [];
+  //               for (let i = 2; i < allPoints.length; i++) {
+  //                 const p1 = allPoints[i - 2];
+  //                 const p2 = allPoints[i - 1];
+  //                 const p3 = allPoints[i];
+
+  //                 const v1 = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+  //                 const v2 = Math.sqrt(Math.pow(p3.x - p2.x, 2) + Math.pow(p3.y - p2.y, 2));
+
+  //                 if (v1 > 0) {
+  //                   const velocityRatio = Math.abs(v2 - v1) / v1;
+  //                   velocityChanges.push(velocityRatio);
+  //                 } else {
+  //                   velocityChanges.push(0);
+  //                 }
+  //               }
+
+  //               // 计算各种阈值（更敏感）
+  //               const sortedDistances = [...distances].sort((a, b) => a - b);
+  //               const distanceQ75 = sortedDistances[Math.floor(sortedDistances.length * 0.75)];
+  //               const distanceQ90 = sortedDistances[Math.floor(sortedDistances.length * 0.9)];
+  //               const distanceThreshold = Math.max(distanceQ75 * 2, distanceQ90 * 1.5, totalLength / allPoints.length * 3);
+
+  //               const sortedAngles = [...directionChanges].sort((a, b) => a - b);
+  //               const angleQ85 = sortedAngles[Math.floor(sortedAngles.length * 0.85)];
+  //               const angleThreshold = Math.max(angleQ85 * 0.9, Math.PI * 0.6); // 约108度
+
+  //               const sortedCurvatures = [...curvatureChanges].sort((a, b) => a - b);
+  //               const curvatureQ90 = sortedCurvatures[Math.floor(sortedCurvatures.length * 0.9)];
+  //               const curvatureThreshold = curvatureQ90 * 0.8;
+
+  //               const sortedVelocities = [...velocityChanges].sort((a, b) => a - b);
+  //               const velocityQ90 = sortedVelocities[Math.floor(sortedVelocities.length * 0.9)];
+  //               const velocityThreshold = Math.max(velocityQ90 * 0.8, 2.0); // 速度变化200%以上
+
+  //               // 收集各类断点
+  //               const distanceBreaks: number[] = [];
+  //               const angleBreaks: number[] = [];
+  //               const curvatureBreaks: number[] = [];
+  //               const velocityBreaks: number[] = [];
+
+  //               for (let i = 0; i < distances.length; i++) {
+  //                 if (distances[i] > distanceThreshold) {
+  //                   distanceBreaks.push(i + 1);
+  //                 }
+  //               }
+
+  //               for (let i = 0; i < directionChanges.length; i++) {
+  //                 if (directionChanges[i] > angleThreshold) {
+  //                   angleBreaks.push(i + 2);
+  //                 }
+  //               }
+
+  //               for (let i = 0; i < curvatureChanges.length; i++) {
+  //                 if (curvatureChanges[i] > curvatureThreshold) {
+  //                   curvatureBreaks.push(i + 3);
+  //                 }
+  //               }
+
+  //               for (let i = 0; i < velocityChanges.length; i++) {
+  //                 if (velocityChanges[i] > velocityThreshold) {
+  //                   velocityBreaks.push(i + 2);
+  //                 }
+  //               }
+
+  //               // 合并所有断点
+  //               const allBreaks = [...distanceBreaks, ...angleBreaks, ...curvatureBreaks, ...velocityBreaks];
+  //               const uniqueBreaks = [...new Set(allBreaks)].sort((a, b) => a - b);
+
+  //               // 过滤太近的断点，但使用更小的最小间隔以捕获更多断点
+  //               const minGap = Math.max(allPoints.length * 0.03, 3);
+  //               for (const breakPoint of uniqueBreaks) {
+  //                 if (breakIndices.length === 0 || breakPoint - breakIndices[breakIndices.length - 1] >= minGap) {
+  //                   breakIndices.push(breakPoint);
+  //                 }
+  //               }
+
+  //               console.log(`多重检测结果: 距离=${distanceBreaks.length}, 角度=${angleBreaks.length}, 曲率=${curvatureBreaks.length}, 速度=${velocityBreaks.length}, 最终=${breakIndices.length}`);
+  //               console.log(`阈值: 距离=${distanceThreshold.toFixed(2)}, 角度=${(angleThreshold * 180 / Math.PI).toFixed(1)}°, 曲率=${curvatureThreshold.toFixed(4)}, 速度=${velocityThreshold.toFixed(2)}`);
+  //             }
+
+  //             // 曲率计算辅助函数
+  //             function calculateCurvature(p1: { x: number, y: number }, p2: { x: number, y: number }, p3: { x: number, y: number }): number {
+  //               const dx1 = p2.x - p1.x;
+  //               const dy1 = p2.y - p1.y;
+  //               const dx2 = p3.x - p2.x;
+  //               const dy2 = p3.y - p2.y;
+
+  //               const cross = dx1 * dy2 - dy1 * dx2;
+  //               const dot = dx1 * dx2 + dy1 * dy2;
+
+  //               const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+  //               const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+
+  //               if (len1 === 0 || len2 === 0) return 0;
+
+  //               const curvature = Math.abs(cross) / (len1 * len2 * Math.sqrt(len1 * len1 + len2 * len2 + 2 * dot));
+  //               return curvature;
+  //             }
+
+  //             // 计算边界框
+  //             let minX = allPoints[0].x, maxX = allPoints[0].x;
+  //             let minY = allPoints[0].y, maxY = allPoints[0].y;
+  //             for (const p of allPoints) {
+  //               if (p.x < minX) minX = p.x;
+  //               if (p.x > maxX) maxX = p.x;
+  //               if (p.y < minY) minY = p.y;
+  //               if (p.y > maxY) maxY = p.y;
+  //             }
+
+  //             const centerX = (minX + maxX) / 2;
+  //             const centerY = (minY + maxY) / 2;
+
+  //             // 转换为相对坐标
+  //             const originalPoints = allPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY }));
+
+  //             if (breakIndices.length > 0) {
+  //               // 有断点：按断点分割成多个笔段
+  //               const allStrokes: { x: number; y: number }[][] = [];
+  //               let segmentStart = 0;
+  //               const allBreakPoints = [...breakIndices, allPoints.length].sort((a, b) => a - b);
+
+  //               for (const breakPoint of allBreakPoints) {
+  //                 if (breakPoint > segmentStart) {
+  //                   const segmentPoints = originalPoints.slice(segmentStart, breakPoint);
+  //                   if (segmentPoints.length >= 2) {
+  //                     allStrokes.push(segmentPoints);
+  //                   }
+  //                   segmentStart = breakPoint;
+  //                 }
+  //               }
+
+  //               // 生成显示用的简化数据 - 使用性能配置
+  //               const displayStrokes = allStrokes.map(stroke => {
+  //                 if (stroke.length > performanceConfig.maxPointsPerPath / 4) {
+  //                   return simplifyPath(stroke, performanceConfig.simplificationTolerance, performanceConfig.maxPointsPerPath / 4);
+  //                 }
+  //                 return stroke;
+  //               });
+
+  //               console.log(`多笔段处理: ${allStrokes.length} 个笔段，总计 ${originalPoints.length} 个点`);
+
+  //               items.push({
+  //                 type: CanvasItemType.DRAWING,
+  //                 x: centerX,
+  //                 y: centerY,
+  //                 points: displayStrokes[0] || [],
+  //                 originalPoints: allStrokes[0] || [],
+  //                 strokes: displayStrokes,
+  //                 originalStrokes: allStrokes,
+  //                 fillColor: node.attributes.fill,
+  //                 strokeWidth: Number(node.attributes['stroke-width']) || 0,
+  //                 color: '',
+  //                 rotation: 0,
+  //               });
+  //             } else {
+  //               // 无断点：使用单笔段 + 智能简化
+  //               const shouldSimplify = originalPoints.length > performanceConfig.maxPointsPerPath / 2;
+  //               const simplifiedDisplayPoints = shouldSimplify
+  //                 ? simplifyPath(allPoints, performanceConfig.simplificationTolerance, performanceConfig.maxPointsPerPath / 2)
+  //                 : allPoints;
+  //               const displayPoints = simplifiedDisplayPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY }));
+
+  //               console.log(`复杂单笔段处理: ${originalPoints.length} 个点 → ${displayPoints.length} 个显示点`);
+
+  //               items.push({
+  //                 type: CanvasItemType.DRAWING,
+  //                 x: centerX,
+  //                 y: centerY,
+  //                 points: displayPoints,
+  //                 originalPoints: originalPoints,
+  //                 fillColor: node.attributes.fill,
+  //                 strokeWidth: Number(node.attributes['stroke-width']) || 0,
+  //                 color: '',
+  //                 rotation: 0,
+  //               });
+  //             }
+  //           } else {
+  //             // 单子路径：使用优化的智能采样
+  //             const maxSamplePoints = Math.min(performanceConfig.maxPointsPerPath, Math.max(Math.floor(totalLength), 64));
+  //             setImportStatus(`处理单路径: 目标采样 ${maxSamplePoints} 个点`);
+
+  //             const rawPoints = smartSamplePath(tempPath, maxSamplePoints);
+  //             const highPrecisionPoints: { x: number, y: number }[] = rawPoints.map(pt => {
+  //               const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+  //               return { x: transformedPt.x * scaleX, y: transformedPt.y * scaleY };
+  //             });
+
+  //             // 分批处理以避免阻塞UI
+  //             if (highPrecisionPoints.length > performanceConfig.batchSize) {
+  //               await sleep(0);
+  //             }
+
+  //             const absPoints = highPrecisionPoints;
+
+  //             if (absPoints.length >= 2) {
+  //               let minX = absPoints[0].x, maxX = absPoints[0].x;
+  //               let minY = absPoints[0].y, maxY = absPoints[0].y;
+  //               for (let i = 1; i < absPoints.length; i++) {
+  //                 const p = absPoints[i];
+  //                 if (p.x < minX) minX = p.x;
+  //                 if (p.x > maxX) maxX = p.x;
+  //                 if (p.y < minY) minY = p.y;
+  //                 if (p.y > maxY) maxY = p.y;
+  //               }
+
+  //               const centerX = (minX + maxX) / 2;
+  //               const centerY = (minY + maxY) / 2;
+
+  //               const originalPoints = highPrecisionPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY }));
+  //               const shouldSimplify = absPoints.length > performanceConfig.maxPointsPerPath / 2;
+  //               const simplifiedDisplayPoints = shouldSimplify
+  //                 ? simplifyPath(absPoints, performanceConfig.simplificationTolerance, performanceConfig.maxPointsPerPath / 2)
+  //                 : absPoints;
+  //               const displayPoints = simplifiedDisplayPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY }));
+
+  //               console.log(`单路径采样: 高精度 ${highPrecisionPoints.length} 点 → 界面显示 ${displayPoints.length} 点`);
+
+  //               items.push({
+  //                 type: CanvasItemType.DRAWING,
+  //                 x: centerX,
+  //                 y: centerY,
+  //                 points: displayPoints,
+  //                 originalPoints: originalPoints,
+  //                 fillColor: node.attributes.fill,
+  //                 strokeWidth: Number(node.attributes['stroke-width']) || 0,
+  //                 color: '',
+  //                 rotation: 0,
+  //               });
+  //             }
+  //           }
+  //         }
+  //         tempSvg.removeChild(tempPath);
+  //       } catch (e) {
+  //         console.warn('解析path失败:', e);
+  //       }
+  //     }
+  //     // 处理rect
+  //     else if (node.name === 'rect') {
+  //       const x = Number(node.attributes.x);
+  //       const y = Number(node.attributes.y);
+  //       const w = Number(node.attributes.width);
+  //       const h = Number(node.attributes.height);
+  //       const pts = [
+  //         { x: x, y: y },
+  //         { x: x + w, y: y },
+  //         { x: x + w, y: y + h },
+  //         { x: x, y: y + h },
+  //         { x: x, y: y },
+  //       ].map(pt => {
+  //         const tpt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+  //         return { x: tpt.x * scaleX, y: tpt.y * scaleY };
+  //       });
+  //       const drawing = createCenterCoordinateDrawing(pts, {
+  //         color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+  //         strokeWidth: Number(node.attributes['stroke-width']) || 2,
+  //         fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+  //       });
+  //       if (drawing) items.push(drawing);
+  //     }
+  //     // 处理circle
+  //     else if (node.name === 'circle') {
+  //       const cx = Number(node.attributes.cx);
+  //       const cy = Number(node.attributes.cy);
+  //       const r = Number(node.attributes.r);
+  //       const segs = 64;
+  //       const pts = Array.from({ length: segs + 1 }, (_, i) => {
+  //         const angle = (i / segs) * 2 * Math.PI;
+  //         const pt = new DOMPoint(cx + r * Math.cos(angle), cy + r * Math.sin(angle)).matrixTransform(currentTransform);
+  //         return { x: pt.x * scaleX, y: pt.y * scaleY };
+  //       });
+  //       const drawing = createCenterCoordinateDrawing(pts, {
+  //         color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+  //         strokeWidth: Number(node.attributes['stroke-width']) || 2,
+  //         fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+  //       });
+  //       if (drawing) items.push(drawing);
+  //     }
+  //     // 处理ellipse
+  //     else if (node.name === 'ellipse') {
+  //       const cx = Number(node.attributes.cx);
+  //       const cy = Number(node.attributes.cy);
+  //       const rx = Number(node.attributes.rx);
+  //       const ry = Number(node.attributes.ry);
+  //       const segs = 64;
+  //       const pts = Array.from({ length: segs + 1 }, (_, i) => {
+  //         const angle = (i / segs) * 2 * Math.PI;
+  //         const pt = new DOMPoint(cx + rx * Math.cos(angle), cy + ry * Math.sin(angle)).matrixTransform(currentTransform);
+  //         return { x: pt.x * scaleX, y: pt.y * scaleY };
+  //       });
+  //       const drawing = createCenterCoordinateDrawing(pts, {
+  //         color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+  //         strokeWidth: Number(node.attributes['stroke-width']) || 2,
+  //         fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+  //       });
+  //       if (drawing) items.push(drawing);
+  //     }
+  //     // 处理line
+  //     else if (node.name === 'line') {
+  //       const x1 = Number(node.attributes.x1);
+  //       const y1 = Number(node.attributes.y1);
+  //       const x2 = Number(node.attributes.x2);
+  //       const y2 = Number(node.attributes.y2);
+  //       const pts = [
+  //         new DOMPoint(x1, y1).matrixTransform(currentTransform),
+  //         new DOMPoint(x2, y2).matrixTransform(currentTransform),
+  //       ].map(pt => ({ x: pt.x * scaleX, y: pt.y * scaleY }));
+  //       const drawing = createCenterCoordinateDrawing(pts, {
+  //         color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+  //         strokeWidth: Number(node.attributes['stroke-width']) || 2,
+  //       });
+  //       if (drawing) items.push(drawing);
+  //     }
+  //     // 处理polygon
+  //     else if (node.name === 'polygon' && node.attributes.points) {
+  //       const rawPoints = node.attributes.points.trim().split(/\s+/).map((pair: string) => pair.split(',').map(Number));
+  //       const pts = rawPoints.map(([x, y]: [number, number]) => {
+  //         const pt = new DOMPoint(x, y).matrixTransform(currentTransform);
+  //         return { x: pt.x * scaleX, y: pt.y * scaleY };
+  //       });
+  //       if (pts.length >= 2) {
+  //         // polygon自动闭合
+  //         let points = pts;
+  //         if (pts.length < 2 || pts[0].x !== pts[pts.length - 1].x || pts[0].y !== pts[pts.length - 1].y) {
+  //           points = [...pts, pts[0]];
+  //         }
+  //         const drawing = createCenterCoordinateDrawing(points, {
+  //           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+  //           strokeWidth: Number(node.attributes['stroke-width']) || 2,
+  //           fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+  //         });
+  //         if (drawing) items.push(drawing);
+  //       }
+  //     }
+  //     // 处理polyline
+  //     else if (node.name === 'polyline' && node.attributes.points) {
+  //       const rawPoints = node.attributes.points.trim().split(/\s+/).map((pair: string) => pair.split(',').map(Number));
+  //       const pts = rawPoints.map(([x, y]: [number, number]) => {
+  //         const pt = new DOMPoint(x, y).matrixTransform(currentTransform);
+  //         return { x: pt.x * scaleX, y: pt.y * scaleY };
+  //       });
+  //       if (pts.length >= 2) {
+  //         const drawing = createCenterCoordinateDrawing(pts, {
+  //           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+  //           strokeWidth: Number(node.attributes['stroke-width']) || 2,
+  //           fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+  //         });
+  //         if (drawing) items.push(drawing);
+  //       }
+  //     }
+
+  //     // 更新进度
+  //     processedNodes++;
+  //     if (processedNodes % 10 === 0) {
+  //       setImportProgress((processedNodes / allNodes.length) * 100);
+  //       await sleep(0); // 让出控制权更新UI
+  //     }
+
+  //     // 递归children
+  //     if (node.children && node.children.length > 0) {
+  //       for (const child of node.children) {
+  //         await walk(child, currentTransform, items);
+  //       }
+  //     }
+
+  //     return items;
+  //   }
+
+  //   const items: CanvasItemData[] = [];
+  //   const rootTransform = new DOMMatrix();
+  //   await walk(svgJson, rootTransform, items);
+
+  //   // 清理
+  //   transformCache.clear();
+
+  //   // 合并为GROUP（如果有多个子物体）
+  //   if (items.length > 1) {
+  //     const bbox = getGroupBoundingBox(items);
+  //     const groupX = (bbox.minX + bbox.maxX) / 2;
+  //     const groupY = (bbox.minY + bbox.maxY) / 2;
+  //     const groupWidth = bbox.maxX - bbox.minX;
+  //     const groupHeight = bbox.maxY - bbox.minY;
+  //     const children = items.map(item => {
+  //       // 计算子物体全局锚点（中心点或左上角）
+  //       let anchorX = item.x ?? 0;
+  //       let anchorY = item.y ?? 0;
+  //       if ('width' in item && 'height' in item && typeof item.width === 'number' && typeof item.height === 'number') {
+  //         anchorX += item.width / 2;
+  //         anchorY += item.height / 2;
+  //       }
+  //       return {
+  //         ...item,
+  //         x: anchorX - groupX,
+  //         y: anchorY - groupY,
+  //       };
+  //     });
+  //     return [{
+  //       type: 'GROUP',
+  //       x: 0,
+  //       y: 0,
+  //       width: groupWidth,
+  //       height: groupHeight,
+  //       rotation: 0,
+  //       children,
+  //     }];
+  //   }
+  //   return items;
+  // }, []);
+
+  // svgson + svg.js递归解析SVG节点 8-25 - 增强版本支持分帧处理
   const parseSvgWithSvgson = useCallback(async (svgContent: string): Promise<CanvasItemData[]> => {
     const svgJson = await parseSvgson(svgContent);
     // 获取viewBox和缩放
@@ -878,428 +1557,176 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     if (svgJson.attributes.viewBox) {
       viewBox = svgJson.attributes.viewBox.split(/\s+/).map(Number);
     }
-    if (svgJson.attributes.width && svgJson.attributes.height && viewBox.length === 4 && viewBox[2] > 0 && viewBox[3] > 0) {
-      scaleX = parseFloat(svgJson.attributes.width) / viewBox[2];
-      scaleY = parseFloat(svgJson.attributes.height) / viewBox[3];
-    }
+    // if (svgJson.attributes.width && svgJson.attributes.height && viewBox.length === 4 && viewBox[2] > 0 && viewBox[3] > 0) {
+    //   scaleX = parseFloat(svgJson.attributes.width) / viewBox[2];
+    //   scaleY = parseFloat(svgJson.attributes.height) / viewBox[3];
+    // }
 
-    // 优化: 缓存DOM元素以减少重复创建
-    const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    const transformCache = new Map<string, DOMMatrix>();
-
-    // 优化: 分帧处理以避免阻塞UI
+    // 分帧处理辅助函数
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-    
-    // 收集所有需要处理的节点
-    const collectNodes = (node: any, nodes: any[] = []) => {
-      const skipTags = ['defs', 'clipPath', 'mask', 'marker', 'symbol', 'use', 'style', 'title'];
-      if (!skipTags.includes(node.name)) {
-        nodes.push(node);
+
+    let processedCount = 0;
+    let totalPathCount = 0;
+
+    // 预计算总路径数量 - 修正版本
+    const countPaths = (node: any): number => {
+      let count = 0;
+      if (node.name === 'path' && node.attributes.d) {
+        // 使用与 walk 函数中完全相同的逻辑来计算子路径段的数量
+        const d = node.attributes.d as string;
+        const subPathChunks = d.trim().split(/(?=[Mm])/).filter((sp: string) => sp.trim() !== '');
+        count = subPathChunks.length; // 关键改动：count 等于子路径段的数量，而不是 1
       }
+      // 递归累加子节点的路径段数量
       if (node.children) {
-        node.children.forEach((child: any) => collectNodes(child, nodes));
+        node.children.forEach((child: any) => count += countPaths(child));
       }
-      return nodes;
+      return count;
     };
 
-    const allNodes = collectNodes(svgJson);
-    let processedNodes = 0;
+    totalPathCount = countPaths(svgJson);
+    console.log(`开始解析SVG，预计包含 ${totalPathCount} 个路径`);
 
-    // 递归处理 - 优化版本
-    async function walk(node: any, parentTransform: DOMMatrix, items: CanvasItemData[] = []) {
+    // 更新导入状态
+    setIsImporting(true);
+    setImportProgress(0);
+    setImportStatus(`开始解析SVG，预计包含 ${totalPathCount} 个路径`);
+
+    // 递归处理 - 增强版本
+    async function walk(node: any, parentTransform: DOMMatrix, items: CanvasItemData[] = []): Promise<CanvasItemData[]> {
       // 跳过无关元素
       const skipTags = ['defs', 'clipPath', 'mask', 'marker', 'symbol', 'use', 'style', 'title'];
       if (skipTags.includes(node.name)) return items;
 
-      // 优化: 使用缓存的变换矩阵
+      // 合并transform
       let currentTransform = parentTransform.translate(0, 0); // 创建副本
       if (node.attributes.transform) {
-        const transformKey = node.attributes.transform;
-        if (transformCache.has(transformKey)) {
-          const cachedMatrix = transformCache.get(transformKey)!;
-          currentTransform.multiplySelf(cachedMatrix);
-        } else {
+        const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         const tempG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-          tempG.setAttribute('transform', transformKey);
+        tempG.setAttribute('transform', node.attributes.transform);
         tempSvg.appendChild(tempG);
         const ctm = tempG.getCTM();
-          if (ctm) {
-            transformCache.set(transformKey, ctm);
+        if (ctm) { // FIX: Check for null before using
           currentTransform.multiplySelf(ctm);
-          }
-          tempSvg.removeChild(tempG);
         }
       }
 
-      // 处理path - 支持多笔段
+      const viewboxDiagonalLength = Math.sqrt(viewBox[2] ** 2 + viewBox[3] ** 2);
+
+      // 处理path
+      // 处理path
+      // <<< MODIFIED & FIXED >>> 重构 path 处理逻辑
       if (node.name === 'path' && node.attributes.d) {
         const d = node.attributes.d;
-        try {
-          const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          tempPath.setAttribute('d', d);
-          tempSvg.appendChild(tempPath);
-          const totalLength = tempPath.getTotalLength();
-          if (totalLength > 0) {
-            // 检查是否包含多个 moveto 命令（表示多个子路径）
-            const movetoMatches = d.match(/[Mm]/g);
-            const hasMultipleSubpaths = movetoMatches && movetoMatches.length > 1;
 
-            if (hasMultipleSubpaths) {
-              console.log(`检测到包含 ${movetoMatches.length} 个子路径的复杂path，使用智能分段采样`);
+        const subPathChunks = d.trim().split(/(?=[Mm])/).filter((sp: string) => sp.trim() !== '');
 
-              // 解析 SVG path 的 d 属性，找到所有 M 命令的位置
-              const findMovetoPositions = (pathD: string): number[] => {
-                const movetoPositions: number[] = [];
+        let lastEndPoint = { x: 0, y: 0 };
 
-                // 使用正则表达式找到所有 M/m 命令及其位置
-                const movetoRegex = /[Mm][^MmZz]*/g;
-                let match;
-                const segments: string[] = [];
+        for (const subPathData of subPathChunks) {
+          try {
+            // 每处理一定数量的路径后让出控制权
+            processedCount++;
+            if (processedCount % performanceConfig.batchSize === 0) {
+              const progress = (processedCount / totalPathCount) * 100;
+              console.log(`已处理 ${processedCount}/${totalPathCount} 个路径 (${progress.toFixed(1)}%)`);
+              setImportProgress(progress);
+              setImportStatus(`正在解析路径 ${processedCount}/${totalPathCount}`);
+              await sleep(0); // 让出控制权给UI线程
+            }
 
-                while ((match = movetoRegex.exec(pathD)) !== null) {
-                  segments.push(match[0]);
-                }
+            let effectiveD: string;
+            const command = subPathData.trim()[0];
+            const isRelative = command === 'm';
 
-                if (segments.length <= 1) return movetoPositions;
+            // 提取出 'm' 或 'M' 后面的坐标和剩余指令
+            // 正则表达式匹配指令字母，可选的空格，然后是两个数字，最后捕获剩余所有内容
+            //const pathRegex = /^[Mm]\s*(-?[\d.]+)\s*,?\s*(-?[\d.]+)(.*)/;
+            const numberPattern = '-?(?:\\d+\\.\\d*|\\.\\d+|\\d+)(?:[eE][-+]?\\d+)?';
+            const pathRegex = new RegExp(`^[Mm]\\s*(${numberPattern})\\s*,?\\s*(${numberPattern})(.*)`);
+            const match = subPathData.trim().match(pathRegex);
 
-                console.log(`找到 ${segments.length} 个 M 命令段`);
+            if (!match) {
+              // 如果路径段不是以 M/m 开头，或者格式不匹配，则跳过
+              // 这种情况可能发生在 SVG 格式非常不规范时
+              console.warn("跳过格式不正确的路径段:", subPathData);
+              continue;
+            }
 
-                // 为每个段创建临时路径，计算其在总长度中的位置
-                let accumulatedLength = 0;
+            const xVal = parseFloat(match[1]);
+            const yVal = parseFloat(match[2]);
+            const remainingD = match[3].trim(); // 捕获到的剩余路径指令，如 "a196.587..."
 
-                for (let i = 0; i < segments.length; i++) {
-                  if (i > 0) {
-                    // 从第二个段开始，记录断点位置
-                    const lengthRatio = accumulatedLength / totalLength;
-                    const sampleIndex = Math.round(lengthRatio * allPoints.length);
-                    movetoPositions.push(sampleIndex);
-                    console.log(`M命令 ${i + 1} 对应采样点索引: ${sampleIndex} (长度比例: ${(lengthRatio * 100).toFixed(1)}%)`);
-                  }
+            let newX = xVal;
+            let newY = yVal;
 
-                  // 计算当前段的长度
-                  try {
-                    // 构建到当前段结束的路径
-                    const partialPath = segments.slice(0, i + 1).join(' ');
-                    const tempPartialPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                    tempPartialPath.setAttribute('d', partialPath);
-                    tempSvg.appendChild(tempPartialPath);
+            if (isRelative) {
+              newX += lastEndPoint.x;
+              newY += lastEndPoint.y;
+            }
 
-                    const partialLength = tempPartialPath.getTotalLength();
-                    accumulatedLength = partialLength;
+            // 构建以绝对坐标 'M' 开头的、可以被独立渲染的 d 属性
+            effectiveD = `M ${newX} ${newY} ${remainingD}`;
 
-                    tempSvg.removeChild(tempPartialPath);
-                  } catch (error) {
-                    console.warn(`计算段 ${i + 1} 长度失败:`, error);
-                  }
-                }
+            const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            tempPath.setAttribute('d', effectiveD);
+            tempSvg.appendChild(tempPath);
 
-                return movetoPositions;
-              };
+            const totalLength = tempPath.getTotalLength();
 
-              // 使用智能采样替代固定采样
-              const maxSamples = Math.min(performanceConfig.maxPointsPerPath, Math.max(Math.floor(totalLength), 64));
-              const rawPoints = smartSamplePath(tempPath, maxSamples);
+            if (totalLength > viewboxDiagonalLength / 10000) {
+              // 使用性能配置动态调整采样参数
+              const maxSamples = Math.min(performanceConfig.maxPointsPerPath, 500);
+              const curvatureThreshold = Math.max(0.1, performanceConfig.simplificationTolerance / 20);
 
-              // 应用变换和缩放
-              const allPoints: { x: number; y: number }[] = rawPoints.map(pt => {
-              const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
-                return { x: transformedPt.x * scaleX, y: transformedPt.y * scaleY };
-              });
-
-              // 更新进度
-              setImportStatus(`处理复杂路径: ${allPoints.length} 个采样点`);
-
-              // 基于 M 命令位置检测断点
-              const totalSamples = allPoints.length;
-              const breakIndices = findMovetoPositions(d);
-
-              // 如果基于M命令的检测失败，使用多重几何检测策略
-              if (breakIndices.length === 0 && allPoints.length > 2) {
-                console.log('M命令检测未找到断点，使用多重几何检测策略');
-
-                // 1. 距离检测（更敏感的阈值）
-                const distances: number[] = [];
-                for (let i = 1; i < allPoints.length; i++) {
-                  const prev = allPoints[i - 1];
-                  const curr = allPoints[i];
-                  const dist = Math.sqrt(Math.pow(curr.x - prev.x, 2) + Math.pow(curr.y - prev.y, 2));
-                  distances.push(dist);
-                }
-
-                // 2. 方向变化检测（检测急剧转向）
-                const directionChanges: number[] = [];
-                for (let i = 2; i < allPoints.length; i++) {
-                  const p1 = allPoints[i - 2];
-                  const p2 = allPoints[i - 1];
-                  const p3 = allPoints[i];
-
-                  const v1 = { x: p2.x - p1.x, y: p2.y - p1.y };
-                  const v2 = { x: p3.x - p2.x, y: p3.y - p2.y };
-
-                  const dot = v1.x * v2.x + v1.y * v2.y;
-                  const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
-                  const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
-
-                  if (mag1 > 0 && mag2 > 0) {
-                    const cosAngle = dot / (mag1 * mag2);
-                    const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
-                    directionChanges.push(angle);
-                  } else {
-                    directionChanges.push(0);
-                  }
-                }
-
-                // 3. 曲率变化检测（检测从直线到曲线的转换）
-                const curvatureChanges: number[] = [];
-                for (let i = 3; i < allPoints.length; i++) {
-                  const p1 = allPoints[i - 3];
-                  const p2 = allPoints[i - 2];
-                  const p3 = allPoints[i - 1];
-                  const p4 = allPoints[i];
-
-                  // 计算前后两段的曲率差异
-                  const curvature1 = calculateCurvature(p1, p2, p3);
-                  const curvature2 = calculateCurvature(p2, p3, p4);
-                  const curvatureChange = Math.abs(curvature2 - curvature1);
-                  curvatureChanges.push(curvatureChange);
-                }
-
-                // 4. 速度变化检测（检测运动速度的突变）
-                const velocityChanges: number[] = [];
-                for (let i = 2; i < allPoints.length; i++) {
-                  const p1 = allPoints[i - 2];
-                  const p2 = allPoints[i - 1];
-                  const p3 = allPoints[i];
-
-                  const v1 = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
-                  const v2 = Math.sqrt(Math.pow(p3.x - p2.x, 2) + Math.pow(p3.y - p2.y, 2));
-
-                  if (v1 > 0) {
-                    const velocityRatio = Math.abs(v2 - v1) / v1;
-                    velocityChanges.push(velocityRatio);
-                  } else {
-                    velocityChanges.push(0);
-                  }
-                }
-
-                // 计算各种阈值（更敏感）
-                const sortedDistances = [...distances].sort((a, b) => a - b);
-                const distanceQ75 = sortedDistances[Math.floor(sortedDistances.length * 0.75)];
-                const distanceQ90 = sortedDistances[Math.floor(sortedDistances.length * 0.9)];
-                const distanceThreshold = Math.max(distanceQ75 * 2, distanceQ90 * 1.5, totalLength / allPoints.length * 3);
-
-                const sortedAngles = [...directionChanges].sort((a, b) => a - b);
-                const angleQ85 = sortedAngles[Math.floor(sortedAngles.length * 0.85)];
-                const angleThreshold = Math.max(angleQ85 * 0.9, Math.PI * 0.6); // 约108度
-
-                const sortedCurvatures = [...curvatureChanges].sort((a, b) => a - b);
-                const curvatureQ90 = sortedCurvatures[Math.floor(sortedCurvatures.length * 0.9)];
-                const curvatureThreshold = curvatureQ90 * 0.8;
-
-                const sortedVelocities = [...velocityChanges].sort((a, b) => a - b);
-                const velocityQ90 = sortedVelocities[Math.floor(sortedVelocities.length * 0.9)];
-                const velocityThreshold = Math.max(velocityQ90 * 0.8, 2.0); // 速度变化200%以上
-
-                // 收集各类断点
-                const distanceBreaks: number[] = [];
-                const angleBreaks: number[] = [];
-                const curvatureBreaks: number[] = [];
-                const velocityBreaks: number[] = [];
-
-                for (let i = 0; i < distances.length; i++) {
-                  if (distances[i] > distanceThreshold) {
-                    distanceBreaks.push(i + 1);
-                  }
-                }
-
-                for (let i = 0; i < directionChanges.length; i++) {
-                  if (directionChanges[i] > angleThreshold) {
-                    angleBreaks.push(i + 2);
-                  }
-                }
-
-                for (let i = 0; i < curvatureChanges.length; i++) {
-                  if (curvatureChanges[i] > curvatureThreshold) {
-                    curvatureBreaks.push(i + 3);
-                  }
-                }
-
-                for (let i = 0; i < velocityChanges.length; i++) {
-                  if (velocityChanges[i] > velocityThreshold) {
-                    velocityBreaks.push(i + 2);
-                  }
-                }
-
-                // 合并所有断点
-                const allBreaks = [...distanceBreaks, ...angleBreaks, ...curvatureBreaks, ...velocityBreaks];
-                const uniqueBreaks = [...new Set(allBreaks)].sort((a, b) => a - b);
-
-                // 过滤太近的断点，但使用更小的最小间隔以捕获更多断点
-                const minGap = Math.max(allPoints.length * 0.03, 3);
-                for (const breakPoint of uniqueBreaks) {
-                  if (breakIndices.length === 0 || breakPoint - breakIndices[breakIndices.length - 1] >= minGap) {
-                    breakIndices.push(breakPoint);
-                  }
-                }
-
-                console.log(`多重检测结果: 距离=${distanceBreaks.length}, 角度=${angleBreaks.length}, 曲率=${curvatureBreaks.length}, 速度=${velocityBreaks.length}, 最终=${breakIndices.length}`);
-                console.log(`阈值: 距离=${distanceThreshold.toFixed(2)}, 角度=${(angleThreshold * 180 / Math.PI).toFixed(1)}°, 曲率=${curvatureThreshold.toFixed(4)}, 速度=${velocityThreshold.toFixed(2)}`);
-              }
-
-              // 曲率计算辅助函数
-              function calculateCurvature(p1: {x: number, y: number}, p2: {x: number, y: number}, p3: {x: number, y: number}): number {
-                const dx1 = p2.x - p1.x;
-                const dy1 = p2.y - p1.y;
-                const dx2 = p3.x - p2.x;
-                const dy2 = p3.y - p2.y;
-
-                const cross = dx1 * dy2 - dy1 * dx2;
-                const dot = dx1 * dx2 + dy1 * dy2;
-
-                const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
-                const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-
-                if (len1 === 0 || len2 === 0) return 0;
-
-                const curvature = Math.abs(cross) / (len1 * len2 * Math.sqrt(len1 * len1 + len2 * len2 + 2 * dot));
-                return curvature;
-              }
-
-              // 计算边界框
-              let minX = allPoints[0].x, maxX = allPoints[0].x;
-              let minY = allPoints[0].y, maxY = allPoints[0].y;
-              for (const p of allPoints) {
-                if (p.x < minX) minX = p.x;
-                if (p.x > maxX) maxX = p.x;
-                if (p.y < minY) minY = p.y;
-                if (p.y > maxY) maxY = p.y;
-              }
-
-              const centerX = (minX + maxX) / 2;
-              const centerY = (minY + maxY) / 2;
-
-              // 转换为相对坐标
-              const originalPoints = allPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY }));
-
-              if (breakIndices.length > 0) {
-                // 有断点：按断点分割成多个笔段
-                const allStrokes: { x: number; y: number }[][] = [];
-                let segmentStart = 0;
-                const allBreakPoints = [...breakIndices, allPoints.length].sort((a, b) => a - b);
-
-                for (const breakPoint of allBreakPoints) {
-                  if (breakPoint > segmentStart) {
-                    const segmentPoints = originalPoints.slice(segmentStart, breakPoint);
-                    if (segmentPoints.length >= 2) {
-                      allStrokes.push(segmentPoints);
-                    }
-                    segmentStart = breakPoint;
-                  }
-                }
-
-                // 生成显示用的简化数据 - 使用性能配置
-                const displayStrokes = allStrokes.map(stroke => {
-                  if (stroke.length > performanceConfig.maxPointsPerPath / 4) {
-                    return simplifyPath(stroke, performanceConfig.simplificationTolerance, performanceConfig.maxPointsPerPath / 4);
-                  }
-                  return stroke;
-                });
-
-                console.log(`多笔段处理: ${allStrokes.length} 个笔段，总计 ${originalPoints.length} 个点`);
-
-                items.push({
-                  type: CanvasItemType.DRAWING,
-                  x: centerX,
-                  y: centerY,
-                  points: displayStrokes[0] || [],
-                  originalPoints: allStrokes[0] || [],
-                  strokes: displayStrokes,
-                  originalStrokes: allStrokes,
-                  fillColor: node.attributes.fill,
-                  strokeWidth: Number(node.attributes['stroke-width']) || 0,
-                  color: '',
-                  rotation: 0,
-                });
-              } else {
-                // 无断点：使用单笔段 + 智能简化
-                const shouldSimplify = originalPoints.length > performanceConfig.maxPointsPerPath / 2;
-                const simplifiedDisplayPoints = shouldSimplify
-                  ? simplifyPath(allPoints, performanceConfig.simplificationTolerance, performanceConfig.maxPointsPerPath / 2)
-                  : allPoints;
-                const displayPoints = simplifiedDisplayPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY }));
-
-                console.log(`复杂单笔段处理: ${originalPoints.length} 个点 → ${displayPoints.length} 个显示点`);
-
-                items.push({
-                  type: CanvasItemType.DRAWING,
-                  x: centerX,
-                  y: centerY,
-                  points: displayPoints,
-                  originalPoints: originalPoints,
-                  fillColor: node.attributes.fill,
-                  strokeWidth: Number(node.attributes['stroke-width']) || 0,
-                  color: '',
-                  rotation: 0,
-                });
-              }
-            } else {
-              // 单子路径：使用优化的智能采样
-              const maxSamplePoints = Math.min(performanceConfig.maxPointsPerPath, Math.max(Math.floor(totalLength), 64));
-              setImportStatus(`处理单路径: 目标采样 ${maxSamplePoints} 个点`);
-
-              const rawPoints = smartSamplePath(tempPath, maxSamplePoints);
-              const highPrecisionPoints: { x: number, y: number }[] = rawPoints.map(pt => {
+              let absPoints = adaptiveSamplePath(tempPath, {
+                minSegmentLength: 2,
+                curvatureThreshold: curvatureThreshold,
+                maxSamples: maxSamples
+              }).map(pt => {
                 const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
                 return { x: transformedPt.x * scaleX, y: transformedPt.y * scaleY };
               });
 
-              // 分批处理以避免阻塞UI
-              if (highPrecisionPoints.length > performanceConfig.batchSize) {
-                await sleep(0);
+              // 如果点数仍然过多，使用道格拉斯-普克算法进一步简化
+              if (absPoints.length > performanceConfig.maxPointsPerPath) {
+                absPoints = simplifyPath(absPoints, performanceConfig.simplificationTolerance, performanceConfig.maxPointsPerPath);
               }
 
-              const absPoints = highPrecisionPoints;
+              if (absPoints.length >= 2) {
+                // 检查总点数限制
+                const currentTotalPoints = items.reduce((total, item) => {
+                  if (item.type === 'DRAWING' && item.points) {
+                    return total + item.points.length;
+                  }
+                  return total;
+                }, 0);
 
-            if (absPoints.length >= 2) {
-                let minX = absPoints[0].x, maxX = absPoints[0].x;
-                let minY = absPoints[0].y, maxY = absPoints[0].y;
-                for (let i = 1; i < absPoints.length; i++) {
-                  const p = absPoints[i];
-                  if (p.x < minX) minX = p.x;
-                  if (p.x > maxX) maxX = p.x;
-                  if (p.y < minY) minY = p.y;
-                  if (p.y > maxY) maxY = p.y;
+                if (currentTotalPoints + absPoints.length <= performanceConfig.maxTotalPoints) {
+                  const drawing = createCenterCoordinateDrawing(absPoints, {
+                    fillColor: node.attributes.fill,
+                    strokeWidth: Number(node.attributes['stroke-width']) || 0,
+                    color: node.attributes.stroke || '#2563eb',
+                    rotation: 0,
+                  });
+                  if (drawing) {
+                    items.push(drawing);
+                  }
+                } else {
+                  console.warn(`跳过路径：总点数将超过限制 (${currentTotalPoints + absPoints.length} > ${performanceConfig.maxTotalPoints})`);
                 }
+              }
 
-              const centerX = (minX + maxX) / 2;
-              const centerY = (minY + maxY) / 2;
-
-                const originalPoints = highPrecisionPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY }));
-                const shouldSimplify = absPoints.length > performanceConfig.maxPointsPerPath / 2;
-                const simplifiedDisplayPoints = shouldSimplify
-                  ? simplifyPath(absPoints, performanceConfig.simplificationTolerance, performanceConfig.maxPointsPerPath / 2)
-                  : absPoints;
-                const displayPoints = simplifiedDisplayPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY }));
-
-                console.log(`单路径采样: 高精度 ${highPrecisionPoints.length} 点 → 界面显示 ${displayPoints.length} 点`);
-
-              items.push({
-                type: CanvasItemType.DRAWING,
-                x: centerX,
-                y: centerY,
-                  points: displayPoints,
-                  originalPoints: originalPoints,
-                fillColor: node.attributes.fill,
-                strokeWidth: Number(node.attributes['stroke-width']) || 0,
-                color: '',
-                rotation: 0,
-              });
+              const endPoint = tempPath.getPointAtLength(totalLength);
+              lastEndPoint = { x: endPoint.x, y: endPoint.y };
+            } else {
+              // 如果路径长度为0（可能只有一个M指令），我们也需要更新终点位置
+              lastEndPoint = { x: newX, y: newY };
             }
+          } catch (e) {
+            console.warn("解析子路径时出错:", subPathData, e);
           }
-          }
-          tempSvg.removeChild(tempPath);
-        } catch (e) { 
-          console.warn('解析path失败:', e);
         }
       }
       // 处理rect
@@ -1343,8 +1770,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         });
         if (drawing) items.push(drawing);
       }
-      // 处理ellipse
-      else if (node.name === 'ellipse') {
+      // 处理eclipse
+      else if (node.name === 'eclipse') {
         const cx = Number(node.attributes.cx);
         const cy = Number(node.attributes.cy);
         const rx = Number(node.attributes.rx);
@@ -1416,14 +1843,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         }
       }
 
-      // 更新进度
-      processedNodes++;
-      if (processedNodes % 10 === 0) {
-        setImportProgress((processedNodes / allNodes.length) * 100);
-        await sleep(0); // 让出控制权更新UI
-      }
-
-      // 递归children
+      // 递归children - 使用异步处理
       if (node.children && node.children.length > 0) {
         for (const child of node.children) {
           await walk(child, currentTransform, items);
@@ -1432,14 +1852,17 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
       return items;
     }
-    
     const items: CanvasItemData[] = [];
     const rootTransform = new DOMMatrix();
     await walk(svgJson, rootTransform, items);
-    
-    // 清理
-    transformCache.clear();
-    
+    console.log(`SVG解析完成，共生成 ${items.length} 个对象`);
+
+    // 完成导入
+    setImportProgress(100);
+    setImportStatus(`解析完成，共生成 ${items.length} 个对象`);
+    setTimeout(() => {
+      setIsImporting(false);
+    }, 1000); // 显示完成状态1秒后关闭
     // 合并为GROUP（如果有多个子物体）
     if (items.length > 1) {
       const bbox = getGroupBoundingBox(items);
@@ -1463,8 +1886,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       });
       return [{
         type: 'GROUP',
-        x: 0,
-        y: 0,
+        x: groupX,
+        y: groupY,
         width: groupWidth,
         height: groupHeight,
         rotation: 0,
@@ -1474,392 +1897,11 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     return items;
   }, []);
 
-  // 处理导入文件
+  // 处理导入文件 8-25
   const handleImportFile = useCallback(async (file: { name: string; ext: string; content: string }) => {
-    //alert(file.content);
-    // SVG 导入
-    if (file.ext === 'svg') {
-      try {
-        alert("1");
-        // 显示导入进度
-        setIsImporting(true);
-        setImportProgress(0);
-        alert("2");
-      const parsedItems = await parseSvgWithSvgson(file.content);
-      alert("3");
-      if (parsedItems.length === 0) {
-        alert('SVG未识别到可导入的线条');
-          setIsImporting(false);
-      } else {
-        alert("4");
-        // 保存原始SVG内容用于G代码生成
-        const originalContent = file.content;
-        alert("5");
-        // 创建SVG图像用于显示
-        const dataUrl = 'data:image/svg+xml;base64,' + toBase64Utf8(file.content);
-        alert("6");
-        const img = new Image();
-        alert("7");
-        img.onload = () => {
-          // 创建图像对象时包含矢量源数据
-          const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-            type: CanvasItemType.IMAGE,
-            x: canvasWidth / 2,
-            y: canvasHeight / 2,
-            width: img.width,
-            height: img.height,
-            href: dataUrl,
-            rotation: 0,
-            vectorSource: {
-              type: 'svg',
-              content: originalContent,
-              parsedItems: parsedItems,
-            }
-          };
-
-          addItem(imageData);
-            
-            // 隐藏进度条
-            setIsImporting(false);
-            setImportProgress(0);
-        };
-        alert("8");
-        img.src = dataUrl;
-        alert("9");
-        }
-      } catch (error) {
-        console.error('SVG导入失败:', error);
-        alert('SVG导入失败，请检查文件格式');
-        setIsImporting(false);
-        setImportProgress(0);
-      }
-      return;
-    }
-    // DXF 导入
-    if (file.ext === 'dxf') {
-      //return;
-      // try {
-      //   const dxf = parseDxf(file.content);
-      //   const items: CanvasItemData[] = [];
-      //   if (!dxf || !dxf.entities) {
-      //     alert('DXF文件内容无效');
-      //     return;
-      //   }
-      //   (dxf.entities as any[]).forEach((ent: any) => {
-      //     if (ent.type === 'LINE') {
-      //       const minX = Math.min(ent.vertices[0].x, ent.vertices[1].x);
-      //       const minY = Math.min(ent.vertices[0].y, ent.vertices[1].y);
-      //       items.push({
-      //         type: CanvasItemType.DRAWING,
-      //         x: minX,
-      //         y: minY,
-      //         points: [
-      //           { x: ent.vertices[0].x - minX, y: ent.vertices[0].y - minY },
-      //           { x: ent.vertices[1].x - minX, y: ent.vertices[1].y - minY },
-      //         ],
-      //         color: '#16a34a',
-      //         strokeWidth: 2,
-      //       });
-      //     } else if (ent.type === 'LWPOLYLINE' && ent.vertices) {
-      //       const points = (ent.vertices as any[]).map((v: any) => ({ x: v.x, y: v.y }));
-      //       if (points.length < 2) return;
-      //       const minX = Math.min(...points.map(p => p.x));
-      //       const minY = Math.min(...points.map(p => p.y));
-      //       items.push({
-      //         type: CanvasItemType.DRAWING,
-      //         x: minX,
-      //         y: minY,
-      //         points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-      //         color: '#16a34a',
-      //         strokeWidth: 2,
-      //       });
-      //     } else if (ent.type === 'CIRCLE') {
-      //       const cx = ent.center.x, cy = ent.center.y, r = ent.radius;
-      //       const points = Array.from({ length: 36 }, (_, i) => {
-      //         const angle = (i / 36) * 2 * Math.PI;
-      //         return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
-      //       });
-      //       const minX = Math.min(...points.map(p => p.x));
-      //       const minY = Math.min(...points.map(p => p.y));
-      //       items.push({
-      //         type: CanvasItemType.DRAWING,
-      //         x: minX,
-      //         y: minY,
-      //         points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-      //         color: '#16a34a',
-      //         strokeWidth: 2,
-      //       });
-      //     } else if (ent.type === 'ARC') {
-      //       const cx = ent.center.x, cy = ent.center.y, r = ent.radius;
-      //       const start = ent.startAngle * Math.PI / 180;
-      //       const end = ent.endAngle * Math.PI / 180;
-      //       const segs = 24;
-      //       const points = Array.from({ length: segs + 1 }, (_, i) => {
-      //         const angle = start + (end - start) * (i / segs);
-      //         return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
-      //       });
-      //       const minX = Math.min(...points.map(p => p.x));
-      //       const minY = Math.min(...points.map(p => p.y));
-      //       items.push({
-      //         type: CanvasItemType.DRAWING,
-      //         x: minX,
-      //         y: minY,
-      //         points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-      //         color: '#16a34a',
-      //         strokeWidth: 2,
-      //       });
-      //     } else if (ent.type === 'SPLINE' && ent.controlPoints) {
-      //       // 采样样条曲线
-      //       const ctrl = ent.controlPoints;
-      //       const sampleCount = Math.max(ctrl.length * 8, 64);
-      //       const points: { x: number; y: number }[] = [];
-      //       for (let i = 0; i <= sampleCount; i++) {
-      //         const t = i / sampleCount;
-      //         // De Casteljau算法贝塞尔插值
-      //         let temp = ctrl.map((p: any) => ({ x: p.x, y: p.y }));
-      //         for (let k = 1; k < ctrl.length; k++) {
-      //           for (let j = 0; j < ctrl.length - k; j++) {
-      //             temp[j] = {
-      //               x: temp[j].x * (1 - t) + temp[j + 1].x * t,
-      //               y: temp[j].y * (1 - t) + temp[j + 1].y * t,
-      //             };
-      //           }
-      //         }
-      //         points.push(temp[0]);
-      //       }
-      //       if (points.length < 2) return;
-      //       const minX = Math.min(...points.map(p => p.x));
-      //       const minY = Math.min(...points.map(p => p.y));
-      //       items.push({
-      //         type: CanvasItemType.DRAWING,
-      //         x: minX,
-      //         y: minY,
-      //         points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-      //         color: '#16a34a',
-      //         strokeWidth: 2,
-      //       });
-      //     }
-      //   });
-      //   if (items.length === 0) {
-      //     alert('DXF未识别到可导入的线条');
-      //   } else {
-      //     // 保存原始DXF内容用于G代码生成
-      //     const originalContent = file.content;
-
-      //     // 创建DXF图像用于显示
-      //     const helper = new Helper(file.content);
-      //     const generatedSvg = helper.toSVG();
-      //     const dataUrl = 'data:image/svg+xml;base64,' + btoa(generatedSvg);
-      //     const img = new Image();
-      //     img.onload = () => {
-      //       // 创建图像对象时包含矢量源数据
-      //       const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-      //         type: CanvasItemType.IMAGE,
-      //         x: 0,
-      //         y: 0,
-      //         width: img.width,
-      //         height: img.height,
-      //         href: dataUrl,
-      //         rotation: 0,
-      //         vectorSource: {
-      //           type: 'dxf',
-      //           content: originalContent,
-      //           parsedItems: items
-      //         }
-      //       };
-
-      //       addItem(imageData);
-      //     };
-      //     img.src = dataUrl;
-      //   }
-      // } catch (e) {
-      //   alert('DXF解析失败');
-      // }
-      // return;
-
-      // 8.5
-      const helper = new Helper(file.content);
-      // 保存dxf转换得到的原始SVG内容用于G代码生成
-      const originalContent = helper.toSVG();
-      const parsedItems = await parseSvgWithSvgson(originalContent);
-      if (parsedItems.length === 0) {
-        alert('DXF未识别到可导入的线条');
-      } else {
-        // 创建SVG图像用于显示
-        const dataUrl = 'data:image/svg+xml;base64,' + toBase64Utf8(originalContent);
-        const img = new Image();
-        img.onload = () => {
-          // 创建图像对象时包含矢量源数据
-          const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-            type: CanvasItemType.IMAGE,
-            x: canvasWidth / 2,
-            y: canvasHeight / 2,
-            width: img.width,
-            height: img.height,
-            href: dataUrl,
-            rotation: 0,
-            vectorSource: {
-              type: 'svg',
-              content: originalContent,
-              parsedItems: parsedItems
-            }
-          };
-
-          addItem(imageData);
-        };
-        img.src = dataUrl;
-      }
-      return;
-    }
-    if (file.ext === 'plt') {
-      try {
-        const hpglCommands = simpleParseHPGL(file.content);
-
-        const polylines: { x: number; y: number }[][] = [];
-        let currentPolyline: { x: number; y: number }[] = [];
-        let currentPos = { x: 0, y: 0 };
-        let isPenDown = false;
-
-        const finishCurrentPolyline = () => {
-          if (currentPolyline.length > 1) {
-            polylines.push(currentPolyline);
-          }
-          currentPolyline = [];
-        };
-
-        hpglCommands.forEach((cmd: any) => {
-          if (!cmd || !cmd.type) return;
-
-          if (cmd.type.startsWith('PU')) {
-            finishCurrentPolyline();
-            isPenDown = false;
-            if (cmd.points && cmd.points.length > 0) {
-              cmd.points.forEach((pt: [number, number]) => currentPos = { x: pt[0], y: pt[1] });
-            }
-          }
-          else if (cmd.type.startsWith('PD')) {
-            finishCurrentPolyline();
-            isPenDown = true;
-            currentPolyline.push({ ...currentPos });
-            if (cmd.points && cmd.points.length > 0) {
-              cmd.points.forEach((pt: [number, number]) => {
-                currentPos = { x: pt[0], y: pt[1] };
-                currentPolyline.push({ ...currentPos });
-              });
-            }
-          }
-          else if (cmd.type.startsWith('PA')) {
-            if (cmd.points && cmd.points.length > 0) {
-              cmd.points.forEach((pt: [number, number]) => {
-                currentPos = { x: pt[0], y: pt[1] };
-                if (isPenDown) {
-                  currentPolyline.push({ ...currentPos });
-                }
-              });
-            }
-          }
-        });
-        finishCurrentPolyline();
-
-        if (polylines.length === 0) {
-          alert('PLT未识别到可导入的线条');
-          return;
-        }
-
-        const allPoints = polylines.flat();
-        const minX = Math.min(...allPoints.map(p => p.x));
-        const minY = Math.min(...allPoints.map(p => p.y));
-        const maxX = Math.max(...allPoints.map(p => p.x));
-        const maxY = Math.max(...allPoints.map(p => p.y));
-
-        const drawingWidth = maxX - minX;
-        const drawingHeight = maxY - minY;
-
-        if (drawingWidth === 0 || drawingHeight === 0) {
-          alert('图形尺寸无效，无法进行缩放');
-          return;
-        }
-
-        const CANVAS_WIDTH = 400;
-        const CANVAS_HEIGHT = 400;
-        const PADDING = 20;
-
-        const targetWidth = CANVAS_WIDTH - PADDING * 2;
-        const targetHeight = CANVAS_HEIGHT - PADDING * 2;
-
-        const scaleX = targetWidth / drawingWidth;
-        const scaleY = targetHeight / drawingHeight;
-        const scaleFactor = Math.min(scaleX, scaleY);
-
-        const scaledDrawingWidth = drawingWidth * scaleFactor;
-        const scaledDrawingHeight = drawingHeight * scaleFactor;
-        const offsetX = (CANVAS_WIDTH - scaledDrawingWidth) / 2;
-        const offsetY = (CANVAS_HEIGHT - scaledDrawingHeight) / 2;
-
-        const finalItems: CanvasItemData[] = polylines.map(polyline => {
-          const transformedPoints = polyline.map(p => {
-            const translatedX = p.x - minX;
-            const translatedY = maxY - p.y;
-
-            return {
-              x: translatedX * scaleFactor + offsetX,
-              y: translatedY * scaleFactor + offsetY,
-            };
-          });
-
-          return createCenterCoordinateDrawing(transformedPoints, {
-            color: '#eab308',
-            strokeWidth: 2,
-          });
-        });
-
-        // 保存原始PLT内容用于G代码生成
-        const originalContent = file.content;
-
-        // 创建PLT图像用于显示（这里简化处理，实际可能需要更复杂的转换）
-        const dataUrl = 'data:image/svg+xml;base64,' + toBase64Utf8(`<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-          <rect width="100%" height="100%" fill="none"/>
-          ${polylines.map(polyline => {
-          const points = polyline.map(p => {
-            const translatedX = p.x - minX;
-            const translatedY = maxY - p.y;
-            return `${translatedX * scaleFactor + offsetX},${translatedY * scaleFactor + offsetY}`;
-          }).join(' ');
-          return `<polyline points="${points}" fill="none" stroke="#eab308" stroke-width="2"/>`;
-        }).join('')}
-        </svg>`);
-
-        const img = new Image();
-        img.onload = () => {
-          // 创建图像对象时包含矢量源数据
-          const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-            type: CanvasItemType.IMAGE,
-            x: canvasWidth / 2,
-            y: canvasHeight / 2,
-            width: img.width,
-            height: img.height,
-            href: dataUrl,
-            rotation: 0,
-            vectorSource: {
-              type: 'plt',
-              content: originalContent,
-              parsedItems: finalItems
-            }
-          };
-
-          addItem(imageData);
-        };
-        img.src = dataUrl;
-
-      } catch (e: any) {
-        console.error(e);
-        alert(`PLT解析失败: ${e.message}`);
-      }
-      return;
-    }
-
     alert('不支持的文件类型');
   }, [addItem, parseSvgWithSvgson]);
+
 
   // 分图层导出预览和传递到安卓
   const handleNext = async () => {
@@ -1940,54 +1982,120 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       reader.onload = async (e) => {
         const svgString = e.target?.result as string;
         if (!svgString) return;
+
         // 保存原始SVG内容用于G代码生成
-        const originalContent = svgo.optimize(svgString, {
-           plugins: [
-          // 使用 SVGO 的默认插件集，这已经能完成大部分优化工作
-          {
-            name: 'preset-default',
-            params: {
-              overrides: {
-                // 您的解析器需要 <g> 标签来处理变换，所以不要合并它们
-                collapseGroups: false, 
+        var originalContent = svgo.optimize(svgString, {
+          plugins: [
+            {
+              name: 'preset-default',
+              params: {
+                overrides: {
+                  convertShapeToPath: {
+                    convertArcs: false,
+                  },
+                  convertPathData: {
+                    applyTransforms: true,
+                    makeAbsolute: true,
+                    forceAbsolutePath: true,
+                  },
+                  mergePaths: {
+                    force: false,
+                    floatPrecision: 3,
+                    noSpaceAfterFlags: false
+                  },
+                  removeAttrs: {
+                    attrs: 'svg:preserveAspectRatio',
+                  },
+                },
               },
             },
-          },
-          'removeStyleElement', // 移除 <style> 标签，因为解析器不处理它
-          'removeScripts', // 移除 <script> 标签，保证安全
-          'cleanupIds', // 清理无用的ID
-        ],
-        }).data;
+            {
+              name: 'removeAttrs',
+              params: {
+                attrs: 'svg:preserveAspectRatio',
+              }
+            },
+            // {
+            //   name: 'addAttributesToSVGElement',
+            //   params: {
+            //     attributes: [
+            //       {
+            //         preserveAspectRatio: 'none',
+            //       },
+            //     ],
+            //   },
+            // },
+            'removeStyleElement',
+            'collapseGroups',
+            'cleanupIds',
 
-        // 解析SVG为矢量对象
-        let parsedItems: CanvasItemData[] = [];
-        try {
-          parsedItems = await parseSvgWithSvgson(originalContent);
-        } catch (error) {
-          console.warn('SVG解析失败，将使用位图模式:', error);
+          ],
+        }).data;
+        console.log(originalContent);
+
+
+
+        // 尝试从SVG内容中直接解析viewBox
+        const viewBoxMatch = originalContent.match(/viewBox="([^"]*)"/);
+        let viewBoxX = 0;
+        let viewBoxY = 0;
+        if (viewBoxMatch && viewBoxMatch[1]) {
+          const viewBoxParts = viewBoxMatch[1].split(/\s+|,/).map(Number);
+          if (viewBoxParts.length === 4) {
+            // 使用 viewBox 的宽度和高度作为最精确的原始尺寸
+            viewBoxX = viewBoxParts[0];
+            viewBoxY = viewBoxParts[1];
+            console.log('成功解析 viewBox，得到 viewBox 起点:', viewBoxX, viewBoxY);
+          }
         }
-        console.log(parsedItems);
-        const dataUrl = 'data:image/svg+xml;base64,' + toBase64Utf8(originalContent);
+
+        const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
         const img = new Image();
-        img.onload = () => {
-          // 创建图像对象时包含矢量源数据
+        img.onload = async () => {
+
+          // let newContent = originalContent
+          //   .replace(/\s*\bwidth\s*=\s*"[^"]*"/g, '')   // 去掉 width
+          //   .replace(/\s*\bheight\s*=\s*"[^"]*"/g, ''); // 去掉 height
+          // // 再插入新的 width / height
+          // newContent = newContent.replace(
+          //   /(<\s*svg\b)([^>]*>)/i,
+          //   `$1 width="${img.width}" height="${img.height}"$2`
+          // );
+          // originalContent = newContent;
+
+          // 2. 提取旧 viewBox
+          const vbMatch = originalContent.match(/viewBox="([^"]+)"/);
+          if (!vbMatch) throw new Error('No viewBox found');
+          const [x, y, w, h] = vbMatch[1].split(/\s+/).map(Number);
+
+          // 解析SVG为矢量对象
+          let parsedItems: CanvasItemData[] = [];
+          try {
+            parsedItems = await parseSvgWithSvgson(originalContent);
+          } catch (error) {
+            console.warn('SVG解析失败，将使用位图模式:', error);
+          }
+          console.log(parsedItems);
+
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
             x: canvasWidth / 2,
             y: canvasHeight / 2,
-            width: img.width,
-            height: img.height,
+            width: img.width,  // 显示尺寸仍然是渲染尺寸
+            height: img.height, // 显示尺寸仍然是渲染尺寸
             href: dataUrl,
             rotation: 0,
             vectorSource: {
               type: 'svg',
               content: originalContent,
-              parsedItems: parsedItems
+              parsedItems: parsedItems,
+              //MARK: 将我们精确解析出的 viewBox 尺寸存储起来
+              originalDimensions: { width: w, height: h, imageCenterX: viewBoxX + w / 2, imageCenterY: viewBoxY + h / 2 }
             }
           };
-
           addItem(imageData);
         };
+
         img.src = dataUrl;
       };
       reader.readAsText(file);
@@ -1998,157 +2106,156 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         const dxfString = e.target?.result as string;
         if (!dxfString) return;
 
-        // 保存原始SVG内容用于G代码生成
-        const originalContent = svgo.optimize(new Helper(dxfString).toSVG(), {
-           plugins: [
-          // 使用 SVGO 的默认插件集，这已经能完成大部分优化工作
-          {
-            name: 'preset-default',
-            params: {
-              overrides: {
-                // 您的解析器需要 <g> 标签来处理变换，所以不要合并它们
-                collapseGroups: false, 
+        // 保存转换后的SVG内容用于G代码生成
+        var originalContent = svgo.optimize(new Helper(dxfString).toSVG(), {
+          plugins: [
+            {
+              name: 'preset-default',
+              params: {
+                overrides: {
+                  convertShapeToPath: {
+                    convertArcs: true,
+                  },
+                  convertPathData: {
+                    applyTransforms: true,
+                    makeAbsolute: true,
+                    forceAbsolutePath: true,
+                  },
+                  mergePaths: {
+                    force: false,
+                    floatPrecision: 3,
+                    noSpaceAfterFlags: false
+                  },
+                },
               },
             },
-          },
-          'removeStyleElement', // 移除 <style> 标签，因为解析器不处理它
-          'removeScripts', // 移除 <script> 标签，保证安全
-          'cleanupIds', // 清理无用的ID
-        ],
-        }).data;
-        //console.log(originalContent);
+            {
+              name: 'removeAttrs',
+              params: {
+                attrs: 'svg:preserveAspectRatio',
+              }
+            },
+            // {
+            //   name: 'addAttributesToSVGElement',
+            //   params: {
+            //     attributes: [
+            //       {
+            //         preserveAspectRatio: 'none',
+            //       },
+            //     ],
+            //   },
+            // },
+            'removeStyleElement',
+            'collapseGroups',
+            'cleanupIds',
 
-        // 解析SVG为矢量对象
-        let parsedItems: CanvasItemData[] = [];
-        try {
-          parsedItems = await parseSvgWithSvgson(originalContent);
-        } catch (error) {
-          console.warn('DXF解析失败，将使用位图模式:', error);
+          ],
+        }).data;
+
+        console.log(originalContent);
+
+        // 尝试从SVG内容中直接解析viewBox
+        const viewBoxMatch = originalContent.match(/viewBox="([^"]*)"/);
+        let viewBoxX = 0;
+        let viewBoxY = 0;
+        let viewBoxW = 0;
+        let viewBoxH = 0;
+        if (viewBoxMatch && viewBoxMatch[1]) {
+          const viewBoxParts = viewBoxMatch[1].split(/\s+|,/).map(Number);
+          if (viewBoxParts.length === 4) {
+            // 使用 viewBox 的宽度和高度作为最精确的原始尺寸
+            viewBoxX = viewBoxParts[0];
+            viewBoxY = viewBoxParts[1];
+            viewBoxW = viewBoxParts[2];
+            viewBoxH = viewBoxParts[3];
+            console.log('成功解析 viewBox，得到 viewBox 起点:', viewBoxX, viewBoxY);
+          }
         }
-        console.log(parsedItems);
+        let newContent = originalContent
+          .replace(/\s*\b width\s*=\s*"[^"]*"/g, ' ')   // 去掉 width
+          .replace(/\s*\b height\s*=\s*"[^"]*"/g, ' ') // 去掉 height
+          .replace(/\s*preserveAspectRatio="[^"]*"/g, ''); //dxf生成的svg，有了这个属性，img里的svg显示不居中了，g代码是居中的，所以去掉
+        // 再插入新的 width / height
+        newContent = newContent.replace(
+          /(<\s*svg\b)([^>]*>)/i,
+          `$1 width="${300}" height="${300 / viewBoxW * viewBoxH}"$2`
+        );
+        originalContent = newContent;
+
         const dataUrl = 'data:image/svg+xml;base64,' + btoa(originalContent);
         const img = new Image();
-        img.onload = () => {
-          // 创建图像对象时包含矢量源数据
+        img.onload = async () => {
+          let originalWidth = img.width;
+          let originalHeight = img.height;
+
+          // 2. 提取旧 viewBox
+          const vbMatch = originalContent.match(/viewBox="([^"]+)"/);
+          if (!vbMatch) throw new Error('No viewBox found');
+          const [x, y, w, h] = vbMatch[1].split(/\s+/).map(Number);
+
+          // let newContent = originalContent
+          //   .replace(/\s*\b width\s*=\s*"[^"]*"/g, ' ')   // 去掉 _width
+          //   .replace(/\s*\bheight\s*=\s*"[^"]*"/g, ''); // 去掉 height
+          // // 再插入新的 width / height
+          // newContent = newContent.replace(
+          //   /(<\s*svg\b)([^>]*>)/i,
+          //   `$1 width="${img.width}" height="${img.height}"$2`
+          // );
+          // originalContent = newContent;
+
+          // 解析DXF得到的SVG为矢量对象
+          let parsedItems: CanvasItemData[] = [];
+          try {
+            parsedItems = await parseSvgWithSvgson(originalContent);
+          } catch (error) {
+            console.warn('DXF解析失败，将使用位图模式:', error);
+          }
+          console.log('从DXF转换得到的SVG解析结果:' + originalContent);
+          console.log(parsedItems);
+
           const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
             type: CanvasItemType.IMAGE,
             x: canvasWidth / 2,
             y: canvasHeight / 2,
-            width: img.width,
-            height: img.height,
+            width: img.width,  // 显示尺寸仍然是渲染尺寸
+            height: img.height, // 显示尺寸仍然是渲染尺寸
             href: dataUrl,
             rotation: 0,
             vectorSource: {
               type: 'svg',
               content: originalContent,
-              parsedItems: parsedItems
+              parsedItems: parsedItems,
+              // 将我们精确解析出的 viewBox 尺寸存储起来
+              // originalDimensions: { width: img.width, height: img.height, imageCenterX: viewBoxX + img.width / 2, imageCenterY: viewBoxY + img.height / 2 }
+              originalDimensions: { width: w, height: h, imageCenterX: viewBoxX + w / 2, imageCenterY: viewBoxY + h / 2 }
             }
           };
-
           addItem(imageData);
         };
         img.src = dataUrl;
       };
       reader.readAsText(file);
-      //   reader.onload = async (e) => {
-      //     try {
-      //       const dxfContents = e.target?.result as string;
-      //       const originalContent = dxfContents;
-
-      //       // 解析DXF为矢量对象
-      //       let parsedItems: CanvasItemData[] = [];
-      //       try {
-      //         const dxf = parseDxf(dxfContents);
-      //         if (dxf && dxf.entities) {
-      //           (dxf.entities as any[]).forEach((ent: any) => {
-      //             if (ent.type === 'LINE') {
-      //               const minX = Math.min(ent.vertices[0].x, ent.vertices[1].x);
-      //               const minY = Math.min(ent.vertices[0].y, ent.vertices[1].y);
-      //               parsedItems.push({
-      //                 type: CanvasItemType.DRAWING,
-      //                 x: minX,
-      //                 y: minY,
-      //                 points: [
-      //                   { x: ent.vertices[0].x - minX, y: ent.vertices[0].y - minY },
-      //                   { x: ent.vertices[1].x - minX, y: ent.vertices[1].y - minY },
-      //                 ],
-      //                 color: '#16a34a',
-      //                 strokeWidth: 2,
-      //               });
-      //             } else if (ent.type === 'LWPOLYLINE' && ent.vertices) {
-      //               const points = (ent.vertices as any[]).map((v: any) => ({ x: v.x, y: v.y }));
-      //               if (points.length < 2) return;
-      //               const minX = Math.min(...points.map(p => p.x));
-      //               const minY = Math.min(...points.map(p => p.y));
-      //               parsedItems.push({
-      //                 type: CanvasItemType.DRAWING,
-      //                 x: minX,
-      //                 y: minY,
-      //                 points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-      //                 color: '#16a34a',
-      //                 strokeWidth: 2,
-      //               });
-      //             } else if (ent.type === 'CIRCLE') {
-      //               const cx = ent.center.x, cy = ent.center.y, r = ent.radius;
-      //               const points = Array.from({ length: 36 }, (_, i) => {
-      //                 const angle = (i / 36) * 2 * Math.PI;
-      //                 return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
-      //               });
-      //               const minX = Math.min(...points.map(p => p.x));
-      //               const minY = Math.min(...points.map(p => p.y));
-      //               parsedItems.push({
-      //                 type: CanvasItemType.DRAWING,
-      //                 x: minX,
-      //                 y: minY,
-      //                 points: points.map(p => ({ x: p.x - minX, y: p.y - minY })),
-      //                 color: '#16a34a',
-      //                 strokeWidth: 2,
-      //               });
-      //             }
-      //           });
-      //         }
-      //       } catch (error) {
-      //         console.warn('DXF解析失败，将使用位图模式:', error);
-      //       }
-
-      //       const helper = new Helper(dxfContents);
-      //       const generatedSvg = helper.toSVG();
-      //       processSvgString(generatedSvg, (dataUrl, width, height) => {
-      //         // 创建图像对象时包含矢量源数据
-      //         const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
-      //           type: CanvasItemType.IMAGE,
-      //           x: 0,
-      //           y: 0,
-      //           width: width,
-      //           height: height,
-      //           href: dataUrl,
-      //           rotation: 0,
-      //           vectorSource: {
-      //             type: 'dxf',
-      //             content: originalContent,
-      //             parsedItems: parsedItems
-      //           }
-      //         };
-
-      //         addItem(imageData);
-      //       });
-
-      //     } catch (err) {
-      //       alert("解析 DXF 文件时发生错误。");
-      //     }
-      //   };
-      //   reader.readAsText(file);
     }
     else if (ext === 'plt') {
-      reader.onload = async (e) => {
-        if (typeof e.target?.result === 'string') {
+      try {
+        // 将 reader.onload 设置为 async 函数
+        reader.onload = async (e) => {
+          if (typeof e.target?.result !== 'string') {
+            alert('无法读取PLT文件内容。');
+            return;
+          }
           const pltContent = e.target.result;
-          const originalContent = pltContent;
 
-          // 解析PLT为矢量对象
-          let parsedItems: CanvasItemData[] = [];
           try {
+            // --- 步骤 1-3: 从 PLT 解析、重建路径、坐标变换 (与之前相同) ---
             const hpglCommands = simpleParseHPGL(pltContent);
+
+            // ... [此处省略了从 hpglCommands 重建 polylines 并进行坐标变换的完整代码，
+            //      因为它与之前的版本完全相同，为了简洁，这里不再重复] ...
+            // 假设在这之后，我们已经得到了变换后的 polylines 和相关的变换参数
+            // (minX, minY, maxX, maxY, scaleFactor, offsetX, offsetY, CANVAS_WIDTH, CANVAS_HEIGHT)
+            // ...
+
             const polylines: { x: number; y: number }[][] = [];
             let currentPolyline: { x: number; y: number }[] = [];
             let currentPos = { x: 0, y: 0 };
@@ -2163,100 +2270,155 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
             hpglCommands.forEach((cmd: any) => {
               if (!cmd || !cmd.type) return;
-
               if (cmd.type.startsWith('PU')) {
-                finishCurrentPolyline();
-                isPenDown = false;
-                if (cmd.points && cmd.points.length > 0) {
-                  cmd.points.forEach((pt: [number, number]) => currentPos = { x: pt[0], y: pt[1] });
-                }
-              }
-              else if (cmd.type.startsWith('PD')) {
-                finishCurrentPolyline();
-                isPenDown = true;
-                currentPolyline.push({ ...currentPos });
-                if (cmd.points && cmd.points.length > 0) {
-                  cmd.points.forEach((pt: [number, number]) => {
-                    currentPos = { x: pt[0], y: pt[1] };
-                    currentPolyline.push({ ...currentPos });
-                  });
-                }
-              }
-              else if (cmd.type.startsWith('PA')) {
-                if (cmd.points && cmd.points.length > 0) {
-                  cmd.points.forEach((pt: [number, number]) => {
-                    currentPos = { x: pt[0], y: pt[1] };
-                    if (isPenDown) {
-                      currentPolyline.push({ ...currentPos });
-                    }
-                  });
-                }
+                finishCurrentPolyline(); isPenDown = false;
+                if (cmd.points && cmd.points.length > 0) { cmd.points.forEach((pt: [number, number]) => currentPos = { x: pt[0], y: pt[1] }); }
+              } else if (cmd.type.startsWith('PD')) {
+                finishCurrentPolyline(); isPenDown = true; currentPolyline.push({ ...currentPos });
+                if (cmd.points && cmd.points.length > 0) { cmd.points.forEach((pt: [number, number]) => { currentPos = { x: pt[0], y: pt[1] }; currentPolyline.push({ ...currentPos }); }); }
+              } else if (cmd.type.startsWith('PA')) {
+                if (cmd.points && cmd.points.length > 0) { cmd.points.forEach((pt: [number, number]) => { currentPos = { x: pt[0], y: pt[1] }; if (isPenDown) { currentPolyline.push({ ...currentPos }); } }); }
               }
             });
             finishCurrentPolyline();
 
-            if (polylines.length > 0) {
-              const allPoints = polylines.flat();
-              const minX = Math.min(...allPoints.map(p => p.x));
-              const minY = Math.min(...allPoints.map(p => p.y));
-              const maxX = Math.max(...allPoints.map(p => p.x));
-              const maxY = Math.max(...allPoints.map(p => p.y));
-
-              const drawingWidth = maxX - minX;
-              const drawingHeight = maxY - minY;
-
-              if (drawingWidth > 0 && drawingHeight > 0) {
-                const CANVAS_WIDTH = 400;
-                const CANVAS_HEIGHT = 400;
-                const PADDING = 20;
-
-                const targetWidth = CANVAS_WIDTH - PADDING * 2;
-                const targetHeight = CANVAS_HEIGHT - PADDING * 2;
-
-                const scaleX = targetWidth / drawingWidth;
-                const scaleY = targetHeight / drawingHeight;
-                const scaleFactor = Math.min(scaleX, scaleY);
-
-                const scaledDrawingWidth = drawingWidth * scaleFactor;
-                const scaledDrawingHeight = drawingHeight * scaleFactor;
-                const offsetX = (CANVAS_WIDTH - scaledDrawingWidth) / 2;
-                const offsetY = (CANVAS_HEIGHT - scaledDrawingHeight) / 2;
-
-                parsedItems = polylines.map(polyline => {
-                  const transformedPoints = polyline.map(p => {
-                    const translatedX = p.x - minX;
-                    const translatedY = maxY - p.y;
-
-                    return {
-                      x: translatedX * scaleFactor + offsetX,
-                      y: translatedY * scaleFactor + offsetY,
-                    };
-                  });
-
-                  return createCenterCoordinateDrawing(transformedPoints, {
-                    color: '#eab308',
-                    strokeWidth: 2,
-                  });
-                });
-              }
+            if (polylines.length === 0) {
+              alert('PLT未识别到可导入的线条'); return;
             }
-          } catch (error) {
-            console.warn('PLT解析失败，将使用位图模式:', error);
+            const allPoints = polylines.flat();
+            const minX = Math.min(...allPoints.map(p => p.x)); const minY = Math.min(...allPoints.map(p => p.y));
+            const maxX = Math.max(...allPoints.map(p => p.x)); const maxY = Math.max(...allPoints.map(p => p.y));
+            const drawingWidth = maxX - minX; const drawingHeight = maxY - minY;
+            if (drawingWidth === 0 || drawingHeight === 0) {
+              alert('图形尺寸无效，无法进行缩放'); return;
+            }
+            const CANVAS_WIDTH = 400; const CANVAS_HEIGHT = 400; const PADDING = 20;
+            const targetWidth = CANVAS_WIDTH - PADDING * 2; const targetHeight = CANVAS_HEIGHT - PADDING * 2;
+            const scaleX = targetWidth / drawingWidth; const scaleY = targetHeight / drawingHeight;
+            const scaleFactor = Math.min(scaleX, scaleY);
+            const scaledDrawingWidth = drawingWidth * scaleFactor; const scaledDrawingHeight = drawingHeight * scaleFactor;
+            const offsetX = (CANVAS_WIDTH - scaledDrawingWidth) / 2; const offsetY = (CANVAS_HEIGHT - scaledDrawingHeight) / 2;
+
+            // --- 步骤 4: 生成并优化SVG字符串 (与上一版修改相同) ---
+            const rawSvgString = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}">
+          ${polylines.map(polyline => {
+              const points = polyline.map(p => {
+                const translatedX = p.x - minX;
+                const translatedY = maxY - p.y;
+                return `${(translatedX * scaleFactor + offsetX).toFixed(3)},${(translatedY * scaleFactor + offsetY).toFixed(3)}`;
+              }).join(' ');
+              return `<polyline points="${points}" fill="none" stroke="#eab308" stroke-width="2"/>`;
+            }).join('')}
+        </svg>`;
+
+            const optimizedSvgString = svgo.optimize(rawSvgString, {
+              // ... svgo config ...
+              plugins: [
+                {
+                  name: 'preset-default',
+                  params: {
+                    overrides: {
+                      convertShapeToPath: {
+                        convertArcs: true,
+                      },
+                      convertPathData: {
+                        applyTransforms: true,
+                        makeAbsolute: true,
+                        forceAbsolutePath: true,
+                      },
+                      mergePaths: {
+                        force: false,
+                        floatPrecision: 3,
+                        noSpaceAfterFlags: false
+                      },
+                    },
+                  },
+                },
+                {
+                  name: 'removeAttrs',
+                  params: {
+                    attrs: 'svg:preserveAspectRatio',
+                  }
+                },
+                // {
+                //   name: 'addAttributesToSVGElement',
+                //   params: {
+                //     attributes: [
+                //       {
+                //         preserveAspectRatio: 'none',
+                //       },
+                //     ],
+                //   },
+                // },
+                'removeStyleElement',
+                'collapseGroups',
+                'cleanupIds',
+
+              ],
+            }).data;
+
+            // --- 步骤 5 (新): 使用 svgson 解析优化后的 SVG ---
+            let parsedItems: CanvasItemData[] = [];
+            try {
+              // 调用 await 等待解析完成
+              parsedItems = await parseSvgWithSvgson(optimizedSvgString);
+            } catch (error) {
+              console.error("解析由PLT生成的SVG时失败:", error);
+              alert(`从PLT文件生成的SVG解析失败，无法导入: ${error}`);
+              return;
+            }
+
+            if (parsedItems.length === 0) {
+              alert('PLT文件转换后未识别到可用的矢量图形。');
+              return;
+            }
+
+            // --- 步骤 6: 加载图像以获取尺寸并创建最终的 ImageObject ---
+            const dataUrl = 'data:image/svg+xml;base64,' + btoa(optimizedSvgString);
+            const img = new Image();
+
+            img.onload = () => {
+              // 在这里，我们拥有了所有需要的信息：
+              // - 预览图的 Data URL (href)
+              // - 预览图的尺寸 (img.width, img.height)
+              // - 优化后的 SVG 字符串 (vectorSource.content)
+              // - 解析后的矢量对象 (vectorSource.parsedItems)
+
+              const imageData: Omit<ImageObject, 'id' | 'layerId'> = {
+                type: CanvasItemType.IMAGE,
+                x: canvasWidth / 2,
+                y: canvasHeight / 2,
+                width: img.width,
+                height: img.height,
+                href: dataUrl,
+                rotation: 0,
+                vectorSource: {
+                  type: 'svg', // **关键变更**: 类型统一为 'svg'
+                  content: optimizedSvgString, // 存储优化后的SVG内容
+                  parsedItems: parsedItems, // 存储从SVG解析出的矢量对象
+                  originalDimensions: { width: img.width, height: img.height } // 存储原始尺寸
+                }
+              };
+
+              // 将这个标准化的对象添加到画布
+              addItem(imageData);
+            };
+
+            img.onerror = () => {
+              alert("无法从PLT生成的SVG加载预览图像。");
+            };
+
+            img.src = dataUrl;
+
+          } catch (e: any) {
+            console.error(e);
+            alert(`PLT解析失败: ${e.message}`);
           }
-
-          // 使用现有的handleImportFile处理位图显示
-          handleImportFile({
-            name: file.name,
-            ext,
-            content: pltContent
-          });
-
-          // 注意：这里需要特殊处理，因为handleImportFile会直接添加多个对象
-          // 我们需要在最后添加一个包含矢量源的图像对象
-          // 这里简化处理，实际可能需要更复杂的逻辑
-        }
-      };
-      reader.readAsText(file);
+        };
+        reader.readAsText(file);
+      } catch (err) {
+        alert("读取PLT文件时发生错误。");
+      }
     }
     else alert('不支持的文件类型');
 
@@ -2323,7 +2485,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
         setGenerationProgress('正在保存文件...');
         downloadGCode(gcode, `${fileName}_${layer.name.replace(/\s+/g, '_')}.nc`);
-        
+
         // 关闭弹窗
         setIsGeneratingGCode(false);
       } else {
@@ -2369,7 +2531,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
         setGenerationProgress('正在保存文件...');
         downloadGCode(gcode, `${fileName}_${layer.name.replace(/\s+/g, '_')}.nc`);
-        
+
         // 关闭弹窗
         setIsGeneratingGCode(false);
       }
@@ -2399,7 +2561,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       // 遍历所有图层
       for (const layer of layers) {
         const layerItems = items.filter(item => item.layerId === layer.id);
-        
+
         if (layerItems.length === 0) {
           continue; // 跳过空图层
         }
@@ -2418,7 +2580,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         try {
           if (layer.printingMethod === PrintingMethod.SCAN) {
             const layerImageItems = layerItems.filter(item => item.type === CanvasItemType.IMAGE);
-            
+
             if (layerImageItems.length > 0) {
               const settings: GCodeScanSettings = {
                 lineDensity: 1 / (layer.lineDensity || 10),
@@ -2493,7 +2655,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       setGenerationProgress('正在保存文件...');
       // 下载合并后的文件
       downloadGCode(mergedGCode, `${fileName}.nc`);
-      
+
       // 关闭弹窗
       setIsGeneratingGCode(false);
     } catch (error) {
@@ -2522,7 +2684,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   // 下载G代码文件的辅助函数
   const downloadGCode = (gcode: string, fileName: string) => {
     const platform = detectPlatform();
-    
+
     // 检查是否在原生移动应用环境中
     if (platform === 'android' && window.Android && typeof window.Android.saveBlobFile === 'function') {
       // 在 Android 原生环境中，直接通过 Android 接口保存文件
@@ -2565,61 +2727,61 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     URL.revokeObjectURL(url);
   };
 
-  useEffect(() => {
-    (window as any).setCanvasSize = (w: number, h: number) => {
-      setCanvasWidth(w);
-      setCanvasHeight(h);
-    };
+  // useEffect(() => {
+  //   (window as any).setCanvasSize = (w: number, h: number) => {
+  //     setCanvasWidth(w);
+  //     setCanvasHeight(h);
+  //   };
 
-    (window as any).addImageToCanvas = (href: string, width: number, height: number) => {
-      addImage(href, width, height);
-    };
+  //   (window as any).addImageToCanvas = (href: string, width: number, height: number) => {
+  //     addImage(href, width, height);
+  //   };
 
     // 检测并设置画布大小 - 支持Android和iOS
-    const setPlatformCanvasSize = () => {
-      let size: any = null;
-      
-      // 尝试从Android获取画布大小
-      if (window.Android && typeof window.Android.getPlatformSize === 'function') {
-        try {
-          size = window.Android.getPlatformSize();
-        } catch (e) {
-          console.error('Android获取画布大小失败:', e);
-        }
-      }
-      
-      // 如果Android没有获取到，尝试从iOS获取
-      if (!size && window.iOS && typeof window.iOS.getPlatformSize === 'function') {
-        try {
-          size = window.iOS.getPlatformSize();
-        } catch (e) {
-          console.error('iOS获取画布大小失败:', e);
-        }
-      }
-      
-      // 处理获取到的大小数据
-      if (size) {
-        let obj: any = size;
-        if (typeof size === 'string') {
-          try {
-            obj = JSON.parse(size);
-          } catch (e) {
-            obj = null;
-          }
-        }
-        if (obj && typeof obj === 'object' && 'width' in obj && 'height' in obj) {
-          setCanvasWidth(Number(obj.width));
-          setCanvasHeight(Number(obj.height));
-        }
-      }
-    };
-    
-    setPlatformCanvasSize();
-    return () => {
-      delete (window as any).setCanvasSize;
-      delete (window as any).addImageToCanvas;
-    };
-  }, [addImage]);
+  //   const setPlatformCanvasSize = () => {
+  //     let size: any = null;
+
+  //     // 尝试从Android获取画布大小
+  //     if (window.Android && typeof window.Android.getPlatformSize === 'function') {
+  //       try {
+  //         size = window.Android.getPlatformSize();
+  //       } catch (e) {
+  //         console.error('Android获取画布大小失败:', e);
+  //       }
+  //     }
+
+  //     // 如果Android没有获取到，尝试从iOS获取
+  //     if (!size && window.iOS && typeof window.iOS.getPlatformSize === 'function') {
+  //       try {
+  //         size = window.iOS.getPlatformSize();
+  //       } catch (e) {
+  //         console.error('iOS获取画布大小失败:', e);
+  //       }
+  //     }
+
+  //     // 处理获取到的大小数据
+  //     if (size) {
+  //       let obj: any = size;
+  //       if (typeof size === 'string') {
+  //         try {
+  //           obj = JSON.parse(size);
+  //         } catch (e) {
+  //           obj = null;
+  //         }
+  //       }
+  //       if (obj && typeof obj === 'object' && 'width' in obj && 'height' in obj) {
+  //         setCanvasWidth(Number(obj.width));
+  //         setCanvasHeight(Number(obj.height));
+  //       }
+  //     }
+  //   };
+
+  //   setPlatformCanvasSize();
+  //   return () => {
+  //     delete (window as any).setCanvasSize;
+  //     delete (window as any).addImageToCanvas;
+  //   };
+  // }, [addImage]);
 
   return (
     <div className="h-screen w-screen flex flex-row font-sans text-gray-800 bg-gray-100 overflow-hidden" style={{ width: '100vw', height: '100vh', minHeight: '100vh', minWidth: '100vw' }}>
@@ -2788,7 +2950,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 confirmBtn.addEventListener('click', async () => {
                   const fileName = fileNameInput.value.trim() || '激光雕刻项目';
                   const mergeAllLayers = mergeAllLayersInput.checked;
-                  
+
                   cleanup();
 
                   if (mergeAllLayers) {
@@ -3055,7 +3217,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl pointer-events-auto">
             <div className="flex items-center justify-center mb-4">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-    </div>
+            </div>
             <h3 className="text-lg font-semibold text-center mb-2">正在导入矢量文件</h3>
             <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
               <div
@@ -3088,11 +3250,12 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         />
       )}
 
-      {/* 性能监控组件 */}
-      <PerformanceMonitor
-        items={items}
-        isVisible={showPerformanceMonitor}
-        onToggle={() => setShowPerformanceMonitor(!showPerformanceMonitor)}
+      {/* 导入进度模态框 */}
+      <ImportProgressModal
+        isVisible={isImporting}
+        progress={importProgress}
+        status={importStatus}
+        onCancel={() => setIsImporting(false)}
       />
     </div>
   );
@@ -3121,6 +3284,207 @@ declare global {
 }
 
 // 导出SVG解析函数供其他组件使用
+// export const parseSvgWithSvgson = async (svgContent: string): Promise<CanvasItemData[]> => {
+//   const svgJson = await parseSvgson(svgContent);
+//   // 获取viewBox和缩放
+//   let viewBox: number[] = [0, 0, 0, 0];
+//   let scaleX = 1, scaleY = 1;
+//   if (svgJson.attributes.viewBox) {
+//     viewBox = svgJson.attributes.viewBox.split(/\s+/).map(Number);
+//   }
+//   if (svgJson.attributes.width && svgJson.attributes.height && viewBox.length === 4 && viewBox[2] > 0 && viewBox[3] > 0) {
+//     scaleX = parseFloat(svgJson.attributes.width) / viewBox[2];
+//     scaleY = parseFloat(svgJson.attributes.height) / viewBox[3];
+//   }
+
+//   // 递归处理
+//   function walk(node: any, parentTransform: DOMMatrix, items: CanvasItemData[] = []) {
+//     // 跳过无关元素
+//     const skipTags = ['defs', 'clipPath', 'mask', 'marker', 'symbol', 'use', 'style', 'title'];
+//     if (skipTags.includes(node.name)) return items;
+
+//     // 合并transform
+//     let currentTransform = parentTransform.translate(0, 0); // 创建副本
+//     if (node.attributes.transform) {
+//       const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+//       const tempG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+//       tempG.setAttribute('transform', node.attributes.transform);
+//       tempSvg.appendChild(tempG);
+//       const ctm = tempG.getCTM();
+//       if (ctm) { // FIX: Check for null before using
+//         currentTransform.multiplySelf(ctm);
+//       }
+//     }
+
+//     // 处理path
+//     if (node.name === 'path' && node.attributes.d) {
+//       const d = node.attributes.d;
+//       try {
+//         const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+//         const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+//         tempPath.setAttribute('d', d);
+//         tempSvg.appendChild(tempPath);
+//         const totalLength = tempPath.getTotalLength();
+//         if (totalLength > 0) {
+//           const sampleCount = Math.max(Math.floor(totalLength), 128);
+//           const absPoints: { x: number, y: number }[] = [];
+//           for (let i = 0; i <= sampleCount; i++) {
+//             const len = (i / sampleCount) * totalLength;
+//             const pt = tempPath.getPointAtLength(len);
+//             const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+//             absPoints.push({ x: transformedPt.x * scaleX, y: transformedPt.y * scaleY });
+//           }
+//           if (absPoints.length >= 2) {
+//             const minX = Math.min(...absPoints.map(p => p.x));
+//             const maxX = Math.max(...absPoints.map(p => p.x));
+//             const minY = Math.min(...absPoints.map(p => p.y));
+//             const maxY = Math.max(...absPoints.map(p => p.y));
+//             const centerX = (minX + maxX) / 2;
+//             const centerY = (minY + maxY) / 2;
+//             items.push({
+//               type: CanvasItemType.DRAWING,
+//               x: centerX,
+//               y: centerY,
+//               points: absPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY })),
+//               fillColor: node.attributes.fill,
+//               strokeWidth: Number(node.attributes['stroke-width']) || 0,
+//               color: '',
+//               rotation: 0,
+//             });
+//           }
+//         }
+//       } catch (e) { }
+//     }
+//     // 处理rect
+//     else if (node.name === 'rect') {
+//       const x = Number(node.attributes.x);
+//       const y = Number(node.attributes.y);
+//       const w = Number(node.attributes.width);
+//       const h = Number(node.attributes.height);
+//       const pts = [
+//         { x: x, y: y },
+//         { x: x + w, y: y },
+//         { x: x + w, y: y + h },
+//         { x: x, y: y + h },
+//         { x: x, y: y },
+//       ].map(pt => {
+//         const tpt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+//         return { x: tpt.x * scaleX, y: tpt.y * scaleY };
+//       });
+//       const drawing = createCenterCoordinateDrawing(pts, {
+//         color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+//         strokeWidth: Number(node.attributes['stroke-width']) || 2,
+//         fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+//       });
+//       if (drawing) items.push(drawing);
+//     }
+//     // 处理circle
+//     else if (node.name === 'circle') {
+//       const cx = Number(node.attributes.cx);
+//       const cy = Number(node.attributes.cy);
+//       const r = Number(node.attributes.r);
+//       const segs = 64;
+//       const pts = Array.from({ length: segs + 1 }, (_, i) => {
+//         const angle = (i / segs) * 2 * Math.PI;
+//         const pt = new DOMPoint(cx + r * Math.cos(angle), cy + r * Math.sin(angle)).matrixTransform(currentTransform);
+//         return { x: pt.x * scaleX, y: pt.y * scaleY };
+//       });
+//       const drawing = createCenterCoordinateDrawing(pts, {
+//         color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+//         strokeWidth: Number(node.attributes['stroke-width']) || 2,
+//         fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+//       });
+//       if (drawing) items.push(drawing);
+//     }
+//     // 处理ellipse
+//     else if (node.name === 'ellipse') {
+//       const cx = Number(node.attributes.cx);
+//       const cy = Number(node.attributes.cy);
+//       const rx = Number(node.attributes.rx);
+//       const ry = Number(node.attributes.ry);
+//       const segs = 64;
+//       const pts = Array.from({ length: segs + 1 }, (_, i) => {
+//         const angle = (i / segs) * 2 * Math.PI;
+//         const pt = new DOMPoint(cx + rx * Math.cos(angle), cy + ry * Math.sin(angle)).matrixTransform(currentTransform);
+//         return { x: pt.x * scaleX, y: pt.y * scaleY };
+//       });
+//       const drawing = createCenterCoordinateDrawing(pts, {
+//         color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+//         strokeWidth: Number(node.attributes['stroke-width']) || 2,
+//         fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+//       });
+//       if (drawing) items.push(drawing);
+//     }
+//     // 处理line
+//     else if (node.name === 'line') {
+//       const x1 = Number(node.attributes.x1);
+//       const y1 = Number(node.attributes.y1);
+//       const x2 = Number(node.attributes.x2);
+//       const y2 = Number(node.attributes.y2);
+//       const pts = [
+//         new DOMPoint(x1, y1).matrixTransform(currentTransform),
+//         new DOMPoint(x2, y2).matrixTransform(currentTransform),
+//       ].map(pt => ({ x: pt.x * scaleX, y: pt.y * scaleY }));
+//       const drawing = createCenterCoordinateDrawing(pts, {
+//         color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+//         strokeWidth: Number(node.attributes['stroke-width']) || 2,
+//       });
+//       if (drawing) items.push(drawing);
+//     }
+//     // 处理polygon
+//     else if (node.name === 'polygon' && node.attributes.points) {
+//       const rawPoints = node.attributes.points.trim().split(/\s+/).map((pair: string) => pair.split(',').map(Number));
+//       const pts = rawPoints.map(([x, y]: [number, number]) => {
+//         const pt = new DOMPoint(x, y).matrixTransform(currentTransform);
+//         return { x: pt.x * scaleX, y: pt.y * scaleY };
+//       });
+//       if (pts.length >= 2) {
+//         // polygon自动闭合
+//         let points = pts;
+//         if (pts.length < 2 || pts[0].x !== pts[pts.length - 1].x || pts[0].y !== pts[pts.length - 1].y) {
+//           points = [...pts, pts[0]];
+//         }
+//         const drawing = createCenterCoordinateDrawing(points, {
+//           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+//           strokeWidth: Number(node.attributes['stroke-width']) || 2,
+//           fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+//         });
+//         if (drawing) items.push(drawing);
+//       }
+//     }
+//     // 处理polyline
+//     else if (node.name === 'polyline' && node.attributes.points) {
+//       const rawPoints = node.attributes.points.trim().split(/\s+/).map((pair: string) => pair.split(',').map(Number));
+//       const pts = rawPoints.map(([x, y]: [number, number]) => {
+//         const pt = new DOMPoint(x, y).matrixTransform(currentTransform);
+//         return { x: pt.x * scaleX, y: pt.y * scaleY };
+//       });
+//       if (pts.length >= 2) {
+//         const drawing = createCenterCoordinateDrawing(pts, {
+//           color: node.attributes.stroke || node.attributes.fill || '#2563eb',
+//           strokeWidth: Number(node.attributes['stroke-width']) || 2,
+//           fillColor: (node.attributes.fill && node.attributes.fill !== 'none') ? String(node.attributes.fill) : undefined,
+//         });
+//         if (drawing) items.push(drawing);
+//       }
+//     }
+
+//     // 递归children
+//     if (node.children && node.children.length > 0) {
+//       node.children.forEach((child: any) => walk(child, currentTransform, items));
+//     }
+
+//     return items;
+//   }
+
+//   const items: CanvasItemData[] = [];
+//   const rootTransform = new DOMMatrix();
+//   walk(svgJson, rootTransform, items);
+//   return items;
+// };
+
+// 导出SVG解析函数供其他组件使用 8-25
+// svgson + svg.js递归解析SVG节点
 export const parseSvgWithSvgson = async (svgContent: string): Promise<CanvasItemData[]> => {
   const svgJson = await parseSvgson(svgContent);
   // 获取viewBox和缩放
@@ -3153,45 +3517,131 @@ export const parseSvgWithSvgson = async (svgContent: string): Promise<CanvasItem
       }
     }
 
+    const viewboxDiagonalLength = Math.sqrt(viewBox[2] ** 2 + viewBox[3] ** 2);
+
     // 处理path
+    // 处理path
+    // <<< MODIFIED & FIXED >>> 重构 path 处理逻辑
     if (node.name === 'path' && node.attributes.d) {
       const d = node.attributes.d;
-      try {
-        const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        tempPath.setAttribute('d', d);
-        tempSvg.appendChild(tempPath);
-        const totalLength = tempPath.getTotalLength();
-        if (totalLength > 0) {
-          const sampleCount = Math.max(Math.floor(totalLength), 128);
-          const absPoints: { x: number, y: number }[] = [];
-          for (let i = 0; i <= sampleCount; i++) {
-            const len = (i / sampleCount) * totalLength;
-            const pt = tempPath.getPointAtLength(len);
-            const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
-            absPoints.push({ x: transformedPt.x * scaleX, y: transformedPt.y * scaleY });
+
+      const subPathChunks = d.trim().split(/(?=[Mm])/).filter((sp: string) => sp.trim() !== '');
+
+      let lastEndPoint = { x: 0, y: 0 };
+
+      for (const subPathData of subPathChunks) {
+        try {
+          let effectiveD: string;
+          const command = subPathData.trim()[0];
+          const isRelative = command === 'm';
+
+          // 提取出 'm' 或 'M' 后面的坐标和剩余指令
+          // 正则表达式匹配指令字母，可选的空格，然后是两个数字，最后捕获剩余所有内容
+          //const pathRegex = /^[Mm]\s*(-?[\d.]+)\s*,?\s*(-?[\d.]+)(.*)/;
+          const numberPattern = '-?(?:\\d+\\.\\d*|\\.\\d+|\\d+)(?:[eE][-+]?\\d+)?';
+          const pathRegex = new RegExp(`^[Mm]\\s*(${numberPattern})\\s*,?\\s*(${numberPattern})(.*)`);
+          const match = subPathData.trim().match(pathRegex);
+
+          if (!match) {
+            // 如果路径段不是以 M/m 开头，或者格式不匹配，则跳过
+            // 这种情况可能发生在 SVG 格式非常不规范时
+            console.warn("跳过格式不正确的路径段:", subPathData);
+            continue;
           }
-          if (absPoints.length >= 2) {
-            const minX = Math.min(...absPoints.map(p => p.x));
-            const maxX = Math.max(...absPoints.map(p => p.x));
-            const minY = Math.min(...absPoints.map(p => p.y));
-            const maxY = Math.max(...absPoints.map(p => p.y));
-            const centerX = (minX + maxX) / 2;
-            const centerY = (minY + maxY) / 2;
-            items.push({
-              type: CanvasItemType.DRAWING,
-              x: centerX,
-              y: centerY,
-              points: absPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY })),
-              fillColor: node.attributes.fill,
-              strokeWidth: Number(node.attributes['stroke-width']) || 0,
-              color: '',
-              rotation: 0,
+
+          const xVal = parseFloat(match[1]);
+          const yVal = parseFloat(match[2]);
+          const remainingD = match[3].trim(); // 捕获到的剩余路径指令，如 "a196.587..."
+
+          let newX = xVal;
+          let newY = yVal;
+
+          if (isRelative) {
+            newX += lastEndPoint.x;
+            newY += lastEndPoint.y;
+          }
+
+          // 构建以绝对坐标 'M' 开头的、可以被独立渲染的 d 属性
+          effectiveD = `M ${newX} ${newY} ${remainingD}`;
+
+          const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          tempPath.setAttribute('d', effectiveD);
+          tempSvg.appendChild(tempPath);
+
+          const totalLength = tempPath.getTotalLength();
+
+          if (totalLength > viewboxDiagonalLength / 10000) {
+            const absPoints = adaptiveSamplePath(tempPath, { minSegmentLength: 2, curvatureThreshold: 0.1, maxSamples: 500 }).map(pt => {
+              const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+              return { x: transformedPt.x * scaleX, y: transformedPt.y * scaleY };
             });
+
+            if (absPoints.length >= 2) {
+              const drawing = createCenterCoordinateDrawing(absPoints, {
+                fillColor: node.attributes.fill,
+                strokeWidth: Number(node.attributes['stroke-width']) || 0,
+                color: node.attributes.stroke || '#2563eb',
+                rotation: 0,
+              });
+              if (drawing) {
+                items.push(drawing);
+              }
+            }
+
+            const endPoint = tempPath.getPointAtLength(totalLength);
+            lastEndPoint = { x: endPoint.x, y: endPoint.y };
+          } else {
+            // 如果路径长度为0（可能只有一个M指令），我们也需要更新终点位置
+            lastEndPoint = { x: newX, y: newY };
           }
+        } catch (e) {
+          console.warn("解析子路径时出错:", subPathData, e);
         }
-      } catch (e) { }
+      }
     }
+    // <<< END MODIFIED & FIXED >>>
+    // <<< END MODIFIED >>>
+    // if (node.name === 'path' && node.attributes.d) {
+    //   // 只采样有填充的 path
+    //   //if (!node.attributes.fill || node.attributes.fill === 'none') return items;
+    //   const d = node.attributes.d;
+    //   try {
+    //     const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    //     const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    //     tempPath.setAttribute('d', d);
+    //     tempSvg.appendChild(tempPath);
+    //     const totalLength = tempPath.getTotalLength();
+    //     if (totalLength > 0) {
+    //       const sampleCount = Math.max(Math.floor(totalLength), 128);
+    //       const absPoints: { x: number, y: number }[] = [];
+    //       for (let i = 0; i <= sampleCount; i++) {
+    //         const len = (i / sampleCount) * totalLength;
+    //         const pt = tempPath.getPointAtLength(len);
+    //         const transformedPt = new DOMPoint(pt.x, pt.y).matrixTransform(currentTransform);
+    //         absPoints.push({ x: transformedPt.x * scaleX, y: transformedPt.y * scaleY });
+    //       }
+    //       if (absPoints.length >= 2) {
+    //         const minX = Math.min(...absPoints.map(p => p.x));
+    //         const maxX = Math.max(...absPoints.map(p => p.x));
+    //         const minY = Math.min(...absPoints.map(p => p.y));
+    //         const maxY = Math.max(...absPoints.map(p => p.y));
+    //         const centerX = (minX + maxX) / 2;
+    //         const centerY = (minY + maxY) / 2;
+    //         items.push({
+    //           type: CanvasItemType.DRAWING,
+    //           x: centerX,
+    //           y: centerY,
+    //           points: absPoints.map(p => ({ x: p.x - centerX, y: p.y - centerY })),
+    //           fillColor: node.attributes.fill,
+    //           strokeWidth: Number(node.attributes['stroke-width']) || 0,
+    //           color: '',
+    //           rotation: 0,
+    //         });
+    //       }
+    //     }
+    //   } catch (e) { }
+    // }
     // 处理rect
     else if (node.name === 'rect') {
       const x = Number(node.attributes.x);
@@ -3233,8 +3683,8 @@ export const parseSvgWithSvgson = async (svgContent: string): Promise<CanvasItem
       });
       if (drawing) items.push(drawing);
     }
-    // 处理ellipse
-    else if (node.name === 'ellipse') {
+    // 处理eclipse
+    else if (node.name === 'eclipse') {
       const cx = Number(node.attributes.cx);
       const cy = Number(node.attributes.cy);
       const rx = Number(node.attributes.rx);
@@ -3313,10 +3763,40 @@ export const parseSvgWithSvgson = async (svgContent: string): Promise<CanvasItem
 
     return items;
   }
-
   const items: CanvasItemData[] = [];
   const rootTransform = new DOMMatrix();
   walk(svgJson, rootTransform, items);
+  // 合并为GROUP（如果有多个子物体）
+  if (items.length > 1) {
+    const bbox = getGroupBoundingBox(items);
+    const groupX = (bbox.minX + bbox.maxX) / 2;
+    const groupY = (bbox.minY + bbox.maxY) / 2;
+    const groupWidth = bbox.maxX - bbox.minX;
+    const groupHeight = bbox.maxY - bbox.minY;
+    const children = items.map(item => {
+      // 计算子物体全局锚点（中心点或左上角）
+      let anchorX = item.x ?? 0;
+      let anchorY = item.y ?? 0;
+      if ('width' in item && 'height' in item && typeof item.width === 'number' && typeof item.height === 'number') {
+        anchorX += item.width / 2;
+        anchorY += item.height / 2;
+      }
+      return {
+        ...item,
+        x: anchorX - groupX,
+        y: anchorY - groupY,
+      };
+    });
+    return [{
+      type: 'GROUP',
+      x: groupX,
+      y: groupY,
+      width: groupWidth,
+      height: groupHeight,
+      rotation: 0,
+      children,
+    }];
+  }
   return items;
 };
 
