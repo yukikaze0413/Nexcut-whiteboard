@@ -2090,7 +2090,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               content: originalContent,
               parsedItems: parsedItems,
               //MARK: 将我们精确解析出的 viewBox 尺寸存储起来
-              originalDimensions: { width: w, height: h, imageCenterX: viewBoxX + w / 2, imageCenterY: viewBoxY + h / 2 }
+              originalDimensions: { width: w, height: h, imageCenterX: viewBoxX + w / 2, imageCenterY: viewBoxY + h / 2 , type: "svg"}
             }
           };
           addItem(imageData);
@@ -2227,7 +2227,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               parsedItems: parsedItems,
               // 将我们精确解析出的 viewBox 尺寸存储起来
               // originalDimensions: { width: img.width, height: img.height, imageCenterX: viewBoxX + img.width / 2, imageCenterY: viewBoxY + img.height / 2 }
-              originalDimensions: { width: w, height: h, imageCenterX: viewBoxX + w / 2, imageCenterY: viewBoxY + h / 2 }
+              originalDimensions: { width: w, height: h, imageCenterX: viewBoxX + w / 2, imageCenterY: viewBoxY + h / 2  }
             }
           };
           addItem(imageData);
