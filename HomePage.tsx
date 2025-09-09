@@ -32,6 +32,8 @@ const HomePage: React.FC = () => {
   const [contrast, setContrast] = useState(0); // 对比度调节值
   const [originalImage, setOriginalImage] = useState<string | null>(null); // 原始图片（用于撤销操作）
   const [isLoading, setIsLoading] = useState(false); // 加载状态
+  const [isBrightnessContrastApplied, setIsBrightnessContrastApplied] = useState(false); // 是否已应用亮度和对比度调节
+  const [baseImageForBrightnessContrast, setBaseImageForBrightnessContrast] = useState<string | null>(null); // 用于亮度和对比度调节的基础图片
 
   const fileInputRef = useRef<HTMLInputElement>(null); // 文件输入框引用
 
@@ -46,7 +48,7 @@ const HomePage: React.FC = () => {
       console.log('[首页] base64Data前100:', base64Data.substring(0, 100));
       setImage(base64Data);
       setOriginalImage(base64Data);
-
+      setBaseImageForBrightnessContrast(base64Data);
     };
 
     // 提供给Android调用的白板跳转接口
@@ -79,6 +81,7 @@ const HomePage: React.FC = () => {
       console.log('[首页] 发现缓存的图片数据，长度:', cachedData.length);
       setImage(cachedData);
       setOriginalImage(cachedData);
+      setBaseImageForBrightnessContrast(cachedData);
       delete (window as any).__pendingHomePageImage;
     }
 
@@ -187,6 +190,7 @@ const HomePage: React.FC = () => {
         console.log('图片URL长度:', imageUrl.length);
         setImage(imageUrl);
         setOriginalImage(imageUrl);
+        setBaseImageForBrightnessContrast(imageUrl);
       };
       reader.onerror = (e) => {
         console.error('文件读取失败:', e);
@@ -298,6 +302,7 @@ const HomePage: React.FC = () => {
             const photoDataUrl = canvas.toDataURL('image/jpeg', 0.9);
             setImage(photoDataUrl);
             setOriginalImage(photoDataUrl);
+            setBaseImageForBrightnessContrast(photoDataUrl);
 
             // 停止摄像头
             stream.getTracks().forEach(track => track.stop());
@@ -351,9 +356,74 @@ const HomePage: React.FC = () => {
       });
   };
 
+  // 应用亮度和对比度调节到canvas
+  const applyBrightnessContrast = () => {
+    if (!image || !baseImageForBrightnessContrast) return;
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+
+      if (ctx) {
+        // 绘制基础图片（用于亮度和对比度调节的基准图片）
+        ctx.drawImage(img, 0, 0);
+
+        // 获取图片数据
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+
+        // 计算亮度调节值 (brightness: -100 到 100)
+        const brightnessValue = brightness / 100; // 转换为 -1 到 1 的范围
+        // 计算对比度调节值 (contrast: -100 到 100)
+        const contrastValue = contrast / 100; // 转换为 -1 到 1 的范围
+
+        // 应用亮度和对比度调节
+        for (let i = 0; i < data.length; i += 4) {
+          let r = data[i];
+          let g = data[i + 1];
+          let b = data[i + 2];
+
+          r = (r - 128) * (1 + contrastValue) + 128;
+          g = (g - 128) * (1 + contrastValue) + 128;
+          b = (b - 128) * (1 + contrastValue) + 128;
+
+          r = r + (brightnessValue * 255);
+          g = g + (brightnessValue * 255);
+          b = b + (brightnessValue * 255);
+
+          data[i] = Math.max(0, Math.min(255, r));
+          data[i + 1] = Math.max(0, Math.min(255, g));
+          data[i + 2] = Math.max(0, Math.min(255, b));
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+        setImage(canvas.toDataURL());
+      }
+    };
+
+    img.src = baseImageForBrightnessContrast;
+  };
+
+  // 应用亮度和对比度调节（只要调节就修改）
+  // const applyBrightnessContrastOnChange = () => {
+  //   if (!image || !baseImageForBrightnessContrast) return;
+  //   applyBrightnessContrast();
+  // };
+
+  // 基图或亮度/对比度变化时，从基图重算展示图
+  useEffect(() => {
+    if (!baseImageForBrightnessContrast) return;
+    applyBrightnessContrast();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseImageForBrightnessContrast, brightness, contrast]);
+
   // 应用图片滤镜效果
   const applyFilter = (filterType: string) => {
-    if (!image) return;
+    if (!baseImageForBrightnessContrast) return;
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -366,10 +436,8 @@ const HomePage: React.FC = () => {
       if (ctx) {
         ctx.drawImage(img, 0, 0);
 
-        // 根据滤镜类型处理图片
         switch (filterType) {
-          case 'grayscale':
-            // 灰度滤镜：将RGB值转换为灰度值
+          case 'grayscale': {
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const data = imageData.data;
             for (let i = 0; i < data.length; i += 4) {
@@ -380,9 +448,8 @@ const HomePage: React.FC = () => {
             }
             ctx.putImageData(imageData, 0, 0);
             break;
-
-          case 'binary':
-            // 二值化滤镜：将图片转换为黑白两色
+          }
+          case 'binary': {
             const binaryData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const binaryArray = binaryData.data;
             for (let i = 0; i < binaryArray.length; i += 4) {
@@ -394,9 +461,8 @@ const HomePage: React.FC = () => {
             }
             ctx.putImageData(binaryData, 0, 0);
             break;
-
-          case 'invert':
-            // 反色滤镜：将颜色值反转
+          }
+          case 'invert': {
             const invertData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const invertArray = invertData.data;
             for (let i = 0; i < invertArray.length; i += 4) {
@@ -406,13 +472,16 @@ const HomePage: React.FC = () => {
             }
             ctx.putImageData(invertData, 0, 0);
             break;
+          }
         }
 
-        setImage(canvas.toDataURL());
+        // 更新基图，并由上面的useEffect自动渲染展示图
+        const nextBase = canvas.toDataURL();
+        setBaseImageForBrightnessContrast(nextBase);
       }
     };
 
-    img.src = image;
+    img.src = baseImageForBrightnessContrast;
   };
 
   // base64转cv.Mat（OpenCV处理）
@@ -675,8 +744,10 @@ const HomePage: React.FC = () => {
   const resetToOriginal = () => {
     if (originalImage) {
       setImage(originalImage);
+      setBaseImageForBrightnessContrast(originalImage);
       setBrightness(0);
       setContrast(0);
+      setIsBrightnessContrastApplied(false);
     }
   };
 
@@ -716,6 +787,7 @@ const HomePage: React.FC = () => {
       console.log('图片前100字符:', img.slice(0, 100));
       setImage(img);
       setOriginalImage(img);
+      setBaseImageForBrightnessContrast(img);
       window.history.replaceState({}, document.title);
       // 禁止 setHomePageImage 再次覆盖
       (window as any).setHomePageImage = () => {};
@@ -804,7 +876,6 @@ const HomePage: React.FC = () => {
               src={image}
               alt="编辑图片"
               style={{
-                filter: `brightness(${1 + brightness / 100}) contrast(${1 + contrast / 100})`,
                 display: 'block',
                 maxWidth: '100%',
                 maxHeight: '100%',
@@ -864,7 +935,9 @@ const HomePage: React.FC = () => {
             min="-100"
             max="100"
             value={brightness}
-            onChange={(e) => setBrightness(Number(e.target.value))}
+            onChange={(e) => {
+              setBrightness(Number(e.target.value));
+            }}
             className="flex-1 mx-4"
           />
           <span className="text-sm text-gray-600 w-12">{brightness}</span>
@@ -877,11 +950,14 @@ const HomePage: React.FC = () => {
             min="-100"
             max="100"
             value={contrast}
-            onChange={(e) => setContrast(Number(e.target.value))}
+            onChange={(e) => {
+              setContrast(Number(e.target.value));
+            }}
             className="flex-1 mx-4"
           />
           <span className="text-sm text-gray-600 w-12">{contrast}</span>
         </div>
+        
       </div>
 
       {/* 功能操作按钮区域 */}
@@ -891,12 +967,12 @@ const HomePage: React.FC = () => {
             <button onClick={() => applyFilter('grayscale')} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">灰度</button>
             <button onClick={() => applyFilter('binary')} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">二值化</button>
             <button onClick={() => applyFilter('invert')} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">反色</button>
-            <button onClick={() => { if (!image) return; if (window.cv && window.cv.GaussianBlur) { applyGaussianBlurOpenCV(image, 15, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">高斯模糊</button>
+            <button onClick={() => { if (!baseImageForBrightnessContrast) return; if (window.cv && window.cv.GaussianBlur) { applyGaussianBlurOpenCV(baseImageForBrightnessContrast, 15, (result) => { setBaseImageForBrightnessContrast(result); }); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">高斯模糊</button>
             <button onClick={handleEdgeExtractionAndVectorization} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">线框提取</button>
-            <button onClick={() => { if (!image) return; if (window.cv && window.cv.rotate) { applyRotate90OpenCV(image, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">旋转</button>
+            <button onClick={() => { if (!baseImageForBrightnessContrast) return; if (window.cv && window.cv.rotate) { applyRotate90OpenCV(baseImageForBrightnessContrast, (result) => { setBaseImageForBrightnessContrast(result); }); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">旋转</button>
             <button onClick={() => { if (!image) return; navigate('/crop', { state: { image, original: originalImage } }); }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">裁剪</button>
-            <button onClick={() => { if (!image) return; if (window.cv && window.cv.flip) { applyFlipHorizontalOpenCV(image, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">水平翻转</button>
-            <button onClick={() => { if (!image) return; if (window.cv && window.cv.flip) { applyFlipVerticalOpenCV(image, setImage); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">垂直翻转</button>
+            <button onClick={() => { if (!baseImageForBrightnessContrast) return; if (window.cv && window.cv.flip) { applyFlipHorizontalOpenCV(baseImageForBrightnessContrast, (result) => { setBaseImageForBrightnessContrast(result); }); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">水平翻转</button>
+            <button onClick={() => { if (!baseImageForBrightnessContrast) return; if (window.cv && window.cv.flip) { applyFlipVerticalOpenCV(baseImageForBrightnessContrast, (result) => { setBaseImageForBrightnessContrast(result); }); } else { alert('OpenCV.js 正在加载，请稍后重试'); } }} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">垂直翻转</button>
             <button onClick={resetToOriginal} className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">撤销操作</button>
           </div>
         </div>
