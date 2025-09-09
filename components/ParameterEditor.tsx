@@ -435,7 +435,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
                       })
                       .map(layer => (
                         <option key={layer.id} value={layer.id}>
-                          {layer.name} ({layer.printingMethod === 'scan' ? '扫描' : '雕刻'})
+                          {layer.name} ({layer.printingMethod === 'scan' ? '扫描' : '切割'})
                         </option>
                       ))}
                   </select>

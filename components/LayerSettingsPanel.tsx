@@ -120,7 +120,7 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
              >
                <span className="truncate flex-1">{layer.name}</span>
                <span className={`text-xs px-2 py-0.5 rounded-full ${selectedLayer?.id === layer.id ? 'bg-white text-blue-500' : 'bg-gray-200 text-gray-700'}`}>
-                 {layer.printingMethod === 'scan' ? '扫描' : '雕刻'}
+                 {layer.printingMethod === 'scan' ? '扫描' : '切割'}
                </span>
              </li>
            ))}

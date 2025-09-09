@@ -104,7 +104,7 @@ const LayerItem: React.FC<{
             className="ml-2 text-xs text-gray-700 bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded cursor-pointer transition-colors"
             title="点击编辑图层属性"
           >
-            {layer.printingMethod === 'scan' ? '扫描' : '雕刻'}
+            {layer.printingMethod === 'scan' ? '扫描' : '切割'}
           </button>
         </div>
         <div className={`flex items-center gap-1 transition-opacity opacity-0 ${isEditing ? '' : 'group-hover:opacity-100'}`}>
@@ -157,7 +157,7 @@ const LayerItem: React.FC<{
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
                 >
                   <option value="scan">扫描</option>
-                  <option value="engrave">雕刻</option>
+                  <option value="engrave">切割</option>
                 </select>
               </div>
 
