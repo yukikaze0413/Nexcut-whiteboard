@@ -278,7 +278,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     },
     {
       id: `engrave_layer_${Date.now()}`,
-      name: '雕刻图层',
+      name: '切割图层',
       isVisible: true,
       printingMethod: PrintingMethod.ENGRAVE,
       power: 50
@@ -389,14 +389,14 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     }
   }, [layers, activeLayerId]);
 
-  // 根据对象类型确定图层类型 - 图片默认扫描图层，其他默认雕刻图层
+  // 根据对象类型确定图层类型 - 图片默认扫描图层，其他默认切割图层
   const getPrintingMethodByItemType = useCallback((itemType: CanvasItemType | 'GROUP') => {
     // 图片类型默认使用扫描图层
     if (itemType === CanvasItemType.IMAGE) {
       return PrintingMethod.SCAN;
     }
 
-    // 其他所有对象类型默认使用雕刻图层
+    // 其他所有对象类型默认使用切割图层
     return PrintingMethod.ENGRAVE;
   }, []);
 
@@ -408,7 +408,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     if (!layer) {
       const newLayer: Layer = {
         id: `layer_${Date.now()}`,
-        name: printingMethod === PrintingMethod.SCAN ? '扫描图层' : '雕刻图层',
+        name: printingMethod === PrintingMethod.SCAN ? '扫描图层' : '切割图层',
         isVisible: true,
         printingMethod: printingMethod,
         power: 50
@@ -701,7 +701,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       min-width: 400px;
       max-width: 500px;
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      max-height: 80vh;n
+      max-height: 80vh;
       overflow-y: auto;
     `;
 
@@ -717,7 +717,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         <label style="display: block; margin-bottom: 5px; font-size: 14px; font-weight: 500;">打印方式：</label>
         <select id="layerType" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
           <option value="scan">扫描</option>
-          <option value="engrave">雕刻</option>
+          <option value="engrave">切割</option>
         </select>
       </div>
       
@@ -737,7 +737,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         </div>
         
         <div style="margin-bottom: 10px;">
-          <label style="display: block; margin-bottom: 3px; font-size: 13px;">反向移动偏移：</label>
+          <label style="display: block; margin-bottom: 3px; font-size: 13px;">出边距离：</label>
           <input id="reverseMovementOffset" type="number" min="0" step="0.1" value="0" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" />
         </div>
 
@@ -2489,20 +2489,20 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         // 关闭弹窗
         setIsGeneratingGCode(false);
       } else {
-        // 雕刻图层G代码生成
+        // 切割图层G代码生成
         const layerItems = items.filter(
           item => item.layerId === layer.id
         );
 
-        console.log('雕刻图层中的对象:', layerItems);
+        console.log('切割图层中的对象:', layerItems);
 
         if (layerItems.length === 0) {
           setIsGeneratingGCode(false);
-          alert('雕刻图层上没有对象。');
+          alert('切割图层上没有对象。');
           return;
         }
 
-        setGenerationProgress('正在生成雕刻G代码...');
+        setGenerationProgress('正在生成切割G代码...');
 
         // 使用新的直接G代码生成方法
         const engraveSettings = {
@@ -2558,8 +2558,12 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       allGCodeParts.push(`; 画布尺寸: ${canvasWidth}×${canvasHeight}mm`);
       allGCodeParts.push('');
 
-      // 遍历所有图层
-      for (const layer of layers) {
+      // 先扫描后切割的顺序遍历所有图层
+      const orderedLayers = [...layers].sort((a, b) => {
+        const rank = (l: Layer) => (l.printingMethod === PrintingMethod.SCAN ? 0 : 1);
+        return rank(a) - rank(b);
+      });
+      for (const layer of orderedLayers) {
         const layerItems = items.filter(item => item.layerId === layer.id);
 
         if (layerItems.length === 0) {
@@ -2574,7 +2578,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         // 添加图层分隔注释
         allGCodeParts.push(`; ========================================`);
         allGCodeParts.push(`; 图层: ${layer.name}`);
-        allGCodeParts.push(`; 打印方式: ${layer.printingMethod === PrintingMethod.SCAN ? '扫描' : '雕刻'}`);
+        allGCodeParts.push(`; 打印方式: ${layer.printingMethod === PrintingMethod.SCAN ? '扫描' : '切割'}`);
         allGCodeParts.push(`; ========================================`);
 
         try {
@@ -2595,7 +2599,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 overscanDist: layer.reverseMovementOffset ?? 3,
               };
 
-              const gcode = await generatePlatformScanGCode(
+              let gcode = await generatePlatformScanGCode(
                 layer,
                 items,
                 canvasWidth,
@@ -2605,10 +2609,17 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 canvasHeight
               );
 
+              // 移除中途结束程序的指令与注释，避免后续图层无法执行
+              gcode = gcode
+                           .replace(/;.*$/gm, '')
+                           .replace(/^[ \t]*;(.*)$|^[ \t]*$/gm, '')
+                           .replace(/\bM2\b.*$/gmi, '')
+                           .replace(/\bM30\b.*$/gmi, '');
+
               allGCodeParts.push(gcode);
             }
           } else {
-            // 雕刻图层
+            // 切割图层
             const engraveSettings = {
               feedRate: 1000,
               travelSpeed: 3000,
@@ -2619,9 +2630,15 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             };
 
             const { generateEngraveGCode } = await import('./lib/gcode');
-            const gcode = await generateEngraveGCode(layer, layerItems, engraveSettings);
+            let gcode = await generateEngraveGCode(layer, layerItems, engraveSettings);
 
             if (gcode && gcode.trim().length > 0) {
+              // 移除中途结束程序的指令与注释
+              gcode = gcode
+                           .replace(/;.*$/gm, '')
+                           .replace(/^[ \t]*;(.*)$|^[ \t]*$/gm, '')
+                           .replace(/\bM2\b.*$/gmi, '')
+                           .replace(/\bM30\b.*$/gmi, '');
               allGCodeParts.push(gcode);
             }
           }
@@ -2650,7 +2667,20 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       allGCodeParts.push('; ========================================');
 
       // 合并所有G代码
-      const mergedGCode = allGCodeParts.join('\n');
+      let mergedGCode = allGCodeParts.join('\n');
+
+      // 全局清理：去除所有注释（行内与整行）与空行，移除任何残留的M2/M30，并在末尾追加单一M2结束
+      mergedGCode = mergedGCode
+        .replace(/;.*$/gm, '')
+        .replace(/^[ \t]*;(.*)$|^[ \t]*$/gm, '')
+        .replace(/\bM2\b.*$/gmi, '')
+        .replace(/\bM30\b.*$/gmi, '')
+        .split('\n')
+        .filter(line => line.trim().length > 0)
+        .join('\n');
+
+      // 在末尾追加一次程序结束
+      mergedGCode += '\nM2\n';
 
       setGenerationProgress('正在保存文件...');
       // 下载合并后的文件
@@ -2659,9 +2689,9 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       // 关闭弹窗
       setIsGeneratingGCode(false);
     } catch (error) {
-      console.error("合并G代码生成失败:", error);
+      console.error('合并G代码失败:', error);
       setIsGeneratingGCode(false);
-      alert(`合并G代码生成失败: ${error instanceof Error ? error.message : String(error)}`);
+      alert(`合并G代码失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -3002,6 +3032,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               items={items}
               canvasWidth={canvasWidth}
               canvasHeight={canvasHeight}
+              layoutMode="grid"
             />
           </div>
         </div>
@@ -3164,13 +3195,14 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             <span className="font-semibold">属性编辑</span>
             <button className="text-gray-500 text-lg" onClick={() => setDrawer(null)}>×</button>
           </div>
-          <div className="w-full overflow-y-auto" style={{ maxHeight: '50vh' }}>
+          <div className="w-full overflow-y-auto" style={{ maxHeight: '80vh' }}>
             <ParameterEditor
               selectedItem={selectedItem}
               layers={layers}
               onUpdateItem={updateItem}
               onDeleteItem={deleteItem}
               onCommitUpdate={commitUpdate}
+              onClose={() => setDrawer(null)}
             />
           </div>
         </div>

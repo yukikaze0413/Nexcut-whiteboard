@@ -11,6 +11,7 @@ interface LayerSettingsPanelProps {
   items: CanvasItem[];
   canvasWidth: number;
   canvasHeight: number;
+  layoutMode?: 'default' | 'grid';
 }
 
 // 帮助函数：根据类型获取中文名称
@@ -91,7 +92,7 @@ const LayerPreview: React.FC<{
 };
 
 
-const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selectedLayerId, onSelectLayer, onUpdateLayer, items, canvasWidth, canvasHeight }) => {
+const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selectedLayerId, onSelectLayer, onUpdateLayer, items, canvasWidth, canvasHeight, layoutMode = 'default' }) => {
   const selectedLayer = layers.find(l => l.id === selectedLayerId) || layers[0];
 
   const handleInputChange = (key: 'lineDensity' | 'power' | 'reverseMovementOffset' | 'maxPower' | 'minPower' | 'moveSpeed', value: number) => {
@@ -107,170 +108,185 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
     onUpdateLayer(selectedLayer.id, updates);
   };
 
+  const LeftList = (
+      <div className={layoutMode === 'grid' ? 'col-span-1 border-r bg-white p-2 overflow-y-auto' : 'w-48 border-r bg-white p-2 overflow-y-auto'}>
+         <h3 className="text-base font-semibold mb-2 px-1">图层列表</h3>
+         <ul>
+           {layers.map(layer => (
+             <li
+               key={layer.id}
+               className={`p-2 rounded cursor-pointer flex items-center justify-between gap-2 mb-1 ${selectedLayer?.id === layer.id ? 'bg-blue-500 text-white' : 'hover:bg-gray-200'}`}
+               onClick={() => onSelectLayer(layer.id)}
+             >
+               <span className="truncate flex-1">{layer.name}</span>
+               <span className={`text-xs px-2 py-0.5 rounded-full ${selectedLayer?.id === layer.id ? 'bg-white text-blue-500' : 'bg-gray-200 text-gray-700'}`}>
+                 {layer.printingMethod === 'scan' ? '扫描' : '雕刻'}
+               </span>
+             </li>
+           ))}
+         </ul>
+       </div>
+  );
+
+  const RightSettings = (
+      <div className={layoutMode === 'grid' ? 'col-span-2 p-4 overflow-y-auto max-h-full' : 'flex-1 p-4 overflow-y-auto max-h-full'}>
+         {selectedLayer && (
+           <>
+             <h2 className="text-xl font-bold mb-4 pb-2 border-b">{selectedLayer.name} 设置</h2>
+             
+             {/* 统一的预览图区域 */}
+             <div className="mb-4">
+                 <h3 className="text-md font-semibold mb-2">图层预览</h3>
+                 <div className="flex justify-center items-center p-2 border rounded-lg bg-gray-200">
+                     <LayerPreview layer={selectedLayer} items={items} canvasWidth={canvasWidth} canvasHeight={canvasHeight} />
+                 </div>
+             </div>
+
+             {selectedLayer.printingMethod === PrintingMethod.SCAN ? (
+               // --- 扫描图层设置 ---
+               <div className="space-y-4">
+                 <div>
+                   <label className="block text-sm font-medium mb-1">线密度 (线/毫米)</label>
+                   <input
+                     type="number"
+                     min={1}
+                     max={100}
+                     step={1}
+                     value={selectedLayer.lineDensity ?? 10}
+                     onChange={e => handleInputChange('lineDensity', Number(e.target.value))}
+                     className="w-full p-2 border rounded-md"
+                   />
+                 </div>
+                 <div>
+                   <label className="block text-sm font-medium mb-1">出边距离 (mm)</label>
+                   <input
+                     type="number"
+                     min={0}
+                     max={50}
+                     step={0.1}
+                     value={selectedLayer.reverseMovementOffset ?? 3}
+                     onChange={e => handleInputChange('reverseMovementOffset', Number(e.target.value))}
+                     className="w-full p-2 border rounded-md"
+                   />
+                   <p className="text-xs text-gray-500 mt-1">每行扫描时在两端额外移动的距离</p>
+                 </div>
+                 <div className="flex items-center">
+                   <input
+                     type="checkbox"
+                     checked={!!selectedLayer.halftone}
+                     onChange={e => handleCheckboxChange('halftone', e.target.checked)}
+                     id="halftone-checkbox"
+                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                   />
+                   <label htmlFor="halftone-checkbox" className="ml-2 block text-sm text-gray-900">半调网屏</label>
+                 </div>
+
+                 {/* 新增扫描参数 */}
+                 <div>
+                   <label className="block text-sm font-medium mb-1">功率最大值 (%)</label>
+                   <input
+                     type="number"
+                     min={0}
+                     max={100}
+                     step={1}
+                     value={selectedLayer.maxPower ?? 100}
+                     onChange={e => handleInputChange('maxPower', Number(e.target.value))}
+                     className="w-full p-2 border rounded-md"
+                   />
+                   <p className="text-xs text-gray-500 mt-1">扫描时的最大激光功率</p>
+                 </div>
+
+                 <div>
+                   <label className="block text-sm font-medium mb-1">功率最小值 (%)</label>
+                   <input
+                     type="number"
+                     min={0}
+                     max={100}
+                     step={1}
+                     value={selectedLayer.minPower ?? 0}
+                     onChange={e => handleInputChange('minPower', Number(e.target.value))}
+                     className="w-full p-2 border rounded-md"
+                   />
+                   <p className="text-xs text-gray-500 mt-1">扫描时的最小激光功率</p>
+                 </div>
+
+                 {/* 单一功率模式提示 */}
+                 {selectedLayer.maxPower === selectedLayer.minPower && selectedLayer.maxPower !== undefined && selectedLayer.minPower !== undefined && (
+                   <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                     <div className="flex items-start">
+                       <div className="flex-shrink-0">
+                         <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                           <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                         </svg>
+                       </div>
+                       <div className="ml-3">
+                         <h4 className="text-sm font-medium text-blue-800">单一功率模式</h4>
+                         <p className="text-sm text-blue-700 mt-1">
+                           最大值和最小值相同时，将使用单一功率 {selectedLayer.maxPower}% 雕刻暗于中灰度（127）的区域，
+                           亮于中灰度的区域不出光。这适合需要统一深度雕刻的场景。
+                         </p>
+                       </div>
+                     </div>
+                   </div>
+                 )}
+
+                 <div>
+                   <label className="block text-sm font-medium mb-1">移动速度 (mm/s)</label>
+                   <input
+                     type="number"
+                     min={10}
+                     max={500}
+                     step={10}
+                     value={selectedLayer.moveSpeed ?? 100}
+                     onChange={e => handleInputChange('moveSpeed', Number(e.target.value))}
+                     className="w-full p-2 border rounded-md"
+                   />
+                   <p className="text-xs text-gray-500 mt-1">激光头移动速度</p>
+                 </div>
+               </div>
+             ) : (
+               // --- 雕刻图层设置 ---
+               <div className="space-y-4">
+                   {/* 激光功率设置 */}
+                   <div>
+                     <label className="block text-sm font-medium mb-1">激光功率（%）</label>
+                     <input
+                       type="number"
+                       min={1}
+                       max={100}
+                       value={selectedLayer.power ?? 50}
+                       onChange={e => handleInputChange('power', Number(e.target.value))}
+                       className="w-full p-2 border rounded-md"
+                     />
+                   </div>
+
+                   {/* 可滚动的轨迹列表 */}
+                   <div>
+                       <h3 className="text-md font-semibold mb-2">轨迹列表</h3>
+                       <div className="p-2 border rounded-lg bg-gray-200 overflow-y-auto" style={{ maxHeight: '250px' }}>
+                           <EngravingTrajectoryList layer={selectedLayer} items={items} />
+                       </div>
+                   </div>
+               </div>
+             )}
+           </>
+         )}
+       </div>
+  );
+
+  if (layoutMode === 'grid') {
+    return (
+      <div className="grid grid-cols-3 h-full bg-gray-100">
+        {LeftList}
+        {RightSettings}
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full bg-gray-100">
-      {/* 左侧图层列表 */}
-      <div className="w-48 border-r bg-white p-2 overflow-y-auto">
-        <h3 className="text-base font-semibold mb-2 px-1">图层列表</h3>
-        <ul>
-          {layers.map(layer => (
-            <li
-              key={layer.id}
-              className={`p-2 rounded cursor-pointer flex items-center justify-between gap-2 mb-1 ${selectedLayer?.id === layer.id ? 'bg-blue-500 text-white' : 'hover:bg-gray-200'}`}
-              onClick={() => onSelectLayer(layer.id)}
-            >
-              <span className="truncate flex-1">{layer.name}</span>
-              <span className={`text-xs px-2 py-0.5 rounded-full ${selectedLayer?.id === layer.id ? 'bg-white text-blue-500' : 'bg-gray-200 text-gray-700'}`}>
-                {layer.printingMethod === 'scan' ? '扫描' : '雕刻'}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
-      {/* 右侧设置区域 */}
-      <div className="flex-1 p-4 overflow-y-auto max-h-full">
-        {selectedLayer && (
-          <>
-            <h2 className="text-xl font-bold mb-4 pb-2 border-b">{selectedLayer.name} 设置</h2>
-            
-            {/* 统一的预览图区域 */}
-            <div className="mb-4">
-                <h3 className="text-md font-semibold mb-2">图层预览</h3>
-                <div className="flex justify-center items-center p-2 border rounded-lg bg-gray-200">
-                    <LayerPreview layer={selectedLayer} items={items} canvasWidth={canvasWidth} canvasHeight={canvasHeight} />
-                </div>
-            </div>
-
-            {selectedLayer.printingMethod === PrintingMethod.SCAN ? (
-              // --- 扫描图层设置 ---
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">线密度 (线/毫米)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    step={1}
-                    value={selectedLayer.lineDensity ?? 10}
-                    onChange={e => handleInputChange('lineDensity', Number(e.target.value))}
-                    className="w-full p-2 border rounded-md"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">空移距离 (mm)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={50}
-                    step={0.1}
-                    value={selectedLayer.reverseMovementOffset ?? 3}
-                    onChange={e => handleInputChange('reverseMovementOffset', Number(e.target.value))}
-                    className="w-full p-2 border rounded-md"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">每行扫描时在两端额外移动的距离</p>
-                </div>
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={!!selectedLayer.halftone}
-                    onChange={e => handleCheckboxChange('halftone', e.target.checked)}
-                    id="halftone-checkbox"
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <label htmlFor="halftone-checkbox" className="ml-2 block text-sm text-gray-900">半调网屏</label>
-                </div>
-
-                {/* 新增扫描参数 */}
-                <div>
-                  <label className="block text-sm font-medium mb-1">功率最大值 (%)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={selectedLayer.maxPower ?? 100}
-                    onChange={e => handleInputChange('maxPower', Number(e.target.value))}
-                    className="w-full p-2 border rounded-md"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">扫描时的最大激光功率</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">功率最小值 (%)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={selectedLayer.minPower ?? 0}
-                    onChange={e => handleInputChange('minPower', Number(e.target.value))}
-                    className="w-full p-2 border rounded-md"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">扫描时的最小激光功率</p>
-                </div>
-
-                {/* 单一功率模式提示 */}
-                {selectedLayer.maxPower === selectedLayer.minPower && selectedLayer.maxPower !== undefined && selectedLayer.minPower !== undefined && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-                    <div className="flex items-start">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <h4 className="text-sm font-medium text-blue-800">单一功率模式</h4>
-                        <p className="text-sm text-blue-700 mt-1">
-                          最大值和最小值相同时，将使用单一功率 {selectedLayer.maxPower}% 雕刻暗于中灰度（127）的区域，
-                          亮于中灰度的区域不出光。这适合需要统一深度雕刻的场景。
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">移动速度 (mm/s)</label>
-                  <input
-                    type="number"
-                    min={10}
-                    max={500}
-                    step={10}
-                    value={selectedLayer.moveSpeed ?? 100}
-                    onChange={e => handleInputChange('moveSpeed', Number(e.target.value))}
-                    className="w-full p-2 border rounded-md"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">激光头移动速度</p>
-                </div>
-              </div>
-            ) : (
-              // --- 雕刻图层设置 ---
-              <div className="space-y-4">
-                  {/* 激光功率设置 */}
-                  <div>
-                    <label className="block text-sm font-medium mb-1">激光功率（%）</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={selectedLayer.power ?? 50}
-                      onChange={e => handleInputChange('power', Number(e.target.value))}
-                      className="w-full p-2 border rounded-md"
-                    />
-                  </div>
-
-                  {/* 可滚动的轨迹列表 */}
-                  <div>
-                      <h3 className="text-md font-semibold mb-2">轨迹列表</h3>
-                      <div className="p-2 border rounded-lg bg-gray-200 overflow-y-auto" style={{ maxHeight: '250px' }}>
-                          <EngravingTrajectoryList layer={selectedLayer} items={items} />
-                      </div>
-                  </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+      {LeftList}
+      {RightSettings}
     </div>
   );
 };

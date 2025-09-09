@@ -1633,25 +1633,12 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const boltHoleRadius = boltHoleDiameter / 2;
 
         console.log(`法兰参数 - 外径: ${outerDiameter}, 内径: ${innerDiameter}, 螺栓孔数: ${boltHoleCount}`);
-
-        // 外圆
-        const outerStart = rotatePoint(x + outerRadius, y, x, y, rotation);
-        const transformedOuterStart = transformCoordinate(outerStart.x, outerStart.y, settings);
+        
         const transformedCenter = transformCoordinate(x, y, settings);
-        const outerIOffset = transformedCenter.x - transformedOuterStart.x;
-        const outerJOffset = transformedCenter.y - transformedOuterStart.y;
 
-        // 当Y轴反转时，圆的方向也要反转
-        const outerCircleCommand = settings.flipY ? 'G03' : 'G02';
-
-        paths.push(
-          `G0 X${transformedOuterStart.x} Y${transformedOuterStart.y}`,
-          `M3 S${laserPower}`,
-          `${outerCircleCommand} X${transformedOuterStart.x} Y${transformedOuterStart.y} I${outerIOffset.toFixed(3)} J${outerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
-          `M5`
-        );
-
-        // 内圆
+        // =======================================================
+        // 1. 首先生成内圆 (First, generate the inner circle)
+        // =======================================================
         const innerStart = rotatePoint(x + innerRadius, y, x, y, rotation);
         const transformedInnerStart = transformCoordinate(innerStart.x, innerStart.y, settings);
         const innerIOffset = transformedCenter.x - transformedInnerStart.x;
@@ -1661,22 +1648,29 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const innerCircleCommand = settings.flipY ? 'G03' : 'G02';
 
         paths.push(
-          `G0 X${transformedInnerStart.x} Y${transformedInnerStart.y}`,
+          `G0 X${transformedInnerStart.x.toFixed(3)} Y${transformedInnerStart.y.toFixed(3)}`, // 使用 toFixed(3) 保持精度一致性
           `M3 S${laserPower}`,
-          `${innerCircleCommand} X${transformedInnerStart.x} Y${transformedInnerStart.y} I${innerIOffset.toFixed(3)} J${innerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+          `${innerCircleCommand} X${transformedInnerStart.x.toFixed(3)} Y${transformedInnerStart.y.toFixed(3)} I${innerIOffset.toFixed(3)} J${innerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
           `M5`
         );
 
-        // 螺栓孔
+        // =======================================================
+        // 2. 接着生成螺栓孔 (Next, generate the bolt holes)
+        // =======================================================
         for (let i = 0; i < boltHoleCount; i++) {
-          const angle = (i / boltHoleCount) * 2 * Math.PI - Math.PI / 2;
+          const angle = (i / boltHoleCount) * 2 * Math.PI - Math.PI / 2; // -PI/2 使第一个孔位于顶部
           const holeX = x + boltCircleRadius * Math.cos(angle);
           const holeY = y + boltCircleRadius * Math.sin(angle);
 
           // 应用整体旋转
           const rotatedHoleCenter = rotatePoint(holeX, holeY, x, y, rotation);
           const transformedHoleCenter = transformCoordinate(rotatedHoleCenter.x, rotatedHoleCenter.y, settings);
+          
+          // 计算相对于孔洞中心的起点和I, J偏移
+          // 为了简化，我们总是从孔的右侧（3点钟方向）开始切割
           const holeStart = { x: transformedHoleCenter.x + boltHoleRadius, y: transformedHoleCenter.y };
+          const holeIOffset = -boltHoleRadius; // 从起点回到中心的I偏移
+          const holeJOffset = 0;              // 从起点回到中心的J偏移
 
           // 当Y轴反转时，圆的方向也要反转
           const holeCircleCommand = settings.flipY ? 'G03' : 'G02';
@@ -1684,10 +1678,29 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           paths.push(
             `G0 X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)}`,
             `M3 S${laserPower}`,
-            `${holeCircleCommand} X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)} I${-boltHoleRadius} J0 F${settings.feedRate || 1000}`,
+            `${holeCircleCommand} X${holeStart.x.toFixed(3)} Y${holeStart.y.toFixed(3)} I${holeIOffset.toFixed(3)} J${holeJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
             `M5`
           );
         }
+
+        // =======================================================
+        // 3. 最后生成外圆 (Finally, generate the outer circle)
+        // =======================================================
+        const outerStart = rotatePoint(x + outerRadius, y, x, y, rotation);
+        const transformedOuterStart = transformCoordinate(outerStart.x, outerStart.y, settings);
+        const outerIOffset = transformedCenter.x - transformedOuterStart.x;
+        const outerJOffset = transformedCenter.y - transformedOuterStart.y;
+
+        // 当Y轴反转时，圆的方向也要反转
+        const outerCircleCommand = settings.flipY ? 'G03' : 'G02';
+
+        paths.push(
+          `G0 X${transformedOuterStart.x.toFixed(3)} Y${transformedOuterStart.y.toFixed(3)}`, // 使用 toFixed(3) 保持精度一致性
+          `M3 S${laserPower}`,
+          `${outerCircleCommand} X${transformedOuterStart.x.toFixed(3)} Y${transformedOuterStart.y.toFixed(3)} I${outerIOffset.toFixed(3)} J${outerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+          `M5`
+        );
+        
         break;
       }
 
