@@ -456,12 +456,12 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
                   >
                     {t('Save Changes')}
                   </button>
-                  <button
+                <button
                     onClick={() => onDeleteItem(selectedItem.id)}
                     className="w-1/2 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition-colors"
-                  >
+                >
                     {t('Delete Item')}
-                  </button>
+                </button>
                 </div>
               </div>
             </>

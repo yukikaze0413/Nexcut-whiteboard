@@ -257,7 +257,7 @@ const LayerPanel: React.FC<LayerPanelProps> = ({ layers, activeLayerId, onAddLay
               onUpdate={(updates) => onUpdateLayer(layer.id, updates)}
               onSelect={() => onSetActiveLayerId(layer.id)}
               onMove={(dir) => onMoveLayer(layer.id, dir)}
-              canDelete={layers.length > 1}
+              canDelete={layer.printingMethod === 'scan'}
             />
           ))}
         </ul>
@@ -267,7 +267,7 @@ const LayerPanel: React.FC<LayerPanelProps> = ({ layers, activeLayerId, onAddLay
           onClick={onAddLayer}
           className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded-md transition-colors"
         >
-          添加图层
+          添加扫描图层
         </button>
       </div>
     </div>
