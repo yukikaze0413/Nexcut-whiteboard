@@ -9,6 +9,7 @@ interface ParameterEditorProps {
   onUpdateItem: (itemId: string, updates: Partial<CanvasItem>) => void;
   onDeleteItem: (itemId: string) => void;
   onCommitUpdate: () => void;
+  onClose?: () => void;
 }
 
 const translations: Record<string, string> = {
@@ -75,6 +76,7 @@ const translations: Record<string, string> = {
     'Properties': '属性',
     'ID': 'ID',
     'Delete Item': '删除项目',
+    'Save Changes': '保存修改',
     'Select an item to edit its properties.': '选择一个项目以编辑其属性。',
     'Position': '位置'
 };
@@ -268,7 +270,7 @@ const GroupParameterEditor: React.FC<{
   );
 };
 
-const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers, onUpdateItem, onDeleteItem, onCommitUpdate }) => {
+const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers, onUpdateItem, onDeleteItem, onCommitUpdate, onClose }) => {
     // GROUP类型单独渲染
     if (selectedItem && selectedItem.type === 'GROUP') {
       return <GroupParameterEditor selectedItem={selectedItem} onUpdateItem={onUpdateItem} onCommitUpdate={onCommitUpdate} />;
@@ -433,7 +435,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
                       })
                       .map(layer => (
                         <option key={layer.id} value={layer.id}>
-                          {layer.name} ({layer.printingMethod === 'scan' ? '扫描' : '雕刻'})
+                          {layer.name} ({layer.printingMethod === 'scan' ? '扫描' : '切割'})
                         </option>
                       ))}
                   </select>
@@ -447,12 +449,20 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
                 {renderContent()}
               </div>
               <div className="flex-shrink-0 pt-4 border-t border-gray-200">
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { onCommitUpdate(); onClose && onClose(); }}
+                    className="w-1/2 bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded-md transition-colors"
+                  >
+                    {t('Save Changes')}
+                  </button>
                 <button
                     onClick={() => onDeleteItem(selectedItem.id)}
-                    className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition-colors"
+                    className="w-1/2 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition-colors"
                 >
                     {t('Delete Item')}
                 </button>
+                </div>
               </div>
             </>
           ) : (
