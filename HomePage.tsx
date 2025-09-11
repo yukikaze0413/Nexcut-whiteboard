@@ -11,7 +11,7 @@ declare global {
   interface Window {
     cv: any; // OpenCV.js库
     setWhiteboardImage?: (base64Data?: string) => void; // Android设置白板图片接口
-    setHomePageImage?: (base64Data: string) => void; // Android设置首页图片接口
+    setHomePageImage?: (base64Data?: string) => void; // Android设置首页图片接口
     setCanvasSize?: (width: number, height: number) => void; // Android设置画布尺寸接口
     __pendingHomePageImage?: string; // 缓存首页图片数据
     __pendingWhiteboardImage?: { base64Data?: string; timestamp: number }; // 缓存白板图片数据
@@ -43,12 +43,35 @@ const HomePage: React.FC = () => {
 
   // 提供给Android调用的图片设置接口
   useEffect(() => {
-    (window as any).setHomePageImage = (base64Data: string) => {
+    (window as any).setHomePageImage = (base64Data?: string) => {
+      if (!base64Data) {
+        console.log('[首页] Android调用setHomePageImage(无参数)，初始化空白图片');
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = 1000;
+          canvas.height = 1000;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          }
+          const blankDataUrl = canvas.toDataURL('image/png');
+          setImage(blankDataUrl);
+          setOriginalImage(blankDataUrl);
+          setBaseImageForBrightnessContrast(blankDataUrl);
+          navigate('/whiteboard');
+        } catch (e) {
+          console.error('初始化空白图片失败:', e);
+          navigate('/whiteboard');
+        }
+        return;
+      }else{
       console.log('[首页] Android调用setHomePageImage，base64长度:', base64Data.length);
       console.log('[首页] base64Data前100:', base64Data.substring(0, 100));
       setImage(base64Data);
       setOriginalImage(base64Data);
       setBaseImageForBrightnessContrast(base64Data);
+      }
     };
 
     // 提供给Android调用的白板跳转接口
@@ -58,9 +81,32 @@ const HomePage: React.FC = () => {
         console.log('[首页] setWhiteboardImage有参数，跳转到白板并传递图片');
         navigate('/whiteboard', { state: { image: base64Data } });
       } else {
-        // 无参数时，直接跳转到白板界面
-        console.log('[首页] setWhiteboardImage无参数，直接跳转到白板界面');
-        navigate('/whiteboard');
+        // 无参数时，使用一张空白图片初始化基图、原图和展示图，然后再跳转
+        console.log('[首页] setWhiteboardImage无参数，使用空白图初始化并跳转到白板界面');
+        try {
+        //   const canvas = document.createElement('canvas');
+        //   // 选用与平台尺寸接近的默认尺寸，避免后续缩放产生模糊；若无要求，设置为 1000x1000
+        //   canvas.width = 1000;
+        //   canvas.height = 1000;
+        //   const ctx = canvas.getContext('2d');
+        //   if (ctx) {
+        //     // 填充为白色空白图
+        //     ctx.fillStyle = '#FFFFFF';
+        //     ctx.fillRect(0, 0, canvas.width, canvas.height);
+        //   }
+        //   const blankDataUrl = canvas.toDataURL('image/png');
+
+        //   // 设置基图、原图与展示图
+        //   setImage(blankDataUrl);
+        //   setOriginalImage(blankDataUrl);
+        //   setBaseImageForBrightnessContrast(blankDataUrl);
+
+        //   // 不传递图片，直接跳转到白板
+          //navigate('/whiteboard');
+        } catch (e) {
+          console.error('初始化空白图片失败，直接跳转白板:', e);
+          navigate('/whiteboard');
+        }
       }
     };
 
@@ -95,14 +141,37 @@ const HomePage: React.FC = () => {
         console.log('[首页] 处理缓存的setWhiteboardImage有参数，跳转到白板并传递图片');
         navigate('/whiteboard', { state: { image: pendingCall.base64Data } });
       } else {
-        // 无参数时，直接跳转到白板界面
-        console.log('[首页] 处理缓存的setWhiteboardImage无参数，直接跳转到白板界面');
-        navigate('/whiteboard');
+        // 无参数时，使用一张空白图片初始化基图、原图和展示图，然后再跳转
+        console.log('[首页] 处理缓存的setWhiteboardImage无参数，使用空白图初始化并跳转到白板界面');
+        try {
+          const canvas = document.createElement('canvas');
+          // 选用与平台尺寸接近的默认尺寸，避免后续缩放产生模糊；若无要求，设置为 1000x1000
+          canvas.width = 1000;
+          canvas.height = 1000;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            // 填充为白色空白图
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          }
+          const blankDataUrl = canvas.toDataURL('image/png');
+
+          // 设置基图、原图与展示图
+          setImage(blankDataUrl);
+          setOriginalImage(blankDataUrl);
+          setBaseImageForBrightnessContrast(blankDataUrl);
+
+          // 不传递图片，直接跳转到白板
+          navigate('/whiteboard');
+        } catch (e) {
+          console.error('初始化空白图片失败，直接跳转白板:', e);
+          navigate('/whiteboard');
+        }
       }
       delete (window as any).__pendingWhiteboardImage;
     }
 
-    // 清理函数：当组件卸载时，设置一个空的处理函数
+    // // 清理函数：当组件卸载时，设置一个空的处理函数
     return () => {
       delete (window as any).setHomePageImage;
       delete (window as any).setWhiteboardImage;
@@ -689,16 +758,13 @@ const HomePage: React.FC = () => {
             });
           });
         }
-      } else {
-        alert('原始图片矢量化失败，请重试');
-        setIsLoading(false);
       }
-    } catch (error) {
-      console.error('线框提取和矢量化失败:', error);
-      alert('处理失败，请重试');
-      setIsLoading(false);
-    }
-  };
+  } catch (error) {
+    console.error('线框提取和矢量化失败:', error);
+    alert('处理失败，请重试');
+    setIsLoading(false);
+  }
+};
 
   // OpenCV.js 90度旋转：顺时针旋转图片90度
   function applyRotate90OpenCV(base64: string, callback: (result: string) => void) {
@@ -737,9 +803,6 @@ const HomePage: React.FC = () => {
   }
 
 
-
-
-
   // 重置到原始图片：恢复图片到最初状态
   const resetToOriginal = () => {
     if (originalImage) {
@@ -754,9 +817,12 @@ const HomePage: React.FC = () => {
   // 处理下一步按钮点击：跳转到白板页面
   const handleNextStep = () => {
     if (image) {
+      console.log('HomePage: 有图片，跳转到白板页面');
       navigate('/whiteboard', { state: { image } });
     } else {
+      console.log('HomePage: 无图片，跳转到白板页面1');
       navigate('/whiteboard');
+      console.log('HomePage: 无图片，跳转到白板页面2');
     }
   };
 
@@ -785,8 +851,11 @@ const HomePage: React.FC = () => {
       console.log('HomePage: 有图片，设置图片并显示');
       console.log('图片长度:', img.length);
       console.log('图片前100字符:', img.slice(0, 100));
+      console.log('HomePage: 设置图片');
       setImage(img);
+      console.log('HomePage: 设置原始图片');
       setOriginalImage(img);
+      console.log('HomePage: 设置基础图片');
       setBaseImageForBrightnessContrast(img);
       window.history.replaceState({}, document.title);
       // 禁止 setHomePageImage 再次覆盖

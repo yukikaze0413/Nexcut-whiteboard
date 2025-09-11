@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { CanvasItem, CanvasItemData, PartType, Layer, Part, ImageObject } from './types';
 import { CanvasItemType, ToolType, PrintingMethod } from './types';
 import { PART_LIBRARY, BASIC_SHAPES } from './constants';
@@ -521,6 +521,9 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     } as Omit<ImageObject, 'id' | 'layerId'>);
   }, [addItem, canvasWidth, canvasHeight]);
 
+  // 路由与恢复控制（需在使用前声明）
+  const navigate = useNavigate();
+
   // 处理从路由传递的图片数据 - 分离处理location.state的变化
   useEffect(() => {
     // 检查是否已经处理过这个location.state，避免重复处理
@@ -602,8 +605,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       return;
     }
 
-    // 处理普通图片数据（原有逻辑）
-    if (location.state?.image && location.state.image !== processedImage) {
+    // 处理普通图片数据（新：以是否为新一次导航为准，避免同图被拦截）
+    if (location.state?.image && processedLocationState !== location.state) {
       setProcessedImage(location.state.image);
       setProcessedLocationState(location.state);
 
@@ -1952,19 +1955,21 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     };
   }, [addImage]);
 
+  // 已提前声明 navigate 与恢复标志，移除重复声明
+  const [isRestored, setIsRestored] = useState(false);
   const imageInputRef = React.useRef<HTMLInputElement>(null);
   const importInputRef = React.useRef<HTMLInputElement>(null);
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    //console.log("handleImageUpload", 1);
     const file = event.target.files?.[0];
+    //console.log("handleImageUpload", file);
     if (file) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        const img = new window.Image();
-        img.onload = () => {
-          addImage(e.target?.result as string, img.width, img.height);
-        };
-        img.src = e.target?.result as string;
+        const dataUrl = e.target?.result as string;
+        //console.log("handleImageUpload", dataUrl);
+        navigate('/', { state: { image: dataUrl } });
       };
       reader.readAsDataURL(file);
     }

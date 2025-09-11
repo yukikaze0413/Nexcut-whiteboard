@@ -5,7 +5,11 @@ import WhiteboardPage from './WhiteboardPage';
 import CropPage from './CropPage';
 
 (window as any).__pendingHomePageImage = null;
-(window as any).setHomePageImage = (base64Data: string) => {
+(window as any).setHomePageImage = (base64Data?: string) => {
+  if (!base64Data) {
+    console.log('[全局] setHomePageImage(无参数) 被调用，保持首页初始态');
+    return;
+  }
   console.log('[全局] setHomePageImage 被调用，但当前页面未处理', base64Data?.length);
   (window as any).__pendingHomePageImage = base64Data;
 };
