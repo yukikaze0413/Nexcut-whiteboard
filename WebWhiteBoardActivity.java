@@ -2,6 +2,8 @@ package com.example.opencv.webwhiteboard;
 
 import android.os.Bundle;
 import android.view.View;
+import android.view.animation.Animation;
+import android.view.animation.AnimationUtils;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -33,6 +35,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.example.opencv.Constant;
+import com.example.opencv.MainActivity;
 import com.example.opencv.R;
 
 import org.json.JSONObject;
@@ -349,7 +352,7 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
                                 else if (lower.endsWith(".plt")) ext = "plt";
                                 else if (lower.endsWith(".svg")) ext = "svg";
                             }
-
+                            String temp = JSONObject.quote(content);
                             String js = "window.setWhiteboardVector(" + JSONObject.quote(content) + ", '" + ext + "')";
                             webView.evaluateJavascript(js, null);
                         } else {
@@ -378,8 +381,8 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
                         e.printStackTrace();
                     }
                 } else {
-                    // 当imagePath为空或不存在时，直接跳转到白板界面
-                    String jsCode = "window.setWhiteboardImage();";
+                    // 当既没有位图也没有矢量数据时，调用首页接口但不传递任何数据
+                    String jsCode = "window.setHomePageImage();";
                     webView.evaluateJavascript(jsCode, null);
 
                     // 旧方案：通过base64参数传递（已注释，保留作为备份）
@@ -527,6 +530,33 @@ public class WebWhiteBoardActivity extends AppCompatActivity {
             } else {
                 // 存储权限被拒绝
                 Toast.makeText(this, "存储权限被拒绝，无法下载文件", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    public void mainPage(View view) {
+        Animation scaleIn = AnimationUtils.loadAnimation(this, R.anim.anim_scale_in);
+        view.startAnimation(scaleIn);
+
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(intent);
+        finish();
+    }
+    public void goBack(View view) {
+        Animation scaleIn = AnimationUtils.loadAnimation(this, R.anim.anim_scale_in);
+        view.startAnimation(scaleIn);
+
+        // 方式1：直接调用返回键逻辑（API 29+）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            getOnBackPressedDispatcher().onBackPressed();
+        }
+        // 方式2：兼容旧版本
+        else {
+            if (!isFinishing()) {
+                finish();
+                // 如果需要带动画
+                //overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
             }
         }
     }
