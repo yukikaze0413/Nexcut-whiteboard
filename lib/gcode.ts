@@ -594,6 +594,7 @@ export async function generatePlatformScanGCode(
   canvasWidth: number,
   canvasHeight: number
 ): Promise<string> {
+  
   // 【核心修改】筛选出属于该图层的所有可绘制对象（图像、基础形状、零件库）
   const drawableItems = items.filter(item =>
     item.layerId === layer.id &&
@@ -690,7 +691,7 @@ export async function generatePlatformScanGCode(
   gcode.push(`;`);
   gcode.push(`G90 ; Absolute positioning`);
   gcode.push(`G21 ; Units in millimeters`);
-  gcode.push(`G0 X0 Y0 F${travelSpeed} ; Move to origin`);
+  // gcode.push(`G0 X0 Y0 F${travelSpeed} ; Move to origin`);
   gcode.push(`M4 ; Enable laser (variable power mode)`);
   gcode.push(``);
 
@@ -713,7 +714,7 @@ export async function generatePlatformScanGCode(
   if (minY > maxY || minX > maxX) {
     gcode.push(`; No content found in layer`);
     gcode.push(`M5 ; Disable laser`);
-    gcode.push(`G0 X0 Y0 ; Return to origin`);
+    // gcode.push(`G0 X0 Y0 ; Return to origin`);
     gcode.push(`M2 ; End program`);
     return gcode.join('\n');
   }
@@ -867,7 +868,7 @@ export async function generatePlatformScanGCode(
 
   // G代码尾部
   gcode.push(`M5 ; Disable laser`);
-  gcode.push(`G0 X0 Y0 F${travelSpeed} ; Return to origin`);
+  // gcode.push(`G0 X0 Y0 F${travelSpeed} ; Return to origin`);
   gcode.push(``);
   gcode.push(`; Optimization Results:`);
   gcode.push(`; - Processed ${processedRows - skippedRows} rows, skipped ${skippedRows} blank rows`);
@@ -2087,24 +2088,8 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const { outerRadius = 60, innerRadius = 30 } = item.parameters;
 
         console.log(`圆环参数 - 外径: ${outerRadius * 2}, 内径: ${innerRadius * 2}`);
-
-        // 外圆起始点（考虑旋转）
-        const outerStart = rotatePoint(x + outerRadius, y, x, y, rotation);
-        const transformedOuterStart = transformCoordinate(outerStart.x, outerStart.y, settings);
-        const transformedCenter = transformCoordinate(x, y, settings);
-        const outerIOffset = transformedCenter.x - transformedOuterStart.x;
-        const outerJOffset = transformedCenter.y - transformedOuterStart.y;
-
-        // 当Y轴反转时，圆的方向也要反转
-        const outerCircleCommand = settings.flipY ? 'G03' : 'G02';
-
-        paths.push(
-          `G0 X${transformedOuterStart.x} Y${transformedOuterStart.y}`,
-          `M3 S${laserPower}`,
-          `${outerCircleCommand} X${transformedOuterStart.x} Y${transformedOuterStart.y} I${outerIOffset.toFixed(3)} J${outerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
-          `M5`
-        );
-
+        
+       const transformedCenter = transformCoordinate(x, y, settings);
         // 内圆起始点（考虑旋转）
         const innerStart = rotatePoint(x + innerRadius, y, x, y, rotation);
         const transformedInnerStart = transformCoordinate(innerStart.x, innerStart.y, settings);
@@ -2120,6 +2105,26 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           `${innerCircleCommand} X${transformedInnerStart.x} Y${transformedInnerStart.y} I${innerIOffset.toFixed(3)} J${innerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
           `M5`
         );
+
+
+       // 外圆起始点（考虑旋转）
+       const outerStart = rotatePoint(x + outerRadius, y, x, y, rotation);
+       const transformedOuterStart = transformCoordinate(outerStart.x, outerStart.y, settings);
+       const outerIOffset = transformedCenter.x - transformedOuterStart.x;
+       const outerJOffset = transformedCenter.y - transformedOuterStart.y;
+
+       // 当Y轴反转时，圆的方向也要反转
+       const outerCircleCommand = settings.flipY ? 'G03' : 'G02';
+
+       paths.push(
+         `G0 X${transformedOuterStart.x} Y${transformedOuterStart.y}`,
+         `M3 S${laserPower}`,
+         `${outerCircleCommand} X${transformedOuterStart.x} Y${transformedOuterStart.y} I${outerIOffset.toFixed(3)} J${outerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+         `M5`
+       );
+
+
+
         break;
       }
 
@@ -2236,18 +2241,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           transformCoordinate(corner.x, corner.y, settings)
         );
 
-        // 生成主矩形G代码路径
-        const rectPaths = [
-          `G0 X${transformedRectCorners[0].x} Y${transformedRectCorners[0].y}`,
-          `M3 S${laserPower}`,
-          `G1 X${transformedRectCorners[1].x} Y${transformedRectCorners[1].y} F${settings.feedRate || 1000}`,
-          `G1 X${transformedRectCorners[2].x} Y${transformedRectCorners[2].y}`,
-          `G1 X${transformedRectCorners[3].x} Y${transformedRectCorners[3].y}`,
-          `G1 X${transformedRectCorners[0].x} Y${transformedRectCorners[0].y}`,
-          `M5`
-        ];
-        paths.push(...rectPaths);
-
+       
         // 四个角的孔位置（旋转前）
         const holePositions = [
           { x: x - w2 + horizontalMargin, y: y + h2 - verticalMargin },  // 左下
@@ -2273,6 +2267,18 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
             `M5`
           );
         });
+         // 生成主矩形G代码路径
+        const rectPaths = [
+          `G0 X${transformedRectCorners[0].x} Y${transformedRectCorners[0].y}`,
+          `M3 S${laserPower}`,
+          `G1 X${transformedRectCorners[1].x} Y${transformedRectCorners[1].y} F${settings.feedRate || 1000}`,
+          `G1 X${transformedRectCorners[2].x} Y${transformedRectCorners[2].y}`,
+          `G1 X${transformedRectCorners[3].x} Y${transformedRectCorners[3].y}`,
+          `G1 X${transformedRectCorners[0].x} Y${transformedRectCorners[0].y}`,
+          `M5`
+        ];
+        paths.push(...rectPaths);
+
         break;
       }
 
@@ -2291,12 +2297,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         // 当Y轴反转时，圆的方向也要反转
         const mainCircleCommand = settings.flipY ? 'G03' : 'G02';
 
-        paths.push(
-          `G0 X${transformedMainCircleStart.x} Y${transformedMainCircleStart.y}`,
-          `M3 S${laserPower}`,
-          `${mainCircleCommand} X${transformedMainCircleStart.x} Y${transformedMainCircleStart.y} I${mainCircleIOffset.toFixed(3)} J${mainCircleJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
-          `M5`
-        );
+        
 
         // 孔的分布
         const holeCircleRadius = radius * 0.7; // 孔的分布圆半径
@@ -2320,6 +2321,14 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
             `M5`
           );
         }
+
+        paths.push(
+          `G0 X${transformedMainCircleStart.x} Y${transformedMainCircleStart.y}`,
+          `M3 S${laserPower}`,
+          `${mainCircleCommand} X${transformedMainCircleStart.x} Y${transformedMainCircleStart.y} I${mainCircleIOffset.toFixed(3)} J${mainCircleJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+          `M5`
+        );
+
         break;
       }
 
@@ -2749,8 +2758,8 @@ export async function generateEngraveGCode(
   gcode.push(
     'G21 ; Set units to mm',
     'G90 ; Use absolute positioning',
-    'G0 Z1 ; Raise to safe height',
-    `G0 X0 Y0 F${settings.travelSpeed || 3000} ; Move to origin`,
+    // 'G0 Z1 ; Raise to safe height',
+    // `G0 X0 Y0 F${settings.travelSpeed || 3000} ; Move to origin`,
     ''
   );
 
@@ -2776,7 +2785,7 @@ export async function generateEngraveGCode(
   gcode.push(
     'M5 ; Ensure laser is off',
     'G0 Z1 ; Raise to safe height',
-    'G0 X0 Y0 ; Return to origin',
+    // 'G0 X0 Y0 ; Return to origin',
     'M30 ; Program end'
   );
 

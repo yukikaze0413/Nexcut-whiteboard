@@ -303,6 +303,66 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   const [showPerformanceConfig, setShowPerformanceConfig] = useState(false); // 性能配置面板
   const [showPerformanceMonitor, setShowPerformanceMonitor] = useState(false); // 性能监控面板
   const [processedLocationState, setProcessedLocationState] = useState<any>(null); // 跟踪已处理的图片
+  const [isRestored, setIsRestored] = useState(false); // 恢复是否完成，用于避免导入/恢复竞态
+
+  // 自动保存/恢复：在首次加载时尝试恢复白板内容
+  useEffect(() => {
+    try {
+      // 检测是否当前有导入请求（但仍然先执行恢复，再由导入逻辑追加图片）
+      const hasIncomingImport = !!(location.state?.image || location.state?.hasVectorData);
+      const saved = localStorage.getItem('whiteboardAutosave');
+      if (saved) {
+        const data = JSON.parse(saved);
+        if (Array.isArray(data.layers) && Array.isArray(data.items)) {
+          setLayers(data.layers as Layer[]);
+          setItems(data.items as CanvasItem[]);
+          if (data.activeLayerId === null || typeof data.activeLayerId === 'string') {
+            setActiveLayerId(data.activeLayerId || null);
+          }
+          // 若没有导入请求，方可清理残留路由状态；有导入请求则保留以便后续导入逻辑处理
+          if (!hasIncomingImport) {
+            try { window.history.replaceState({}, document.title); } catch { }
+          }
+          console.log('[Whiteboard Restore] 已恢复本地存档', {
+            layers: (data.layers || []).length,
+            items: (data.items || []).length,
+            activeLayerId: data.activeLayerId ?? null,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('恢复白板自动保存内容失败:', e);
+    }
+    // 无论是否有存档，都标记恢复流程已完成，允许后续导入继续
+    setIsRestored(true);
+  }, []);
+
+  // 手动保存：写入localStorage并短Toast提示
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const saveWhiteboard = useCallback(async () => {
+    try {
+      const payload = JSON.stringify({
+        layers,
+        items,
+        activeLayerId,
+        ts: Date.now(),
+      });
+      localStorage.setItem('whiteboardAutosave', payload);
+      console.log('[Whiteboard Autosave] 已保存', {
+        layers: layers.length,
+        items: items.length,
+        activeLayerId,
+        time: new Date().toISOString(),
+      });
+      setToastMessage('已保存');
+      await new Promise(resolve => setTimeout(resolve, 50));
+      setTimeout(() => setToastMessage(null), 800);
+    } catch (e) {
+      console.warn('[Whiteboard Autosave] 保存失败:', e);
+      setToastMessage('保存失败');
+      setTimeout(() => setToastMessage(null), 1200);
+    }
+  }, [layers, items, activeLayerId]);
 
   // 添加G代码生成进度弹窗状态
   const [isGeneratingGCode, setIsGeneratingGCode] = useState(false);
@@ -526,6 +586,13 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
   // 处理从路由传递的图片数据 - 分离处理location.state的变化
   useEffect(() => {
+    // 等待恢复完成，避免导入与恢复发生竞态
+    if (!isRestored) {
+      if (location.state?.image || location.state?.hasVectorData) {
+        console.log('[Whiteboard Import] 等待恢复完成后再导入...');
+      }
+      return;
+    }
     // 检查是否已经处理过这个location.state，避免重复处理
     if (processedLocationState === location.state) {
       return;
@@ -645,12 +712,32 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         } as Omit<ImageObject, 'id' | 'layerId'>);
       };
       img.src = location.state.image;
+      // 一旦接收并开始加载本次图片，立即清除路由状态，防止回退或刷新导致重复导入
+      try { window.history.replaceState({}, document.title); } catch { }
     }
-  }, [location.state, canvasWidth, canvasHeight, addItem, processedImage, processedLocationState]);
+  }, [location.state, canvasWidth, canvasHeight, addItem, processedImage, processedLocationState, isRestored]);
 
   const updateItem = useCallback((itemId: string, updates: Partial<CanvasItem>) => {
     setItems(prevItems =>
-      prevItems.map(p => (p.id === itemId ? { ...p, ...updates } as CanvasItem : p))
+      prevItems.map(p => {
+        if (p.id !== itemId) return p;
+        // 等比锁定：针对图片对象，若仅修改了宽或高，则按当前宽高比同步另一个维度，避免失真
+        if (p.type === CanvasItemType.IMAGE) {
+          const hasWidth = Object.prototype.hasOwnProperty.call(updates, 'width');
+          const hasHeight = Object.prototype.hasOwnProperty.call(updates, 'height');
+          if (hasWidth && !hasHeight && typeof (updates as any).width === 'number' && p.width > 0) {
+            const aspectRatio = p.height / p.width;
+            const newWidth = (updates as any).width as number;
+            return { ...p, ...updates, height: newWidth * aspectRatio } as CanvasItem;
+          }
+          if (hasHeight && !hasWidth && typeof (updates as any).height === 'number' && p.height > 0) {
+            const aspectRatio = p.height / p.width;
+            const newHeight = (updates as any).height as number;
+            return { ...p, ...updates, width: newHeight / aspectRatio } as CanvasItem;
+          }
+        }
+        return { ...p, ...updates } as CanvasItem;
+      })
     );
   }, []);
 
@@ -1352,7 +1439,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   }, [addImage]);
 
   // 已提前声明 navigate 与恢复标志，移除重复声明
-  const [isRestored, setIsRestored] = useState(false);
   const imageInputRef = React.useRef<HTMLInputElement>(null);
   const importInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -1374,6 +1460,10 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+    // 在导入开始时立即显示进度弹窗
+    setIsImporting(true);
+    setImportProgress(0);
+    setImportStatus('图片加载中');
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -1568,16 +1658,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           const vbMatch = originalContent.match(/viewBox="([^"]+)"/);
           if (!vbMatch) throw new Error('No viewBox found');
           const [x, y, w, h] = vbMatch[1].split(/\s+/).map(Number);
-
-          // let newContent = originalContent
-          //   .replace(/\s*\b width\s*=\s*"[^"]*"/g, ' ')   // 去掉 _width
-          //   .replace(/\s*\bheight\s*=\s*"[^"]*"/g, ''); // 去掉 height
-          // // 再插入新的 width / height
-          // newContent = newContent.replace(
-          //   /(<\s*svg\b)([^>]*>)/i,
-          //   `$1 width="${img.width}" height="${img.height}"$2`
-          // );
-          // originalContent = newContent;
 
           // 解析DXF得到的SVG为矢量对象
           let parsedItems: CanvasItemData[] = [];
@@ -1875,7 +1955,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           travelSpeed: 3000,
           power: layer.power || 50,
           passes: 1,
-          flipY: true,              // 启用Y轴反转，适配机器坐标系
+          flipY: false,             
           canvasHeight: canvasHeight, // 传入画布高度用于Y轴反转计算
         };
 
@@ -1948,8 +2028,9 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
         try {
           if (layer.printingMethod === PrintingMethod.SCAN) {
-            const layerImageItems = layerItems.filter(item => item.type === CanvasItemType.IMAGE);
-
+            //const layerImageItems = layerItems.filter(item => item.type === CanvasItemType.IMAGE);
+            const layerImageItems = layerItems;
+            
             if (layerImageItems.length > 0) {
               const settings: GCodeScanSettings = {
                 lineDensity: 1 / (layer.lineDensity || 10),
@@ -2189,13 +2270,52 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               onClick={undo}
               disabled={history.length === 0}
             >撤销</button>
+            <button
+              className="px-4 py-2 rounded bg-gray-200 text-gray-800 text-sm font-medium shadow-sm hover:bg-gray-300"
+              onClick={() => {
+                // 清空白板内容与本地存档
+                setItems([]);
+                setHistory([]);
+                // 保留初始两层结构，避免界面异常
+                setLayers([
+                  {
+                    id: `scan_layer_${Date.now()}`,
+                    name: '扫描图层',
+                    isVisible: true,
+                    printingMethod: PrintingMethod.SCAN,
+                    lineDensity: 10,
+                    halftone: false,
+                    reverseMovementOffset: 0,
+                    power: 50,
+                    maxPower: 100,
+                    minPower: 0,
+                    moveSpeed: 100
+                  },
+                  {
+                    id: `engrave_layer_${Date.now()}`,
+                    name: '切割图层',
+                    isVisible: true,
+                    printingMethod: PrintingMethod.ENGRAVE,
+                    power: 50
+                  }
+                ]);
+                setActiveLayerId(null);
+                setSelectedItemId(null);
+                try { localStorage.removeItem('whiteboardAutosave'); } catch { }
+                console.log('[Whiteboard Clear] 已清空画布与本地存档');
+              }}
+            >清空</button>
           </div>
           <div className="flex-1 flex justify-center">
             <span style={{ color: '#888', fontSize: 13 }}>
-              画布大小：{canvasWidth} × {canvasHeight}
+              {canvasWidth} × {canvasHeight}
             </span>
           </div>
           <div className="flex flex-row gap-2">
+            <button
+              className="px-4 py-2 rounded bg-gray-200 text-gray-800 text-sm font-medium shadow-sm hover:bg-gray-300"
+              onClick={saveWhiteboard}
+            >保存</button>
             <button
               className="px-4 py-2 rounded bg-blue-500 text-white text-sm font-medium shadow-sm hover:bg-blue-600"
               onClick={handleNext}
@@ -2249,7 +2369,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 layers={layers}
                 onUpdateItem={updateItem}
                 onDeleteItem={deleteItem}
-                onCommitUpdate={commitUpdate}
+                onCommitUpdate={() => { commitUpdate(); saveWhiteboard(); }}
               />
             ) : (
               <div className="p-4 h-full flex flex-col">
@@ -2499,7 +2619,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                   type="file"
                   accept="image/*"
                   style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', opacity: 0, zIndex: 10, cursor: 'pointer' }}
-                  onChange={handleImageUpload}
+                  onChange={async (e) => { await saveWhiteboard(); handleImageUpload(e); }}
                 />
               </div>
               {/* 导入按钮（新版：按钮和input合并，input只覆盖按钮区域） */}
@@ -2566,7 +2686,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               layers={layers}
               onUpdateItem={updateItem}
               onDeleteItem={deleteItem}
-              onCommitUpdate={commitUpdate}
+              onCommitUpdate={() => { commitUpdate(); saveWhiteboard(); }}
               onClose={() => setDrawer(null)}
             />
           </div>
@@ -2605,6 +2725,13 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
             <h3 className="text-lg font-semibold text-center mb-2">正在生成G代码</h3>
             <p className="text-gray-600 text-center text-sm">{generationProgress}</p>
           </div>
+        </div>
+      )}
+
+      {/* 轻量Toast */}
+      {toastMessage && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] px-4 py-2 bg-black bg-opacity-75 text-white text-sm rounded-md shadow">
+          {toastMessage}
         </div>
       )}
 
