@@ -14,7 +14,7 @@ const ImageRenderer: React.FC<ImageRendererProps> = ({ imageObject, isSelected }
   const { width, height, href } = imageObject;
 
   return (
-    <g>
+    <g transform="scale(1,-1)">
       {isSelected && (
         <rect
           x={-width / 2 - ENLARGE / 2}

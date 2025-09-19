@@ -20,7 +20,7 @@ const TextRenderer: React.FC<TextRendererProps> = ({ textObject, isSelected }) =
   const ENLARGE = 8;
 
   return (
-    <g>
+    <g transform="scale(1,-1)">
       <text
         ref={textRef}
         x="0"

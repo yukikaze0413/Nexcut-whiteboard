@@ -149,7 +149,8 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
     if (!CTM) return { x: 0, y: 0 };
     const pt = new DOMPoint(event.clientX, event.clientY);
     const svgPoint = pt.matrixTransform(CTM.inverse());
-    return { x: svgPoint.x, y: svgPoint.y };
+    // 将 SVG 默认坐标(原点左上、Y 向下)转换为白板逻辑坐标(原点左下、Y 向上)
+    return { x: svgPoint.x, y: canvasHeight - svgPoint.y };
   };
   
   const handlePointerDown = useCallback((event: React.PointerEvent) => {
@@ -385,65 +386,68 @@ const Canvas: React.FC<CanvasProps> = ({ items, layers, selectedItemId, onSelect
                 <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(209, 213, 219, 0.7)" strokeWidth="0.5"/>
               </pattern>
             </defs>
-            {/* 背景格子 - 覆盖整个可视区域 */}
-            <rect
-              x={viewBox.x - 1000}
-              y={viewBox.y - 1000}
-              width={canvasSize.width + 2000}
-              height={canvasSize.height + 2000}
-              fill="url(#grid)"
-            />
-            
-            <rect 
-              x="0" 
-              y="0" 
-              width={canvasWidth} 
-              height={canvasHeight} 
-              fill="none" 
-              stroke="#d1d5db"
-              strokeWidth="2" 
-              vectorEffect="non-scaling-stroke" 
-            />
+            {/* 使用坐标翻转，使白板坐标系为左下角原点、Y 轴向上 */}
+            <g transform={`scale(1,-1) translate(0, -${canvasHeight})`}>
+              {/* 背景格子 - 覆盖整个可视区域 */}
+              <rect
+                x={viewBox.x - 1000}
+                y={viewBox.y - 1000}
+                width={canvasSize.width + 2000}
+                height={canvasSize.height + 2000}
+                fill="url(#grid)"
+              />
+              
+              <rect 
+                x="0" 
+                y="0" 
+                width={canvasWidth} 
+                height={canvasHeight} 
+                fill="none" 
+                stroke="#d1d5db"
+                strokeWidth="2" 
+                vectorEffect="non-scaling-stroke" 
+              />
 
-            {/* Render items based on layer order and visibility */}
-            {layers.slice().reverse().map(layer => (
-                layer.isVisible && (
-                    <g key={layer.id} data-layer-id={layer.id}>
-                        {items.filter(item => item.layerId === layer.id).map(item => (
-                            <g
-                                key={item.id}
-                                transform={`translate(${'x' in item ? item.x : 0}, ${'y' in item ? item.y : 0}) rotate(${'rotation' in item ? item.rotation || 0 : 0})`}
-                                data-item-id={item.id}
-                                className={activeTool === ToolType.SELECT ? 'cursor-pointer' : ''}
-                            >
-                                <CanvasItemRenderer item={item} isSelected={item.id === selectedItemId} />
-                            </g>
-                        ))}
-                    </g>
-                )
-            ))}
-            
-            {drawingState && drawingState.points.length > 0 && (
-              <polyline
-                points={drawingState.points.map(p => `${p.x},${p.y}`).join(' ')}
-                fill="none"
-                stroke="#f472b6"
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            )}
-            {activeTool === ToolType.ERASER && eraserPos && (
-              <circle
-                cx={eraserPos.x}
-                cy={eraserPos.y}
-                r={eraserRadius}
-                fill="rgba(0,0,0,0.08)"
-                stroke="#16a34a"
-                strokeWidth={2}
-                pointerEvents="none"
-              />
-            )}
+              {/* Render items based on layer order and visibility */}
+              {layers.slice().reverse().map(layer => (
+                  layer.isVisible && (
+                      <g key={layer.id} data-layer-id={layer.id}>
+                          {items.filter(item => item.layerId === layer.id).map(item => (
+                              <g
+                                  key={item.id}
+                                  transform={`translate(${ 'x' in item ? item.x : 0}, ${ 'y' in item ? item.y : 0}) rotate(${ 'rotation' in item ? item.rotation || 0 : 0})`}
+                                  data-item-id={item.id}
+                                  className={activeTool === ToolType.SELECT ? 'cursor-pointer' : ''}
+                              >
+                                  <CanvasItemRenderer item={item} isSelected={item.id === selectedItemId} />
+                              </g>
+                          ))}
+                      </g>
+                  )
+              ))}
+              
+              {drawingState && drawingState.points.length > 0 && (
+                <polyline
+                  points={drawingState.points.map(p => `${p.x},${p.y}`).join(' ')}
+                  fill="none"
+                  stroke="#f472b6"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              {activeTool === ToolType.ERASER && eraserPos && (
+                <circle
+                  cx={eraserPos.x}
+                  cy={eraserPos.y}
+                  r={eraserRadius}
+                  fill="rgba(0,0,0,0.08)"
+                  stroke="#16a34a"
+                  strokeWidth={2}
+                  pointerEvents="none"
+                />
+              )}
+            </g>
           </svg>
           <button
               onClick={() => {

@@ -719,7 +719,25 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
   const updateItem = useCallback((itemId: string, updates: Partial<CanvasItem>) => {
     setItems(prevItems =>
-      prevItems.map(p => (p.id === itemId ? { ...p, ...updates } as CanvasItem : p))
+      prevItems.map(p => {
+        if (p.id !== itemId) return p;
+        // 等比锁定：针对图片对象，若仅修改了宽或高，则按当前宽高比同步另一个维度，避免失真
+        if (p.type === CanvasItemType.IMAGE) {
+          const hasWidth = Object.prototype.hasOwnProperty.call(updates, 'width');
+          const hasHeight = Object.prototype.hasOwnProperty.call(updates, 'height');
+          if (hasWidth && !hasHeight && typeof (updates as any).width === 'number' && p.width > 0) {
+            const aspectRatio = p.height / p.width;
+            const newWidth = (updates as any).width as number;
+            return { ...p, ...updates, height: newWidth * aspectRatio } as CanvasItem;
+          }
+          if (hasHeight && !hasWidth && typeof (updates as any).height === 'number' && p.height > 0) {
+            const aspectRatio = p.height / p.width;
+            const newHeight = (updates as any).height as number;
+            return { ...p, ...updates, width: newHeight / aspectRatio } as CanvasItem;
+          }
+        }
+        return { ...p, ...updates } as CanvasItem;
+      })
     );
   }, []);
 
@@ -1442,6 +1460,10 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+    // 在导入开始时立即显示进度弹窗
+    setIsImporting(true);
+    setImportProgress(0);
+    setImportStatus('图片加载中');
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -1636,16 +1658,6 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           const vbMatch = originalContent.match(/viewBox="([^"]+)"/);
           if (!vbMatch) throw new Error('No viewBox found');
           const [x, y, w, h] = vbMatch[1].split(/\s+/).map(Number);
-
-          // let newContent = originalContent
-          //   .replace(/\s*\b width\s*=\s*"[^"]*"/g, ' ')   // 去掉 _width
-          //   .replace(/\s*\bheight\s*=\s*"[^"]*"/g, ''); // 去掉 height
-          // // 再插入新的 width / height
-          // newContent = newContent.replace(
-          //   /(<\s*svg\b)([^>]*>)/i,
-          //   `$1 width="${img.width}" height="${img.height}"$2`
-          // );
-          // originalContent = newContent;
 
           // 解析DXF得到的SVG为矢量对象
           let parsedItems: CanvasItemData[] = [];
@@ -1943,7 +1955,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           travelSpeed: 3000,
           power: layer.power || 50,
           passes: 1,
-          flipY: true,              // 启用Y轴反转，适配机器坐标系
+          flipY: false,             
           canvasHeight: canvasHeight, // 传入画布高度用于Y轴反转计算
         };
 
@@ -2016,8 +2028,9 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
         try {
           if (layer.printingMethod === PrintingMethod.SCAN) {
-            const layerImageItems = layerItems.filter(item => item.type === CanvasItemType.IMAGE);
-
+            //const layerImageItems = layerItems.filter(item => item.type === CanvasItemType.IMAGE);
+            const layerImageItems = layerItems;
+            
             if (layerImageItems.length > 0) {
               const settings: GCodeScanSettings = {
                 lineDensity: 1 / (layer.lineDensity || 10),
@@ -2058,8 +2071,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               travelSpeed: 3000,
               power: layer.power || 50,
               passes: 1,
-              flipY: true,
-              canvasHeight: canvasHeight,
+                        flipY: false,
+          canvasHeight: canvasHeight,
             };
 
             const { generateEngraveGCode } = await import('./lib/gcode');
