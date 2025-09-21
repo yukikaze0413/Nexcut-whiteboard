@@ -1386,6 +1386,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   // 处理导入文件 8-25
   const handleImportFile = useCallback(async (file: { name: string; ext: string; content: string }) => {
     alert('不支持的文件类型');
+    setIsImporting(false);
   }, [addItem, parseSvgWithSvgson]);
 
 
@@ -1865,7 +1866,10 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         alert("读取PLT文件时发生错误。");
       }
     }
-    else alert('不支持的文件类型');
+    else {
+      alert('不支持的文件类型');
+      setIsImporting(false);
+    }
 
     event.currentTarget.value = '';
   };
@@ -1955,7 +1959,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           travelSpeed: 3000,
           power: layer.power || 50,
           passes: 1,
-          flipY: false,             
+          flipY: false,
           canvasHeight: canvasHeight, // 传入画布高度用于Y轴反转计算
         };
 
@@ -2030,7 +2034,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
           if (layer.printingMethod === PrintingMethod.SCAN) {
             //const layerImageItems = layerItems.filter(item => item.type === CanvasItemType.IMAGE);
             const layerImageItems = layerItems;
-            
+
             if (layerImageItems.length > 0) {
               const settings: GCodeScanSettings = {
                 lineDensity: 1 / (layer.lineDensity || 10),
@@ -2071,8 +2075,8 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               travelSpeed: 3000,
               power: layer.power || 50,
               passes: 1,
-                        flipY: false,
-          canvasHeight: canvasHeight,
+              flipY: false,
+              canvasHeight: canvasHeight,
             };
 
             const { generateEngraveGCode } = await import('./lib/gcode');
@@ -2213,7 +2217,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       addImage(href, width, height);
     };
 
-  // 检测并设置画布大小 - 支持Android和iOS
+    // 检测并设置画布大小 - 支持Android和iOS
     const setPlatformCanvasSize = () => {
       let size: any = null;
 
