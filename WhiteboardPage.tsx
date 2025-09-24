@@ -2370,6 +2370,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 onUpdateItem={updateItem}
                 onDeleteItem={deleteItem}
                 onCommitUpdate={() => { commitUpdate(); saveWhiteboard(); }}
+                canvasHeight={canvasHeight}
               />
             ) : (
               <div className="p-4 h-full flex flex-col">
@@ -2688,6 +2689,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               onDeleteItem={deleteItem}
               onCommitUpdate={() => { commitUpdate(); saveWhiteboard(); }}
               onClose={() => setDrawer(null)}
+              canvasHeight={canvasHeight}
             />
           </div>
         </div>

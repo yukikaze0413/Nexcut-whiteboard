@@ -40,7 +40,7 @@ const getTypeName = (type: CanvasItemType | 'GROUP'): string => {
 };
 
 // 新组件: 渲染雕刻图层的轨迹列表
-const EngravingTrajectoryList: React.FC<{ layer: Layer; items: CanvasItem[] }> = ({ layer, items }) => {
+const EngravingTrajectoryList: React.FC<{ layer: Layer; items: CanvasItem[]; canvasHeight: number }> = ({ layer, items, canvasHeight }) => {
   // 显示图层中的所有对象，不再过滤图像类型
   const layerItems = items.filter(item => item.layerId === layer.id);
 
@@ -54,7 +54,7 @@ const EngravingTrajectoryList: React.FC<{ layer: Layer; items: CanvasItem[] }> =
         <div key={item.id} className="p-2 border rounded bg-white shadow-sm">
           <div className="font-semibold text-sm">类型：{getTypeName(item.type)}</div>
           <div className="text-xs text-gray-600">ID：{getTypeName(item.type)}{index + 1}</div>
-          <div className="text-xs text-gray-600">坐标：x: {Math.round(item.x)}, y: {Math.round(item.y)}</div>
+          <div className="text-xs text-gray-600">坐标：x: {Math.round(item.x)}, y: {Math.round(canvasHeight - item.y)}</div>
           {'parameters' in item && item.parameters && (
             <div className="text-xs text-gray-600 mt-1">
               参数：{Object.entries(item.parameters).map(([key, value]) => `${key}: ${value}`).join(', ')}
@@ -264,7 +264,7 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
                    <div>
                        <h3 className="text-md font-semibold mb-2">轨迹列表</h3>
                        <div className="p-2 border rounded-lg bg-gray-200 overflow-y-auto" style={{ maxHeight: '250px' }}>
-                           <EngravingTrajectoryList layer={selectedLayer} items={items} />
+                           <EngravingTrajectoryList layer={selectedLayer} items={items} canvasHeight={canvasHeight} />
                        </div>
                    </div>
                </div>

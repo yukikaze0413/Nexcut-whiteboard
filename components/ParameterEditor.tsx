@@ -10,6 +10,7 @@ interface ParameterEditorProps {
   onDeleteItem: (itemId: string) => void;
   onCommitUpdate: () => void;
   onClose?: () => void;
+  canvasHeight: number;
 }
 
 const translations: Record<string, string> = {
@@ -149,7 +150,8 @@ const GroupParameterEditor: React.FC<{
   selectedItem: any;
   onUpdateItem: (itemId: string, updates: Partial<CanvasItem>) => void;
   onCommitUpdate: () => void;
-}> = ({ selectedItem, onUpdateItem, onCommitUpdate }) => {
+  canvasHeight: number;
+}> = ({ selectedItem, onUpdateItem, onCommitUpdate, canvasHeight }) => {
   // 取第一个线条的颜色和缩放为参考
   const firstDrawing = selectedItem.children.find((child: any) => child.type === 'DRAWING');
   const defaultColor = firstDrawing && 'color' in firstDrawing ? firstDrawing.color : '#2563eb';
@@ -239,12 +241,18 @@ const GroupParameterEditor: React.FC<{
             <label className="block text-xs text-gray-500 mb-1">{t('y')}</label>
             <input 
               type="number" 
-              value={Number(y).toFixed(2)} 
-              onChange={e => handlePositionChange('y', parseFloat(e.target.value))} 
+              value={Number(canvasHeight - y).toFixed(2)} 
+              onChange={e => handlePositionChange('y', canvasHeight - parseFloat(e.target.value))} 
               className="w-full p-1 bg-white border border-gray-300 rounded-md text-sm" 
             />
           </div>
         </div>
+        <p className="text-xs text-gray-400 mt-1">
+          坐标系统：白板坐标 (左下角为原点，X向右，Y向上)
+        </p>
+        <p className="text-xs text-gray-400">
+          注意：拖拽时实际坐标会实时更新，此处仅做显示换算
+        </p>
       </div>
 
       <div className="mb-4">
@@ -270,10 +278,10 @@ const GroupParameterEditor: React.FC<{
   );
 };
 
-const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers, onUpdateItem, onDeleteItem, onCommitUpdate, onClose }) => {
+const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers, onUpdateItem, onDeleteItem, onCommitUpdate, onClose, canvasHeight }) => {
     // GROUP类型单独渲染
     if (selectedItem && selectedItem.type === 'GROUP') {
-      return <GroupParameterEditor selectedItem={selectedItem} onUpdateItem={onUpdateItem} onCommitUpdate={onCommitUpdate} />;
+      return <GroupParameterEditor selectedItem={selectedItem} onUpdateItem={onUpdateItem} onCommitUpdate={onCommitUpdate} canvasHeight={canvasHeight} />;
     }
 
     const handleUpdate = useCallback((key: string, value: string | number) => {
@@ -334,24 +342,25 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
               <label className="block text-xs text-gray-500 mb-1">{t('y')}</label>
               <EditableParameterInput 
                 label="" 
-                initialValue={(selectedItem.y || 0).toFixed(2)} 
+                initialValue={((canvasHeight - (selectedItem.y || 0))).toFixed(2)} 
                 onCommit={(val) => {
-                  console.log('Y坐标更新:', {
+                  console.log('Y坐标更新(显示->实际转换):', {
                     itemId: selectedItem.id,
                     oldValue: selectedItem.y,
-                    newValue: val,
+                    displayValue: val,
+                    actualNewValue: canvasHeight - Number(val),
                     itemType: selectedItem.type
                   });
-                  handleUpdate('y', val as number);
+                  handleUpdate('y', canvasHeight - Number(val));
                 }} 
               />
             </div>
           </div>
           <p className="text-xs text-gray-400 mt-1">
-            坐标系统：SVG坐标 (左上角为原点，X向右，Y向下)
+            坐标系统：白板坐标 (左下角为原点，X向右，Y向上)
           </p>
           <p className="text-xs text-gray-400">
-            注意：拖拽时坐标会实时更新，修改坐标时元素会立即移动
+            注意：拖拽时实际坐标会实时更新，此处仅做显示换算
           </p>
         </div>
       );
