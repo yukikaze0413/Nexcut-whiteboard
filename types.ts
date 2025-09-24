@@ -40,15 +40,15 @@ export interface Layer {
   isVisible: boolean;
   printingMethod: PrintingMethod;
   // 扫描图层特有参数
-  lineDensity?: number;
+  lineDensity?: number | null;
   halftone?: boolean;
-  reverseMovementOffset?: number;
+  reverseMovementOffset?: number | null;
   // 通用参数
-  power?: number;
+  power?: number | null;
   // 新增扫描参数
-  maxPower?: number;        // 功率最大值 (0-100)
-  minPower?: number;        // 功率最小值 (0-100)
-  moveSpeed?: number;       // 移动速度 (mm/s)
+  maxPower?: number| null;        // 功率最大值 (0-100)
+  minPower?: number| null;        // 功率最小值 (0-100)
+  moveSpeed?: number | null;       // 移动速度 (mm/s)
 }
 
 export interface PartParameters {

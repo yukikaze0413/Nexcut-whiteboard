@@ -687,6 +687,7 @@ export async function generatePlatformScanGCode(
   gcode.push(`; Mode: ${settings.isHalftone ? "Halftone" : "Greyscale"}`);
   gcode.push(`; Power Range: [${minPower}, ${maxPower}] (0-100 scale)`);
   gcode.push(`; Speed: Burn=${burnSpeed} mm/min, Travel=${travelSpeed} mm/min`);
+  console.log(`; Speed: Burn=${burnSpeed} mm/min, Travel=${travelSpeed} mm/min`);
   gcode.push(`; Optimization: Skip blank rows/columns, fast travel for blank areas`);
   gcode.push(`;`);
   gcode.push(`G90 ; Absolute positioning`);
