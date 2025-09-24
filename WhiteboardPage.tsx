@@ -1399,7 +1399,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   const selectedItem = items.find(p => p.id === selectedItemId) || null;
 
   useEffect(() => {
-    // 提供给外部调用的图片注入接口
+    //MARK: 提供给外部调用的图片注入接口
     (window as any).setWhiteboardImage = (base64ata: string) => {
       const img = new Image();
       img.onload = () => {
@@ -2203,61 +2203,61 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
     URL.revokeObjectURL(url);
   };
 
-  // useEffect(() => {
-  //   (window as any).setCanvasSize = (w: number, h: number) => {
-  //     setCanvasWidth(w);
-  //     setCanvasHeight(h);
-  //   };
+  useEffect(() => {
+    (window as any).setCanvasSize = (w: number, h: number) => {
+      setCanvasWidth(w);
+      setCanvasHeight(h);
+    };
 
-  //   (window as any).addImageToCanvas = (href: string, width: number, height: number) => {
-  //     addImage(href, width, height);
-  //   };
+    (window as any).addImageToCanvas = (href: string, width: number, height: number) => {
+      addImage(href, width, height);
+    };
 
-  // 检测并设置画布大小 - 支持Android和iOS
-  //   const setPlatformCanvasSize = () => {
-  //     let size: any = null;
+  //MARK: 检测并设置画布大小 - 支持Android和iOS
+    const setPlatformCanvasSize = () => {
+      let size: any = null;
 
-  //     // 尝试从Android获取画布大小
-  //     if (window.Android && typeof window.Android.getPlatformSize === 'function') {
-  //       try {
-  //         size = window.Android.getPlatformSize();
-  //       } catch (e) {
-  //         console.error('Android获取画布大小失败:', e);
-  //       }
-  //     }
+      // 尝试从Android获取画布大小
+      if (window.Android && typeof window.Android.getPlatformSize === 'function') {
+        try {
+          size = window.Android.getPlatformSize();
+        } catch (e) {
+          console.error('Android获取画布大小失败:', e);
+        }
+      }
 
-  //     // 如果Android没有获取到，尝试从iOS获取
-  //     if (!size && window.iOS && typeof window.iOS.getPlatformSize === 'function') {
-  //       try {
-  //         size = window.iOS.getPlatformSize();
-  //       } catch (e) {
-  //         console.error('iOS获取画布大小失败:', e);
-  //       }
-  //     }
+      // 如果Android没有获取到，尝试从iOS获取
+      if (!size && window.iOS && typeof window.iOS.getPlatformSize === 'function') {
+        try {
+          size = window.iOS.getPlatformSize();
+        } catch (e) {
+          console.error('iOS获取画布大小失败:', e);
+        }
+      }
 
-  //     // 处理获取到的大小数据
-  //     if (size) {
-  //       let obj: any = size;
-  //       if (typeof size === 'string') {
-  //         try {
-  //           obj = JSON.parse(size);
-  //         } catch (e) {
-  //           obj = null;
-  //         }
-  //       }
-  //       if (obj && typeof obj === 'object' && 'width' in obj && 'height' in obj) {
-  //         setCanvasWidth(Number(obj.width));
-  //         setCanvasHeight(Number(obj.height));
-  //       }
-  //     }
-  //   };
+      // 处理获取到的大小数据
+      if (size) {
+        let obj: any = size;
+        if (typeof size === 'string') {
+          try {
+            obj = JSON.parse(size);
+          } catch (e) {
+            obj = null;
+          }
+        }
+        if (obj && typeof obj === 'object' && 'width' in obj && 'height' in obj) {
+          setCanvasWidth(Number(obj.width));
+          setCanvasHeight(Number(obj.height));
+        }
+      }
+    };
 
-  //   setPlatformCanvasSize();
-  //   return () => {
-  //     delete (window as any).setCanvasSize;
-  //     delete (window as any).addImageToCanvas;
-  //   };
-  // }, [addImage]);
+    setPlatformCanvasSize();
+    return () => {
+      delete (window as any).setCanvasSize;
+      delete (window as any).addImageToCanvas;
+    };
+  }, [addImage]);
 
   return (
     <div className="h-screen w-screen flex flex-row font-sans text-gray-800 bg-gray-100 overflow-hidden" style={{ width: '100vw', height: '100vh', minHeight: '100vh', minWidth: '100vw' }}>

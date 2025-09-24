@@ -157,6 +157,11 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
                       handleInputChange('lineDensity', e.target.value ? Number(e.target.value) : null)
                       console.log(e.target.value)
                       console.log(Number(e.target.value))
+                      if(!e.target.value){
+                        console.log("字符非法")
+                      }
+                      const isInvalid = !e.target.value;          // 空串就视为非法
+                      e.currentTarget.classList.toggle('border-red-500', isInvalid);
                     }}
                      className="w-full p-2 border rounded-md"
                    />
@@ -173,7 +178,12 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
                      onChange={e => {
                         console.log(Number(e.target.value))
                         handleInputChange('reverseMovementOffset',  e.target.value ? Number(e.target.value) : null)
-                     }}
+                        if(!e.target.value){
+                        console.log("字符非法")
+                      }
+                      const isInvalid = !e.target.value;          // 空串就视为非法
+                      e.currentTarget.classList.toggle('border-red-500', isInvalid);
+                      }}
                      className="w-full p-2 border rounded-md"
                    />
                    <p className="text-xs text-gray-500 mt-1">每行扫描时在两端额外移动的距离</p>
@@ -198,7 +208,14 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
                      max={100}
                      step={1}
                      value={selectedLayer.maxPower ?? ""}
-                     onChange={e => handleInputChange('maxPower', e.target.value ? Number(e.target.value) : null)}
+                     onChange={e => {
+                      handleInputChange('maxPower', e.target.value ? Number(e.target.value) : null)
+                        if(!e.target.value){
+                        console.log("字符非法")
+                      }
+                      const isInvalid = !e.target.value;          // 空串就视为非法
+                      e.currentTarget.classList.toggle('border-red-500', isInvalid);
+                     }}
                      className="w-full p-2 border rounded-md"
                    />
                    <p className="text-xs text-gray-500 mt-1">扫描时的最大激光功率</p>
@@ -212,7 +229,14 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
                      max={100}
                      step={1}
                      value={selectedLayer.minPower ?? ""}
-                     onChange={e => handleInputChange('minPower', e.target.value ? Number(e.target.value) : null)}
+                     onChange={e => {
+                      handleInputChange('minPower', e.target.value ? Number(e.target.value) : null)
+                      if(!e.target.value){
+                        console.log("字符非法")
+                      }
+                      const isInvalid = !e.target.value;          // 空串就视为非法
+                      e.currentTarget.classList.toggle('border-red-500', isInvalid);
+                     }}
                      className="w-full p-2 border rounded-md"
                    />
                    <p className="text-xs text-gray-500 mt-1">扫描时的最小激光功率</p>
@@ -246,7 +270,14 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
                      max={500}
                      step={10}
                      value={selectedLayer.moveSpeed ?? ""}
-                     onChange={e => handleInputChange('moveSpeed', e.target.value ? Number(e.target.value) : null)}
+                     onChange={e => {
+                      handleInputChange('moveSpeed', e.target.value ? Number(e.target.value) : null)
+                      if(!e.target.value){
+                        console.log("字符非法")
+                      }
+                      const isInvalid = !e.target.value;          // 空串就视为非法
+                      e.currentTarget.classList.toggle('border-red-500', isInvalid);
+                     }}
                      className="w-full p-2 border rounded-md"
                    />
                    <p className="text-xs text-gray-500 mt-1">激光头移动速度</p>
@@ -263,7 +294,14 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
                        min={1}
                        max={100}
                        value={selectedLayer.power ?? ""}
-                       onChange={e => handleInputChange('power', e.target.value ? Number(e.target.value) : null)}
+                       onChange={e => {
+                        handleInputChange('power', e.target.value ? Number(e.target.value) : null)
+                        if(!e.target.value){
+                        console.log("字符非法")
+                      }
+                      const isInvalid = !e.target.value;          // 空串就视为非法
+                      e.currentTarget.classList.toggle('border-red-500', isInvalid);
+                       }}
                        className="w-full p-2 border rounded-md"
                      />
                    </div>
