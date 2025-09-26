@@ -616,6 +616,9 @@ export async function generatePlatformScanGCode(
     overscanDist = 3,
   } = settings;
 
+  // 对接近白色的像素强制不出光，避免边缘与超扫描区域轻微出光（例如用户设置了最小功率>0的情况）
+  const whiteCutoff = 250; // 0-255，>= 250 视为白色
+
   // 【核心修改】将筛选出的所有可绘制对象传递给 createPlatformImage
   const platformImage = await createPlatformImage(
     drawableItems,
@@ -702,7 +705,7 @@ export async function generatePlatformScanGCode(
     for (let x = 0; x < width; x++) {
       const pixelIndex = x + (height - 1 - y) * width; // Y坐标反转以匹配机器坐标系
       const c = data[pixelIndex];
-      if (c < 220) { // 非纯白色像素（使用更宽松的阈值）
+      if (c < whiteCutoff) { // 更严格阈值，减少白边被判为内容
         minY = Math.min(minY, y);
         maxY = Math.max(maxY, y);
         minX = Math.min(minX, x);
@@ -726,7 +729,7 @@ export async function generatePlatformScanGCode(
   const reductionX = ((width * dx - contentWidth) / (width * dx) * 100).toFixed(1);
   const reductionY = ((height * dy - contentHeight) / (height * dy) * 100).toFixed(1);
 
-  gcode.push(`; Content detection: using threshold < 250 (instead of < 255) for better edge detection`);
+  gcode.push(`; Content detection: using threshold < ${whiteCutoff} (instead of < 255) for better edge protection`);
   gcode.push(`; Halftone processing: ${settings.isHalftone ? 'ENABLED - binary threshold at 128, blank areas protected' : 'DISABLED - greyscale mode'}`);
   gcode.push(`; Reverse Movement Offset (空移): ${overscanDist} mm (${Math.ceil(overscanDist / dx)} pixels at ${dx.toFixed(3)} mm/pixel)`);
   gcode.push(`; Content bounds: X[${(minX * dx).toFixed(1)}, ${(maxX * dx).toFixed(1)}] Y[${(minY * dy).toFixed(1)}, ${(maxY * dy).toFixed(1)}] mm`);
@@ -751,7 +754,7 @@ export async function generatePlatformScanGCode(
     for (let x = minX; x <= maxX; x++) {
       const pixelIndex = x + (height - 1 - y) * width; // Y坐标反转以匹配机器坐标系
       const c = data[pixelIndex];
-      if (c < 220) { // 非纯白色像素（使用更宽松的阈值）
+      if (c < whiteCutoff) { // 更严格阈值，减少白边被判为内容
         hasContent = true;
         rowMinX = Math.min(rowMinX, x);
         rowMaxX = Math.max(rowMaxX, x);
@@ -800,7 +803,10 @@ export async function generatePlatformScanGCode(
         power = c < 128 ? maxPower : 0;
       } else {
         // 灰度模式功率计算
-        if (maxPower === minPower) {
+        if (c >= whiteCutoff) {
+          // 接近白色直接不出光
+          power = 0;
+        } else if (maxPower === minPower) {
           // 当最大最小功率相同时，实现单一功率效果
           // 使用127作为阈值：暗于127的像素使用设定功率，亮于127的像素不出光
           power = c < 127 ? maxPower : 0;
@@ -830,7 +836,9 @@ export async function generatePlatformScanGCode(
             testPower = testC < 128 ? maxPower : 0;
           } else {
             // 灰度模式功率计算
-            if (maxPower === minPower) {
+            if (testC >= whiteCutoff) {
+              testPower = 0;
+            } else if (maxPower === minPower) {
               // 当最大最小功率相同时，实现单一功率效果
               // 使用127作为阈值：暗于127的像素使用设定功率，亮于127的像素不出光
               testPower = testC < 127 ? maxPower : 0;
