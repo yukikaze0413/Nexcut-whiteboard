@@ -1,3 +1,5 @@
+// 已弃用@ts-nocheck
+
 import React, { useRef } from 'react';
 import { ToolType } from '../types';
 import SelectIcon from '../assets/选择.svg';

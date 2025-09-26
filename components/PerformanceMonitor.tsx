@@ -1,3 +1,4 @@
+// 已弃用
 import React, { useState, useEffect } from 'react';
 
 interface PerformanceStats {

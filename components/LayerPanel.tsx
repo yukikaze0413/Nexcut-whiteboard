@@ -267,7 +267,7 @@ const LayerPanel: React.FC<LayerPanelProps> = ({ layers, activeLayerId, onAddLay
           onClick={onAddLayer}
           className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded-md transition-colors"
         >
-          添加扫描图层
+          添加图层
         </button>
       </div>
     </div>

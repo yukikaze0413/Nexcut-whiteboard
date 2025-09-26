@@ -1,3 +1,4 @@
+// 已弃用
 import React from 'react';
 
 interface RulerProps {

@@ -805,8 +805,9 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       
       <div style="margin-bottom: 15px;">
         <label style="display: block; margin-bottom: 5px; font-size: 14px; font-weight: 500;">打印方式：</label>
-        <select id="layerType" disabled style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background: #f9f9f9; color: #666;">
-          <option value="scan">扫描</option>
+        <select id="layerType" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background: #fff; color: #333;">
+          <option value="SCAN">扫描</option>
+          <option value="ENGRAVE">切割</option>
         </select>
       </div>
       
@@ -887,7 +888,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
     // 根据打印方式显示/隐藏扫描特有设置
     const updateSettingsVisibility = () => {
-      scanSettings.style.display = layerTypeSelect.value === 'scan' ? 'block' : 'none';
+      scanSettings.style.display = layerTypeSelect.value === 'SCAN' ? 'block' : 'none';
     };
 
     layerTypeSelect.addEventListener('change', updateSettingsVisibility);
@@ -908,14 +909,15 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         power: parseInt(powerInput.value) || 50,
       };
 
-      // 只允许创建扫描图层
-      newLayer.printingMethod = 'scan' as PrintingMethod;
-      newLayer.lineDensity = parseInt(lineDensityInput.value) || 10;
-      newLayer.halftone = halftoneInput.checked;
-      newLayer.reverseMovementOffset = parseFloat(reverseMovementOffsetInput.value) || 0;
-      newLayer.maxPower = parseInt(maxPowerInput.value) || 100;
-      newLayer.minPower = parseInt(minPowerInput.value) || 0;
-      newLayer.moveSpeed = parseInt(moveSpeedInput.value) || 3000;
+      // 若选择扫描，设置扫描特有参数
+      if (layerTypeSelect.value === 'SCAN') {
+        (newLayer as any).lineDensity = parseInt(lineDensityInput.value) || 10;
+        (newLayer as any).halftone = halftoneInput.checked;
+        (newLayer as any).reverseMovementOffset = parseFloat(reverseMovementOffsetInput.value) || 0;
+        (newLayer as any).maxPower = parseInt(maxPowerInput.value) || 100;
+        (newLayer as any).minPower = parseInt(minPowerInput.value) || 0;
+        (newLayer as any).moveSpeed = parseInt(moveSpeedInput.value) || 100;
+      }
 
       setLayers(prev => [...prev, newLayer]);
       setActiveLayerId(newLayer.id);
@@ -959,7 +961,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   const updateLayer = useCallback((layerId: string, updates: Partial<Omit<Layer, 'id'>>) => {
     // 禁止修改图层属性（打印方式），只允许修改名称和可见性
     const allowedUpdates = { ...updates };
-    delete allowedUpdates.printingMethod; // 禁止修改打印方式
+    // delete allowedUpdates.printingMethod; // 禁止修改打印方式
 
     pushHistory(layers, items);
     setLayers(prev => prev.map(l => (l.id === layerId ? { ...l, ...allowedUpdates } : l)));
