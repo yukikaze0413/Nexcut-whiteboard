@@ -199,6 +199,78 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
                    <label htmlFor="halftone-checkbox" className="ml-2 block text-sm text-gray-900">半调网屏</label>
                  </div>
 
+                 {/* 半调网屏详细设置 */}
+                 {selectedLayer.halftone && (
+                   <div className="ml-6 space-y-3 border-l-2 border-blue-200 pl-4">
+                     <div>
+                       <label className="block text-sm font-medium mb-1">半调模式</label>
+                       <select
+                         value={selectedLayer.halftoneMode ?? 'floyd-steinberg'}
+                         onChange={e => handleInputChange('halftoneMode', e.target.value as 'floyd-steinberg' | 'halftone-dot')}
+                         className="w-full p-2 border rounded-md"
+                       >
+                         <option value="floyd-steinberg">Floyd-Steinberg 误差扩散</option>
+                         <option value="halftone-dot">AM 网点半调</option>
+                       </select>
+                     </div>
+
+                     {selectedLayer.halftoneMode === 'halftone-dot' ? (
+                       <>
+                         <div>
+                           <label className="block text-sm font-medium mb-1">网点大小 (像素)</label>
+                           <input
+                             type="number"
+                             min={2}
+                             max={20}
+                             step={1}
+                             value={selectedLayer.halftoneDotSize ?? 6}
+                             onChange={e => handleInputChange('halftoneDotSize', Number(e.target.value))}
+                             className="w-full p-2 border rounded-md"
+                           />
+                         </div>
+                         <div>
+                           <label className="block text-sm font-medium mb-1">网屏角度 (度)</label>
+                           <input
+                             type="number"
+                             min={0}
+                             max={90}
+                             step={5}
+                             value={selectedLayer.halftoneAngle ?? 30}
+                             onChange={e => handleInputChange('halftoneAngle', Number(e.target.value))}
+                             className="w-full p-2 border rounded-md"
+                           />
+                         </div>
+                         <div>
+                           <label className="block text-sm font-medium mb-1">伽马校正</label>
+                           <input
+                             type="number"
+                             min={0.1}
+                             max={3}
+                             step={0.1}
+                             value={selectedLayer.halftoneGamma ?? 0.7}
+                             onChange={e => handleInputChange('halftoneGamma', Number(e.target.value))}
+                             className="w-full p-2 border rounded-md"
+                           />
+                         </div>
+                       </>
+                     ) : (
+                       <div>
+                         <label className="block text-sm font-medium mb-1">二值化阈值 (0-255)</label>
+                         <input
+                           type="number"
+                           min={0}
+                           max={255}
+                           step={1}
+                           value={selectedLayer.floydSteinbergThreshold ?? 128}
+                           onChange={e => handleInputChange('floydSteinbergThreshold', Number(e.target.value))}
+                           className="w-full p-2 border rounded-md"
+                         />
+                         <p className="text-xs text-gray-500 mt-1">低于此值的像素会被处理为黑色</p>
+                       </div>
+                     )}
+                   </div>
+                 )}
+
                  {/* 新增扫描参数 */}
                  <div>
                    <label className="block text-sm font-medium mb-1">功率最大值 (%)</label>

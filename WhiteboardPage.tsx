@@ -1914,6 +1914,15 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
         const settings: GCodeScanSettings = {
           lineDensity: 1 / (layer.lineDensity || 10),
           isHalftone: !!layer.halftone,
+          halftoneMode: layer.halftoneMode ?? 'floyd-steinberg',
+          halftoneConfig: {
+            dotSize: layer.halftoneDotSize ?? 6,
+            angle: layer.halftoneAngle ?? 30,
+            gamma: layer.halftoneGamma ?? 0.7,
+          },
+          floydSteinbergConfig: {
+            threshold: layer.floydSteinbergThreshold ?? 128,
+          },
           negativeImage: false,
           hFlipped: false,
           vFlipped: false,
@@ -2041,6 +2050,15 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               const settings: GCodeScanSettings = {
                 lineDensity: 1 / (layer.lineDensity || 10),
                 isHalftone: !!layer.halftone,
+                halftoneMode: layer.halftoneMode ?? 'floyd-steinberg',
+                halftoneConfig: {
+                  dotSize: layer.halftoneDotSize ?? 6,
+                  angle: layer.halftoneAngle ?? 30,
+                  gamma: layer.halftoneGamma ?? 0.7,
+                },
+                floydSteinbergConfig: {
+                  threshold: layer.floydSteinbergThreshold ?? 128,
+                },
                 negativeImage: false,
                 hFlipped: false,
                 vFlipped: false,
@@ -2376,6 +2394,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
                 onUpdateItem={updateItem}
                 onDeleteItem={deleteItem}
                 onCommitUpdate={() => { commitUpdate(); saveWhiteboard(); }}
+                canvasWidth={canvasWidth}
                 canvasHeight={canvasHeight}
               />
             ) : (
@@ -2695,6 +2714,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
               onDeleteItem={deleteItem}
               onCommitUpdate={() => { commitUpdate(); saveWhiteboard(); }}
               onClose={() => setDrawer(null)}
+              canvasWidth={canvasWidth}
               canvasHeight={canvasHeight}
             />
           </div>

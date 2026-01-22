@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, ChangeEvent, KeyboardEvent } f
 import type { CanvasItem, Layer } from '../types';
 import { CanvasItemType } from '../types';
 import { PrintingMethod } from '../types'; // Added this import for PrintingMethod
+import { alignToCanvas, AlignType } from '../lib/align';
 
 interface ParameterEditorProps {
   selectedItem: CanvasItem | null;
@@ -10,6 +11,7 @@ interface ParameterEditorProps {
   onDeleteItem: (itemId: string) => void;
   onCommitUpdate: () => void;
   onClose?: () => void;
+  canvasWidth: number;
   canvasHeight: number;
 }
 
@@ -278,7 +280,15 @@ const GroupParameterEditor: React.FC<{
   );
 };
 
-const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers, onUpdateItem, onDeleteItem, onCommitUpdate, onClose, canvasHeight }) => {
+const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers, onUpdateItem, onDeleteItem, onCommitUpdate, onClose, canvasWidth, canvasHeight }) => {
+    // 对齐处理函数
+    const handleAlign = useCallback((alignType: AlignType) => {
+      if (!selectedItem) return;
+      const newPos = alignToCanvas(selectedItem, alignType, canvasWidth, canvasHeight);
+      onUpdateItem(selectedItem.id, newPos);
+      onCommitUpdate();
+    }, [selectedItem, canvasWidth, canvasHeight, onUpdateItem, onCommitUpdate]);
+
     // GROUP类型单独渲染
     if (selectedItem && selectedItem.type === 'GROUP') {
       return <GroupParameterEditor selectedItem={selectedItem} onUpdateItem={onUpdateItem} onCommitUpdate={onCommitUpdate} canvasHeight={canvasHeight} />;
@@ -324,9 +334,9 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
           <div className="flex gap-2">
             <div className="flex-1">
               <label className="block text-xs text-gray-500 mb-1">{t('x')}</label>
-              <EditableParameterInput 
-                label="" 
-                initialValue={(selectedItem.x || 0).toFixed(2)} 
+              <EditableParameterInput
+                label=""
+                initialValue={(selectedItem.x || 0).toFixed(2)}
                 onCommit={(val) => {
                   console.log('X坐标更新:', {
                     itemId: selectedItem.id,
@@ -335,14 +345,14 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
                     itemType: selectedItem.type
                   });
                   handleUpdate('x', val as number);
-                }} 
+                }}
               />
             </div>
             <div className="flex-1">
               <label className="block text-xs text-gray-500 mb-1">{t('y')}</label>
-              <EditableParameterInput 
-                label="" 
-                initialValue={((canvasHeight - (selectedItem.y || 0))).toFixed(2)} 
+              <EditableParameterInput
+                label=""
+                initialValue={((canvasHeight - (selectedItem.y || 0))).toFixed(2)}
                 onCommit={(val) => {
                   console.log('Y坐标更新(显示->实际转换):', {
                     itemId: selectedItem.id,
@@ -352,7 +362,7 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
                     itemType: selectedItem.type
                   });
                   handleUpdate('y', canvasHeight - Number(val));
-                }} 
+                }}
               />
             </div>
           </div>
@@ -362,6 +372,21 @@ const ParameterEditor: React.FC<ParameterEditorProps> = ({ selectedItem, layers,
           <p className="text-xs text-gray-400">
             注意：拖拽时实际坐标会实时更新，此处仅做显示换算
           </p>
+          {/* 对齐按钮 */}
+          <div className="mt-3">
+            <label className="block text-sm font-medium text-gray-600 mb-2">对齐到画布</label>
+            <div className="grid grid-cols-3 gap-1">
+              <div></div>
+              <button onClick={() => handleAlign('bottom')} className="p-2 text-xs bg-gray-100 hover:bg-gray-200 rounded border">上</button>
+              <div></div>
+              <button onClick={() => handleAlign('left')} className="p-2 text-xs bg-gray-100 hover:bg-gray-200 rounded border">左</button>
+              <button onClick={() => handleAlign('center')} className="p-2 text-xs bg-gray-100 hover:bg-gray-200 rounded border">居中</button>
+              <button onClick={() => handleAlign('right')} className="p-2 text-xs bg-gray-100 hover:bg-gray-200 rounded border">右</button>
+              <div></div>
+              <button onClick={() => handleAlign('top')} className="p-2 text-xs bg-gray-100 hover:bg-gray-200 rounded border">下</button>
+              <div></div>
+            </div>
+          </div>
         </div>
       );
 

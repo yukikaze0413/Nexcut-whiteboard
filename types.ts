@@ -42,6 +42,13 @@ export interface Layer {
   // 扫描图层特有参数
   lineDensity?: number | null;
   halftone?: boolean;
+  halftoneMode?: 'floyd-steinberg' | 'halftone-dot';
+  // 半调网屏配置
+  halftoneDotSize?: number | null;
+  halftoneAngle?: number | null;
+  halftoneGamma?: number | null;
+  // Floyd-Steinberg配置
+  floydSteinbergThreshold?: number | null;
   reverseMovementOffset?: number | null;
   // 通用参数
   power?: number | null;

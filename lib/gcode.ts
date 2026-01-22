@@ -6,6 +6,7 @@ import { Helper, parseString as parseDxf } from 'dxf';
 export interface GCodeScanSettings {
   lineDensity: number; // 线密度 (mm/pixel)
   isHalftone: boolean; // 是否开启半调网屏
+  halftoneMode?: 'floyd-steinberg' | 'halftone-dot'; // 半调模式
   negativeImage?: boolean; // 是否为负片
   hFlipped?: boolean; // 水平翻转
   vFlipped?: boolean; // 垂直翻转
@@ -14,6 +15,17 @@ export interface GCodeScanSettings {
   burnSpeed?: number; // 燃烧速度 (mm/min)
   travelSpeed?: number; // 空程速度 (mm/min)
   overscanDist?: number; // 超扫描距离 (mm)
+  // 半调网屏配置
+  halftoneConfig?: {
+    dotSize?: number;      // 网点大小 (像素)
+    minDotRatio?: number;  // 最小网点比例
+    gamma?: number;        // 伽马校正
+    angle?: number;        // 网屏角度 (度)
+  };
+  // Floyd-Steinberg配置
+  floydSteinbergConfig?: {
+    threshold?: number;    // 二值化阈值 (0-255)
+  };
 }
 
 // 颜色空间转换 (sRGB -> Linear)
@@ -29,6 +41,179 @@ function linear2sRGB(l: number): number {
 
 function roundCoord(x: number): number {
   return Math.round(x * 100) / 100;
+}
+
+/**
+ * 半调网屏滤镜 (AM Halftone)
+ * 将灰度图像转换为网点图案
+ */
+function halftoneFilter(
+  data: Int16Array,
+  width: number,
+  height: number,
+  config: { dotSize?: number; minDotRatio?: number; gamma?: number; angle?: number }
+): Int16Array {
+  const dotSize = config.dotSize ?? 6;
+  const minDotRatio = config.minDotRatio ?? 0.23;
+  const gamma = config.gamma ?? 0.7;
+  const angleRad = (config.angle ?? 30) * Math.PI / 180;
+
+  const dotRadius = dotSize / 2;
+  const cosA = Math.cos(angleRad);
+  const sinA = Math.sin(angleRad);
+  const centerX = width / 2;
+  const centerY = height / 2;
+
+  // 计算旋转后的边界
+  const corners = [
+    { x: 0, y: 0 },
+    { x: width, y: 0 },
+    { x: 0, y: height },
+    { x: width, y: height }
+  ];
+
+  let minRotX = Infinity, maxRotX = -Infinity;
+  let minRotY = Infinity, maxRotY = -Infinity;
+
+  for (const c of corners) {
+    const tx = c.x - centerX;
+    const ty = c.y - centerY;
+    const rotX = tx * cosA - ty * sinA;
+    const rotY = tx * sinA + ty * cosA;
+    minRotX = Math.min(minRotX, rotX);
+    maxRotX = Math.max(maxRotX, rotX);
+    minRotY = Math.min(minRotY, rotY);
+    maxRotY = Math.max(maxRotY, rotY);
+  }
+
+  const offsetX = -minRotX;
+  const offsetY = -minRotY;
+  const rotatedWidth = maxRotX - minRotX;
+  const rotatedHeight = maxRotY - minRotY;
+
+  const gridCols = Math.max(1, Math.ceil(rotatedWidth / dotSize));
+  const gridRows = Math.max(1, Math.ceil(rotatedHeight / dotSize));
+  const gridCount = gridCols * gridRows;
+
+  const brightnessSums = new Float32Array(gridCount);
+  const counts = new Int32Array(gridCount);
+  const radii = new Float32Array(gridCount);
+
+  const getGridIndex = (gx: number, gy: number) => gy * gridCols + gx;
+
+  // 第一遍：计算每个网格的平均亮度
+  for (let y = 0; y < height; y++) {
+    const ty = y - centerY;
+    for (let x = 0; x < width; x++) {
+      const tx = x - centerX;
+      const rotX = tx * cosA - ty * sinA;
+      const rotY = tx * sinA + ty * cosA;
+      const shiftedX = rotX + offsetX;
+      const shiftedY = rotY + offsetY;
+
+      let gx = Math.floor(shiftedX / dotSize);
+      let gy = Math.floor(shiftedY / dotSize);
+      gx = Math.max(0, Math.min(gridCols - 1, gx));
+      gy = Math.max(0, Math.min(gridRows - 1, gy));
+
+      const idx = getGridIndex(gx, gy);
+      brightnessSums[idx] += data[y * width + x];
+      counts[idx]++;
+    }
+  }
+
+  // 计算每个网格的网点半径
+  const minRadius = dotRadius * Math.max(0, Math.min(1, minDotRatio));
+  for (let i = 0; i < gridCount; i++) {
+    if (counts[i] === 0) {
+      radii[i] = 0;
+      continue;
+    }
+    const avgBrightness = brightnessSums[i] / counts[i];
+    if (avgBrightness <= 0) {
+      radii[i] = dotRadius;
+      continue;
+    }
+    if (avgBrightness >= 255) {
+      radii[i] = minRadius * 0.5;
+      continue;
+    }
+    let radiusRatio = 1 - avgBrightness / 255;
+    if (Math.abs(gamma - 1) > 1e-9) {
+      radiusRatio = Math.pow(radiusRatio, gamma);
+    }
+    radii[i] = Math.max(dotRadius * radiusRatio, minRadius);
+  }
+
+  // 第二遍：生成输出图像
+  const out = new Int16Array(width * height);
+  out.fill(255);
+
+  for (let y = 0; y < height; y++) {
+    const ty = y - centerY;
+    for (let x = 0; x < width; x++) {
+      const tx = x - centerX;
+      const rotX = tx * cosA - ty * sinA;
+      const rotY = tx * sinA + ty * cosA;
+      const shiftedX = rotX + offsetX;
+      const shiftedY = rotY + offsetY;
+
+      let gx = Math.floor(shiftedX / dotSize);
+      let gy = Math.floor(shiftedY / dotSize);
+      gx = Math.max(0, Math.min(gridCols - 1, gx));
+      gy = Math.max(0, Math.min(gridRows - 1, gy));
+
+      const gridIdx = getGridIndex(gx, gy);
+      const centerRotX = gx * dotSize + dotRadius;
+      const centerRotY = gy * dotSize + dotRadius;
+      const dx = shiftedX - centerRotX;
+      const dy = shiftedY - centerRotY;
+      const distanceSq = dx * dx + dy * dy;
+      const maxRadius = radii[gridIdx];
+      const maxRadiusSq = maxRadius * maxRadius;
+
+      if (distanceSq <= maxRadiusSq) {
+        out[y * width + x] = 0;
+      }
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Floyd-Steinberg 误差扩散抖动算法
+ * 将灰度图像转换为二值图像，保留视觉灰度感
+ */
+function floydSteinberg(
+  data: Int16Array,
+  width: number,
+  height: number,
+  config: { threshold?: number }
+): Int16Array {
+  const threshold = config.threshold ?? 128;
+  const lum = new Float32Array(data);
+  const out = new Int16Array(width * height);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      const oldValue = lum[i];
+      const newValue = oldValue < threshold ? 0 : 255;
+      const error = oldValue - newValue;
+      out[i] = newValue;
+
+      // Floyd-Steinberg 误差扩散
+      if (x + 1 < width) lum[i + 1] += error * 7 / 16;
+      if (y + 1 < height) {
+        if (x > 0) lum[(y + 1) * width + x - 1] += error * 3 / 16;
+        lum[(y + 1) * width + x] += error * 5 / 16;
+        if (x + 1 < width) lum[(y + 1) * width + x + 1] += error * 1 / 16;
+      }
+    }
+  }
+
+  return out;
 }
 
 /**
@@ -560,16 +745,25 @@ async function createPlatformImage(
       destData[i] = linear2sRGB(Math.pow(settings.negativeImage ? 1 - l : l, 1.0));
     }
   }
-  
-  // ... (翻转和半色调逻辑与原文件一致，此处省略)
-  if (settings.hFlipped) { /* ... */ }
-  if (settings.vFlipped) { /* ... */ }
-  if (settings.isHalftone) { /* ... */ }
+
+  // 应用半调网屏处理
+  let processedData = destData;
+  console.log('半调网屏设置:', { isHalftone: settings.isHalftone, mode: settings.halftoneMode });
+  if (settings.isHalftone) {
+    const mode = settings.halftoneMode ?? 'floyd-steinberg';
+    if (mode === 'halftone-dot') {
+      processedData = halftoneFilter(destData, pixelWidth, pixelHeight, settings.halftoneConfig ?? {});
+      console.log('应用半调网屏滤镜 (AM Halftone)');
+    } else {
+      processedData = floydSteinberg(destData, pixelWidth, pixelHeight, settings.floydSteinbergConfig ?? {});
+      console.log('应用Floyd-Steinberg误差扩散');
+    }
+  }
 
   return {
     width: pixelWidth,
     height: pixelHeight,
-    data: destData,
+    data: processedData,
   };
 }
 
