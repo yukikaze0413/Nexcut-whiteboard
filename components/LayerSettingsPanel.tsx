@@ -202,74 +202,48 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
               {/* 半调网屏详细设置 */}
               {selectedLayer.halftone && (
                 <div className="ml-6 space-y-3 border-l-2 border-blue-200 pl-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">半调模式</label>
-                    <select
-                      value={selectedLayer.halftoneMode ?? 'floyd-steinberg'}
-                      onChange={e => handleInputChange('halftoneMode', e.target.value as 'floyd-steinberg' | 'halftone-dot')}
-                      className="w-full p-2 border rounded-md"
-                    >
-                      <option value="floyd-steinberg">Floyd-Steinberg 误差扩散</option>
-                      <option value="halftone-dot">AM 网点半调</option>
-                    </select>
+                  <div className="mb-2">
+                    <label className="block text-sm font-medium mb-2">半调模式</label>
+                    <div className="flex flex-col space-y-2">
+                      {/* 选项 1: Floyd-Steinberg */}
+                      <label className="inline-flex items-center cursor-pointer">
+                        <input
+                          type="radio"
+                          name="halftoneMode"
+                          value="floyd-steinberg"
+                          checked={selectedLayer.halftoneMode !== 'halftone-dot'} // 默认为此模式
+                          onChange={() => {
+                            const updates: Partial<Layer> = { halftoneMode: 'floyd-steinberg' };
+                            onUpdateLayer(selectedLayer.id, updates);
+                          }}
+                          className="form-radio h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                        />
+                        <span className="ml-2 text-sm text-gray-700">Floyd-Steinberg 误差扩散</span>
+                      </label>
+
+                      {/* 选项 2: AM 网点 */}
+                      <label className="inline-flex items-center cursor-pointer">
+                        <input
+                          type="radio"
+                          name="halftoneMode"
+                          value="halftone-dot"
+                          checked={selectedLayer.halftoneMode === 'halftone-dot'}
+                          onChange={() => {
+                            const updates: Partial<Layer> = { halftoneMode: 'halftone-dot' };
+                            onUpdateLayer(selectedLayer.id, updates);
+                          }}
+                          className="form-radio h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                        />
+                        <span className="ml-2 text-sm text-gray-700">AM 网点半调</span>
+                      </label>
+                    </div>
                   </div>
 
-                  {selectedLayer.halftoneMode === 'halftone-dot' ? (
-                    <>
-                      <div>
-                        <label className="block text-sm font-medium mb-1">网点大小 (像素)</label>
-                        <input
-                          type="number"
-                          min={2}
-                          max={20}
-                          step={1}
-                          value={selectedLayer.halftoneDotSize ?? 6}
-                          onChange={e => handleInputChange('halftoneDotSize', Number(e.target.value))}
-                          className="w-full p-2 border rounded-md"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1">网屏角度 (度)</label>
-                        <input
-                          type="number"
-                          min={0}
-                          max={90}
-                          step={5}
-                          value={selectedLayer.halftoneAngle ?? 30}
-                          onChange={e => handleInputChange('halftoneAngle', Number(e.target.value))}
-                          className="w-full p-2 border rounded-md"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1">伽马校正</label>
-                        <input
-                          type="number"
-                          min={0.1}
-                          max={3}
-                          step={0.1}
-                          value={selectedLayer.halftoneGamma ?? 0.7}
-                          onChange={e => handleInputChange('halftoneGamma', Number(e.target.value))}
-                          className="w-full p-2 border rounded-md"
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    <div>
-                      <label className="block text-sm font-medium mb-1">二值化阈值 (0-255)</label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={255}
-                        step={1}
-                        value={selectedLayer.floydSteinbergThreshold ?? 128}
-                        onChange={e => handleInputChange('floydSteinbergThreshold', Number(e.target.value))}
-                        className="w-full p-2 border rounded-md"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">低于此值的像素会被处理为黑色</p>
-                    </div>
-                  )}
+                  {/* 没有任何参数输入框被渲染 */}
                 </div>
               )}
+
+
 
               {/* 新增扫描参数 */}
               <div>
