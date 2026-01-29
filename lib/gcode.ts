@@ -54,7 +54,7 @@ function halftoneFilter(
   config: { dotSize?: number; minDotRatio?: number; gamma?: number; angle?: number }
 ): Int16Array {
   const dotSize = config.dotSize ?? 6;
-  const minDotRatio = config.minDotRatio ?? 0.23;
+  const minDotRatio = config.minDotRatio ?? 0;
   const gamma = config.gamma ?? 0.7;
   const angleRad = (config.angle ?? 30) * Math.PI / 180;
 
@@ -225,10 +225,10 @@ function floydSteinberg(
  */
 function drawCanvasItem(ctx: CanvasRenderingContext2D, item: CanvasItem, scaleX: number, scaleY: number): void {
   // 我们只处理带有参数的矢量图形
-  if (!('parameters' in item)) {
+  if (!('parameters' in item) && item.type !== CanvasItemType.DRAWING) {
     return;
   }
-  
+
   // 对于扫描，我们总是填充黑色实体
   ctx.fillStyle = 'black';
   ctx.strokeStyle = 'black';
@@ -237,17 +237,17 @@ function drawCanvasItem(ctx: CanvasRenderingContext2D, item: CanvasItem, scaleX:
   const centerX_pixels = item.x * scaleX;
   const centerY_pixels = item.y * scaleY;
   const rotation_rad = ('rotation' in item ? item.rotation || 0 : 0) * Math.PI / 180;
-  
+
   // 保存当前画布状态
   ctx.save();
-  
+
   // 应用变换：平移到中心点，然后旋转
   ctx.translate(centerX_pixels, centerY_pixels);
   ctx.rotate(rotation_rad);
-  
+
   // 开始绘制路径
   ctx.beginPath();
-  
+
   // 根据图形类型进行绘制
   switch (item.type) {
     case CanvasItemType.RECTANGLE: {
@@ -312,7 +312,7 @@ function drawCanvasItem(ctx: CanvasRenderingContext2D, item: CanvasItem, scaleX:
       const h_px = height * scaleY;
       const t_w_px = thickness * scaleX;
       const t_h_px = thickness * scaleY;
-      
+
       const w2 = w_px / 2;
       const h2 = h_px / 2;
 
@@ -341,7 +341,7 @@ function drawCanvasItem(ctx: CanvasRenderingContext2D, item: CanvasItem, scaleX:
       ctx.lineTo(w2, h2);
       ctx.lineTo(-w2, h2);
       ctx.closePath();
-      
+
       // 内轮廓（反向镂空）
       ctx.moveTo(-w2 + t_w_px, -h2 + t_h_px);
       ctx.lineTo(-w2 + t_w_px, h2);
@@ -389,7 +389,7 @@ function drawCanvasItem(ctx: CanvasRenderingContext2D, item: CanvasItem, scaleX:
 
       // 主圆
       ctx.arc(0, 0, r_px, 0, 2 * Math.PI);
-      
+
       // 孔（反向镂空）
       for (let i = 0; i < holeCount; i++) {
         const angle = (i / holeCount) * 2 * Math.PI;
@@ -412,81 +412,81 @@ function drawCanvasItem(ctx: CanvasRenderingContext2D, item: CanvasItem, scaleX:
       break;
     }
     case CanvasItemType.ISOSCELES_RIGHT_TRIANGLE: {
-        const { cathetus = 50 } = item.parameters;
-        const c_px = cathetus * ((scaleX + scaleY) / 2); // 等腰，用平均缩放
-        const c2 = c_px / 2;
+      const { cathetus = 50 } = item.parameters;
+      const c_px = cathetus * ((scaleX + scaleY) / 2); // 等腰，用平均缩放
+      const c2 = c_px / 2;
 
-        ctx.moveTo(-c2, -c2); // 直角顶点
-        ctx.lineTo(c2, -c2);
-        ctx.lineTo(-c2, c2);
-        ctx.closePath();
-        break;
+      ctx.moveTo(-c2, -c2); // 直角顶点
+      ctx.lineTo(c2, -c2);
+      ctx.lineTo(-c2, c2);
+      ctx.closePath();
+      break;
     }
     case CanvasItemType.SECTOR: {
-        const { radius = 50, startAngle = -90, sweepAngle = 90 } = item.parameters;
-        const r_px = radius * ((scaleX + scaleY) / 2);
-        const startRad = startAngle * Math.PI / 180;
-        const endRad = (startAngle + sweepAngle) * Math.PI / 180;
-        
-        ctx.moveTo(0, 0);
-        ctx.arc(0, 0, r_px, startRad, endRad);
-        ctx.closePath();
-        break;
+      const { radius = 50, startAngle = -90, sweepAngle = 90 } = item.parameters;
+      const r_px = radius * ((scaleX + scaleY) / 2);
+      const startRad = startAngle * Math.PI / 180;
+      const endRad = (startAngle + sweepAngle) * Math.PI / 180;
+
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, r_px, startRad, endRad);
+      ctx.closePath();
+      break;
     }
     case CanvasItemType.ARC: {
-        const { radius = 50, startAngle = 0, sweepAngle = 120 } = item.parameters;
-        const r_px = radius * ((scaleX + scaleY) / 2);
-        const startRad = startAngle * Math.PI / 180;
-        const endRad = (startAngle + sweepAngle) * Math.PI / 180;
-        // 渲染为有厚度的弧线
-        ctx.lineWidth = 2; // 2像素厚度
-        ctx.arc(0, 0, r_px, startRad, endRad);
-        ctx.stroke(); // 注意这里用stroke而不是fill
-        // 因为路径没有闭合，所以fill不会生效。我们需要stroke
-        return; //提前返回，避免执行下面的fill
+      const { radius = 50, startAngle = 0, sweepAngle = 120 } = item.parameters;
+      const r_px = radius * ((scaleX + scaleY) / 2);
+      const startRad = startAngle * Math.PI / 180;
+      const endRad = (startAngle + sweepAngle) * Math.PI / 180;
+      // 渲染为有厚度的弧线
+      ctx.lineWidth = 2; // 2像素厚度
+      ctx.arc(0, 0, r_px, startRad, endRad);
+      ctx.stroke(); // 注意这里用stroke而不是fill
+      // 因为路径没有闭合，所以fill不会生效。我们需要stroke
+      return; //提前返回，避免执行下面的fill
     }
     case CanvasItemType.POLYLINE: {
-        const { seg1 = 40, seg2 = 50, seg3 = 30, angle } = item.parameters;
-        const s1_px = seg1 * scaleX;
-        const s2_px = seg2 * ((scaleX + scaleY) / 2);
-        const s3_px = seg3 * scaleX;
-        const angleRad = angle * Math.PI / 180;
-        
-        const p1 = { x: -s1_px/2, y: 0 };
-        const p2 = { x: s1_px/2, y: 0 };
-        const p3 = { x: p2.x + s2_px * Math.cos(angleRad), y: p2.y + s2_px * Math.sin(angleRad) };
-        const p4 = { x: p3.x + s3_px, y: p3.y }; // 假设第三段水平
-        
-        // 渲染为有厚度的折线
-        ctx.lineWidth = 2; // 2像素厚度
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.lineTo(p3.x, p3.y);
-        ctx.lineTo(p4.x, p4.y);
-        ctx.stroke(); // 注意这里用stroke
-        return; // 提前返回
+      const { seg1 = 40, seg2 = 50, seg3 = 30, angle } = item.parameters;
+      const s1_px = seg1 * scaleX;
+      const s2_px = seg2 * ((scaleX + scaleY) / 2);
+      const s3_px = seg3 * scaleX;
+      const angleRad = angle * Math.PI / 180;
+
+      const p1 = { x: -s1_px / 2, y: 0 };
+      const p2 = { x: s1_px / 2, y: 0 };
+      const p3 = { x: p2.x + s2_px * Math.cos(angleRad), y: p2.y + s2_px * Math.sin(angleRad) };
+      const p4 = { x: p3.x + s3_px, y: p3.y }; // 假设第三段水平
+
+      // 渲染为有厚度的折线
+      ctx.lineWidth = 2; // 2像素厚度
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.lineTo(p3.x, p3.y);
+      ctx.lineTo(p4.x, p4.y);
+      ctx.stroke(); // 注意这里用stroke
+      return; // 提前返回
     }
     case CanvasItemType.DRAWING: {
-        if ('points' in item && Array.isArray(item.points) && item.points.length > 1) {
-            ctx.lineWidth = (item.strokeWidth || 2) * ((scaleX + scaleY) / 2);
-            item.points.forEach((p, i) => {
-                const px = p.x * scaleX;
-                const py = p.y * scaleY;
-                if (i === 0) {
-                    ctx.moveTo(px, py);
-                } else {
-                    ctx.lineTo(px, py);
-                }
-            });
-            ctx.stroke();
-        }
-        return; // 提前返回
+      if ('points' in item && Array.isArray(item.points) && item.points.length > 1) {
+        ctx.lineWidth = (item.strokeWidth || 2) * ((scaleX + scaleY) / 2);
+        item.points.forEach((p, i) => {
+          const px = p.x * scaleX;
+          const py = p.y * scaleY;
+          if (i === 0) {
+            ctx.moveTo(px, py);
+          } else {
+            ctx.lineTo(px, py);
+          }
+        });
+        ctx.stroke();
+      }
+      return; // 提前返回
     }
   }
-  
+
   // 执行填充（使用非零环绕规则处理镂空）
   ctx.fill('nonzero');
-  
+
   // 恢复画布状态
   ctx.restore();
 }
@@ -788,12 +788,12 @@ export async function generatePlatformScanGCode(
   canvasWidth: number,
   canvasHeight: number
 ): Promise<string> {
-  
+
   // 【核心修改】筛选出属于该图层的所有可绘制对象（图像、基础形状、零件库）
   const drawableItems = items.filter(item =>
     item.layerId === layer.id &&
     // 任何图片或带有'parameters'属性的对象都被认为是可绘制的
-    (item.type === CanvasItemType.IMAGE || 'parameters' in item) 
+    (item.type === CanvasItemType.IMAGE || 'parameters' in item || item.type === CanvasItemType.DRAWING)
   );
 
   if (drawableItems.length === 0) {
@@ -1821,7 +1821,7 @@ function rotatePoint(px: number, py: number, centerX: number, centerY: number, r
 //   // 处理手绘路径（应用旋转和Y轴反转）
 //   if (item.type === CanvasItemType.DRAWING && 'points' in item && Array.isArray(item.points)) {
 //     const drawingItem = item as any; // 类型断言以访问扩展字段
-    
+
 //     console.log('G代码生成 - Drawing对象分析:', {
 //       hasOriginalStrokes: !!(drawingItem.originalStrokes && Array.isArray(drawingItem.originalStrokes)),
 //       originalStrokesLength: drawingItem.originalStrokes ? drawingItem.originalStrokes.length : 0,
@@ -1831,19 +1831,19 @@ function rotatePoint(px: number, py: number, centerX: number, centerY: number, r
 //       hasOriginalPoints: !!(drawingItem.originalPoints && Array.isArray(drawingItem.originalPoints)),
 //       originalPointsLength: drawingItem.originalPoints ? drawingItem.originalPoints.length : 0
 //     });
-    
+
 //     // 检查是否有多笔段数据
 //     if (drawingItem.originalStrokes && Array.isArray(drawingItem.originalStrokes) && drawingItem.originalStrokes.length > 0) {
 //       // 使用多笔段数据（高精度）
 //       const strokes = drawingItem.originalStrokes;
 //       console.log(`G代码生成使用原始高精度多笔段数据，共${strokes.length}个笔段`);
-      
+
 //       for (let strokeIndex = 0; strokeIndex < strokes.length; strokeIndex++) {
 //         const stroke = strokes[strokeIndex];
 //         if (!Array.isArray(stroke) || stroke.length < 2) continue;
-        
+
 //         const drawingPaths = [];
-        
+
 //         // 对当前笔段的所有点应用旋转和坐标转换
 //         const transformedPoints = stroke.map((point: { x: number; y: number }) => {
 //           const rotated = rotatePoint(x + point.x * scalex, y + point.y * scaley, x, y, rotation);
@@ -1866,13 +1866,13 @@ function rotatePoint(px: number, py: number, centerX: number, centerY: number, r
 //       // 使用多笔段数据（显示精度）
 //       const strokes = drawingItem.strokes;
 //       console.log(`G代码生成使用显示精度多笔段数据，共${strokes.length}个笔段`);
-      
+
 //       for (let strokeIndex = 0; strokeIndex < strokes.length; strokeIndex++) {
 //         const stroke = strokes[strokeIndex];
 //         if (!Array.isArray(stroke) || stroke.length < 2) continue;
-        
+
 //         const drawingPaths = [];
-        
+
 //         // 对当前笔段的所有点应用旋转和坐标转换
 //         const transformedPoints = stroke.map((point: { x: number; y: number }) => {
 //           const rotated = rotatePoint(x + point.x*scalex, y + point.y*scaley, x, y, rotation);
@@ -2216,7 +2216,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const boltHoleRadius = boltHoleDiameter / 2;
 
         console.log(`法兰参数 - 外径: ${outerDiameter}, 内径: ${innerDiameter}, 螺栓孔数: ${boltHoleCount}`);
-        
+
         const transformedCenter = transformCoordinate(x, y, settings);
 
         // =======================================================
@@ -2248,7 +2248,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           // 应用整体旋转
           const rotatedHoleCenter = rotatePoint(holeX, holeY, x, y, rotation);
           const transformedHoleCenter = transformCoordinate(rotatedHoleCenter.x, rotatedHoleCenter.y, settings);
-          
+
           // 计算相对于孔洞中心的起点和I, J偏移
           // 为了简化，我们总是从孔的右侧（3点钟方向）开始切割
           const holeStart = { x: transformedHoleCenter.x + boltHoleRadius, y: transformedHoleCenter.y };
@@ -2283,7 +2283,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           `${outerCircleCommand} X${transformedOuterStart.x.toFixed(3)} Y${transformedOuterStart.y.toFixed(3)} I${outerIOffset.toFixed(3)} J${outerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
           `M5`
         );
-        
+
         break;
       }
 
@@ -2291,8 +2291,8 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         const { outerRadius = 60, innerRadius = 30 } = item.parameters;
 
         console.log(`圆环参数 - 外径: ${outerRadius * 2}, 内径: ${innerRadius * 2}`);
-        
-       const transformedCenter = transformCoordinate(x, y, settings);
+
+        const transformedCenter = transformCoordinate(x, y, settings);
         // 内圆起始点（考虑旋转）
         const innerStart = rotatePoint(x + innerRadius, y, x, y, rotation);
         const transformedInnerStart = transformCoordinate(innerStart.x, innerStart.y, settings);
@@ -2310,21 +2310,21 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         );
 
 
-       // 外圆起始点（考虑旋转）
-       const outerStart = rotatePoint(x + outerRadius, y, x, y, rotation);
-       const transformedOuterStart = transformCoordinate(outerStart.x, outerStart.y, settings);
-       const outerIOffset = transformedCenter.x - transformedOuterStart.x;
-       const outerJOffset = transformedCenter.y - transformedOuterStart.y;
+        // 外圆起始点（考虑旋转）
+        const outerStart = rotatePoint(x + outerRadius, y, x, y, rotation);
+        const transformedOuterStart = transformCoordinate(outerStart.x, outerStart.y, settings);
+        const outerIOffset = transformedCenter.x - transformedOuterStart.x;
+        const outerJOffset = transformedCenter.y - transformedOuterStart.y;
 
-       // 当Y轴反转时，圆的方向也要反转
-       const outerCircleCommand = settings.flipY ? 'G03' : 'G02';
+        // 当Y轴反转时，圆的方向也要反转
+        const outerCircleCommand = settings.flipY ? 'G03' : 'G02';
 
-       paths.push(
-         `G0 X${transformedOuterStart.x} Y${transformedOuterStart.y}`,
-         `M3 S${laserPower}`,
-         `${outerCircleCommand} X${transformedOuterStart.x} Y${transformedOuterStart.y} I${outerIOffset.toFixed(3)} J${outerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
-         `M5`
-       );
+        paths.push(
+          `G0 X${transformedOuterStart.x} Y${transformedOuterStart.y}`,
+          `M3 S${laserPower}`,
+          `${outerCircleCommand} X${transformedOuterStart.x} Y${transformedOuterStart.y} I${outerIOffset.toFixed(3)} J${outerJOffset.toFixed(3)} F${settings.feedRate || 1000}`,
+          `M5`
+        );
 
 
 
@@ -2444,7 +2444,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
           transformCoordinate(corner.x, corner.y, settings)
         );
 
-       
+
         // 四个角的孔位置（旋转前）
         const holePositions = [
           { x: x - w2 + horizontalMargin, y: y + h2 - verticalMargin },  // 左下
@@ -2470,7 +2470,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
             `M5`
           );
         });
-         // 生成主矩形G代码路径
+        // 生成主矩形G代码路径
         const rectPaths = [
           `G0 X${transformedRectCorners[0].x} Y${transformedRectCorners[0].y}`,
           `M3 S${laserPower}`,
@@ -2500,7 +2500,7 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         // 当Y轴反转时，圆的方向也要反转
         const mainCircleCommand = settings.flipY ? 'G03' : 'G02';
 
-        
+
 
         // 孔的分布
         const holeCircleRadius = radius * 0.7; // 孔的分布圆半径
@@ -2711,12 +2711,12 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
 
         // 折线的关键点（简化处理）
         const polylinePoints = [
-                    { x: x  - seg1 - seg2*Math.cos((angle+180)/180*Math.PI)/2, y: y - seg2*Math.sin((angle+180)/180*Math.PI)/2 },           // 第一段起点
-                    { x: x  - seg2*Math.cos((angle+180)/180*Math.PI)/2, y: y - seg2*Math.sin((angle+180)/180*Math.PI)/2 },           // 第二段起点（转折开始）
-                    { x: x, y: y },                         // 中心点
-                    { x: x  + seg2*Math.cos((angle+180)/180*Math.PI)/2 , y: y + seg2*Math.sin((angle+180)/180*Math.PI)/2 },    // 第二段终点（转折结束）
-                    { x: x  + seg3 + seg2*Math.cos((angle+180)/180*Math.PI)/2 , y: y + seg2*Math.sin((angle+180)/180*Math.PI)/2 },    // 第二段终点（转折结束）
-         ];
+          { x: x - seg1 - seg2 * Math.cos((angle + 180) / 180 * Math.PI) / 2, y: y - seg2 * Math.sin((angle + 180) / 180 * Math.PI) / 2 },           // 第一段起点
+          { x: x - seg2 * Math.cos((angle + 180) / 180 * Math.PI) / 2, y: y - seg2 * Math.sin((angle + 180) / 180 * Math.PI) / 2 },           // 第二段起点（转折开始）
+          { x: x, y: y },                         // 中心点
+          { x: x + seg2 * Math.cos((angle + 180) / 180 * Math.PI) / 2, y: y + seg2 * Math.sin((angle + 180) / 180 * Math.PI) / 2 },    // 第二段终点（转折结束）
+          { x: x + seg3 + seg2 * Math.cos((angle + 180) / 180 * Math.PI) / 2, y: y + seg2 * Math.sin((angle + 180) / 180 * Math.PI) / 2 },    // 第二段终点（转折结束）
+        ];
 
         // 应用旋转变换
         const rotatedPolylinePoints = polylinePoints.map(point =>
@@ -2810,12 +2810,12 @@ function itemToGCodePaths(item: CanvasItem, settings: GCodeEngraveSettings): str
         scaleY = item.height / originalHeight;
         //const scale = Math.min(scaleX, scaleY);
 
-        if(item.vectorSource.originalDimensions.type == "svg"){
+        if (item.vectorSource.originalDimensions.type == "svg") {
           // deltax = (item.vectorSource.parsedItems[0].x - originalWidth/2) / (originalWidth) * item.width;
           // deltay = (item.vectorSource.parsedItems[0].y - originalHeight/2) / (originalHeight) * item.height;
-          let Pos = rotatePoint(item.vectorSource.parsedItems[0].x, item.vectorSource.parsedItems[0].y, originalWidth/2, originalHeight/2, rotation);
-          deltaX = (Pos.x - originalWidth/2) / (originalWidth) * item.width;
-          deltaY = (Pos.y - originalHeight/2) / (originalHeight) * item.height;
+          let Pos = rotatePoint(item.vectorSource.parsedItems[0].x, item.vectorSource.parsedItems[0].y, originalWidth / 2, originalHeight / 2, rotation);
+          deltaX = (Pos.x - originalWidth / 2) / (originalWidth) * item.width;
+          deltaY = (Pos.y - originalHeight / 2) / (originalHeight) * item.height;
         }
 
         scaleX = Math.min(scaleX, scaleY);

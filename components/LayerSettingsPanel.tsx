@@ -47,7 +47,7 @@ const EngravingTrajectoryList: React.FC<{ layer: Layer; items: CanvasItem[]; can
   if (layerItems.length === 0) {
     return <p className="text-sm text-gray-500 text-center py-4">该图层没有对象。</p>;
   }
-  
+
   return (
     <div className="space-y-2">
       {layerItems.map((item, index) => (
@@ -73,7 +73,7 @@ const LayerPreview: React.FC<{
   canvasWidth: number;
   canvasHeight: number;
 }> = ({ layer, items, canvasWidth, canvasHeight }) => {
-  
+
   // 显示图层中的所有对象，不再根据打印方法进行过滤
   const layerItems = items.filter(item => item.layerId === layer.id);
 
@@ -81,7 +81,7 @@ const LayerPreview: React.FC<{
     <svg width={200} height={200} viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} className="border rounded-md bg-white">
       {layerItems.map(item => (
         <g
-              key={item.id}
+          key={item.id}
           transform={`translate(${'x' in item ? item.x : 0}, ${'y' in item ? item.y : 0}) rotate(${'rotation' in item ? item.rotation || 0 : 0})`}
         >
           <CanvasItemRenderer item={item} isSelected={false} />
@@ -109,287 +109,287 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
   };
 
   const LeftList = (
-      <div className={layoutMode === 'grid' ? 'col-span-1 border-r bg-white p-2 overflow-y-auto' : 'w-48 border-r bg-white p-2 overflow-y-auto'}>
-         <h3 className="text-base font-semibold mb-2 px-1">图层列表</h3>
-         <ul>
-           {layers.map(layer => (
-             <li
-               key={layer.id}
-               className={`p-2 rounded cursor-pointer flex items-center justify-between gap-2 mb-1 ${selectedLayer?.id === layer.id ? 'bg-blue-500 text-white' : 'hover:bg-gray-200'}`}
-               onClick={() => onSelectLayer(layer.id)}
-             >
-               <span className="truncate flex-1">{layer.name}</span>
-               <span className={`text-xs px-2 py-0.5 rounded-full ${selectedLayer?.id === layer.id ? 'bg-white text-blue-500' : 'bg-gray-200 text-gray-700'}`}>
-                 {layer.printingMethod === 'scan' ? '扫描' : '切割'}
-               </span>
-             </li>
-           ))}
-         </ul>
-       </div>
+    <div className={layoutMode === 'grid' ? 'col-span-1 border-r bg-white p-2 overflow-y-auto' : 'w-48 border-r bg-white p-2 overflow-y-auto'}>
+      <h3 className="text-base font-semibold mb-2 px-1">图层列表</h3>
+      <ul>
+        {layers.map(layer => (
+          <li
+            key={layer.id}
+            className={`p-2 rounded cursor-pointer flex items-center justify-between gap-2 mb-1 ${selectedLayer?.id === layer.id ? 'bg-blue-500 text-white' : 'hover:bg-gray-200'}`}
+            onClick={() => onSelectLayer(layer.id)}
+          >
+            <span className="truncate flex-1">{layer.name}</span>
+            <span className={`text-xs px-2 py-0.5 rounded-full ${selectedLayer?.id === layer.id ? 'bg-white text-blue-500' : 'bg-gray-200 text-gray-700'}`}>
+              {layer.printingMethod === 'scan' ? '扫描' : '切割'}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 
   const RightSettings = (
-      <div className={layoutMode === 'grid' ? 'col-span-2 p-4 overflow-y-auto max-h-full' : 'flex-1 p-4 overflow-y-auto max-h-full'}>
-         {selectedLayer && (
-           <>
-             <h2 className="text-xl font-bold mb-4 pb-2 border-b">{selectedLayer.name} 设置</h2>
-             
-             {/* 统一的预览图区域 */}
-             <div className="mb-4">
-                 <h3 className="text-md font-semibold mb-2">图层预览</h3>
-                 <div className="flex justify-center items-center p-2 border rounded-lg bg-gray-200">
-                     <LayerPreview layer={selectedLayer} items={items} canvasWidth={canvasWidth} canvasHeight={canvasHeight} />
-                 </div>
-             </div>
+    <div className={layoutMode === 'grid' ? 'col-span-2 p-4 overflow-y-auto max-h-full' : 'flex-1 p-4 overflow-y-auto max-h-full'}>
+      {selectedLayer && (
+        <>
+          <h2 className="text-xl font-bold mb-4 pb-2 border-b">{selectedLayer.name} 设置</h2>
 
-             {selectedLayer.printingMethod === PrintingMethod.SCAN ? (
-               //MARK: --- 扫描图层设置 ---
-               <div key="scan" className="space-y-4">
-                 <div>
-                   <label className="block text-sm font-medium mb-1">线密度 (线/毫米)</label>
-                   <input
-                     type="number"
-                     min={1}
-                     max={100}
-                     step={1}
-                     value={(selectedLayer.lineDensity) ?? ""}
-                     onChange={e => {
-                      handleInputChange('lineDensity', e.target.value ? Number(e.target.value) : null)
-                      console.log(e.target.value)
-                      console.log(Number(e.target.value))
-                      if(!e.target.value){
-                        console.log("字符非法")
-                      }
-                      const isInvalid = !e.target.value;          // 空串就视为非法
-                      e.currentTarget.classList.toggle('border-red-500', isInvalid);
-                    }}
-                     className="w-full p-2 border rounded-md"
-                   />
-                 </div>
-                 <div>
-                   <label className="block text-sm font-medium mb-1">出边距离 (mm)</label>
-                   <input
-                     type="number"
-                     min={0}
-                     max={50}
-                     step={0.1}
-                     placeholder={"0"}
-                     value={selectedLayer.reverseMovementOffset ?? ""}
-                     onChange={e => {
-                        console.log(Number(e.target.value))
-                        handleInputChange('reverseMovementOffset',  e.target.value ? Number(e.target.value) : null)
-                        if(!e.target.value){
-                        console.log("字符非法")
-                      }
-                      const isInvalid = !e.target.value;          // 空串就视为非法
-                      e.currentTarget.classList.toggle('border-red-500', isInvalid);
-                      }}
-                     className="w-full p-2 border rounded-md"
-                   />
-                   <p className="text-xs text-gray-500 mt-1">每行扫描时在两端额外移动的距离</p>
-                 </div>
-                 <div className="flex items-center">
-                   <input
-                     type="checkbox"
-                     checked={!!selectedLayer.halftone}
-                     onChange={e => handleCheckboxChange('halftone', e.target.checked)}
-                     id="halftone-checkbox"
-                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                   />
-                   <label htmlFor="halftone-checkbox" className="ml-2 block text-sm text-gray-900">半调网屏</label>
-                 </div>
+          {/* 统一的预览图区域 */}
+          <div className="mb-4">
+            <h3 className="text-md font-semibold mb-2">图层预览</h3>
+            <div className="flex justify-center items-center p-2 border rounded-lg bg-gray-200">
+              <LayerPreview layer={selectedLayer} items={items} canvasWidth={canvasWidth} canvasHeight={canvasHeight} />
+            </div>
+          </div>
 
-                 {/* 半调网屏详细设置 */}
-                 {selectedLayer.halftone && (
-                   <div className="ml-6 space-y-3 border-l-2 border-blue-200 pl-4">
-                     <div>
-                       <label className="block text-sm font-medium mb-1">半调模式</label>
-                       <select
-                         value={selectedLayer.halftoneMode ?? 'floyd-steinberg'}
-                         onChange={e => handleInputChange('halftoneMode', e.target.value as 'floyd-steinberg' | 'halftone-dot')}
-                         className="w-full p-2 border rounded-md"
-                       >
-                         <option value="floyd-steinberg">Floyd-Steinberg 误差扩散</option>
-                         <option value="halftone-dot">AM 网点半调</option>
-                       </select>
-                     </div>
+          {selectedLayer.printingMethod === PrintingMethod.SCAN ? (
+            //MARK: --- 扫描图层设置 ---
+            <div key="scan" className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">线密度 (线/毫米)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={(selectedLayer.lineDensity) ?? ""}
+                  onChange={e => {
+                    handleInputChange('lineDensity', e.target.value ? Number(e.target.value) : null)
+                    console.log(e.target.value)
+                    console.log(Number(e.target.value))
+                    if (!e.target.value) {
+                      console.log("字符非法")
+                    }
+                    const isInvalid = !e.target.value;          // 空串就视为非法
+                    e.currentTarget.classList.toggle('border-red-500', isInvalid);
+                  }}
+                  className="w-full p-2 border rounded-md"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">出边距离 (mm)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={50}
+                  step={0.1}
+                  placeholder={"0"}
+                  value={selectedLayer.reverseMovementOffset ?? ""}
+                  onChange={e => {
+                    console.log(Number(e.target.value))
+                    handleInputChange('reverseMovementOffset', e.target.value ? Number(e.target.value) : null)
+                    if (!e.target.value) {
+                      console.log("字符非法")
+                    }
+                    const isInvalid = !e.target.value;          // 空串就视为非法
+                    e.currentTarget.classList.toggle('border-red-500', isInvalid);
+                  }}
+                  className="w-full p-2 border rounded-md"
+                />
+                <p className="text-xs text-gray-500 mt-1">每行扫描时在两端额外移动的距离</p>
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={!!selectedLayer.halftone}
+                  onChange={e => handleCheckboxChange('halftone', e.target.checked)}
+                  id="halftone-checkbox"
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <label htmlFor="halftone-checkbox" className="ml-2 block text-sm text-gray-900">半调网屏</label>
+              </div>
 
-                     {selectedLayer.halftoneMode === 'halftone-dot' ? (
-                       <>
-                         <div>
-                           <label className="block text-sm font-medium mb-1">网点大小 (像素)</label>
-                           <input
-                             type="number"
-                             min={2}
-                             max={20}
-                             step={1}
-                             value={selectedLayer.halftoneDotSize ?? 6}
-                             onChange={e => handleInputChange('halftoneDotSize', Number(e.target.value))}
-                             className="w-full p-2 border rounded-md"
-                           />
-                         </div>
-                         <div>
-                           <label className="block text-sm font-medium mb-1">网屏角度 (度)</label>
-                           <input
-                             type="number"
-                             min={0}
-                             max={90}
-                             step={5}
-                             value={selectedLayer.halftoneAngle ?? 30}
-                             onChange={e => handleInputChange('halftoneAngle', Number(e.target.value))}
-                             className="w-full p-2 border rounded-md"
-                           />
-                         </div>
-                         <div>
-                           <label className="block text-sm font-medium mb-1">伽马校正</label>
-                           <input
-                             type="number"
-                             min={0.1}
-                             max={3}
-                             step={0.1}
-                             value={selectedLayer.halftoneGamma ?? 0.7}
-                             onChange={e => handleInputChange('halftoneGamma', Number(e.target.value))}
-                             className="w-full p-2 border rounded-md"
-                           />
-                         </div>
-                       </>
-                     ) : (
-                       <div>
-                         <label className="block text-sm font-medium mb-1">二值化阈值 (0-255)</label>
-                         <input
-                           type="number"
-                           min={0}
-                           max={255}
-                           step={1}
-                           value={selectedLayer.floydSteinbergThreshold ?? 128}
-                           onChange={e => handleInputChange('floydSteinbergThreshold', Number(e.target.value))}
-                           className="w-full p-2 border rounded-md"
-                         />
-                         <p className="text-xs text-gray-500 mt-1">低于此值的像素会被处理为黑色</p>
-                       </div>
-                     )}
-                   </div>
-                 )}
+              {/* 半调网屏详细设置 */}
+              {selectedLayer.halftone && (
+                <div className="ml-6 space-y-3 border-l-2 border-blue-200 pl-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">半调模式</label>
+                    <select
+                      value={selectedLayer.halftoneMode ?? 'floyd-steinberg'}
+                      onChange={e => handleInputChange('halftoneMode', e.target.value as 'floyd-steinberg' | 'halftone-dot')}
+                      className="w-full p-2 border rounded-md"
+                    >
+                      <option value="floyd-steinberg">Floyd-Steinberg 误差扩散</option>
+                      <option value="halftone-dot">AM 网点半调</option>
+                    </select>
+                  </div>
 
-                 {/* 新增扫描参数 */}
-                 <div>
-                   <label className="block text-sm font-medium mb-1">功率最大值 (%)</label>
-                   <input
-                     type="number"
-                     min={0}
-                     max={100}
-                     step={1}
-                     value={selectedLayer.maxPower ?? ""}
-                     onChange={e => {
-                      handleInputChange('maxPower', e.target.value ? Number(e.target.value) : null)
-                        if(!e.target.value){
-                        console.log("字符非法")
-                      }
-                      const isInvalid = !e.target.value;          // 空串就视为非法
-                      e.currentTarget.classList.toggle('border-red-500', isInvalid);
-                     }}
-                     className="w-full p-2 border rounded-md"
-                   />
-                   <p className="text-xs text-gray-500 mt-1">扫描时的最大激光功率</p>
-                 </div>
+                  {selectedLayer.halftoneMode === 'halftone-dot' ? (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">网点大小 (像素)</label>
+                        <input
+                          type="number"
+                          min={2}
+                          max={20}
+                          step={1}
+                          value={selectedLayer.halftoneDotSize ?? 6}
+                          onChange={e => handleInputChange('halftoneDotSize', Number(e.target.value))}
+                          className="w-full p-2 border rounded-md"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">网屏角度 (度)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={90}
+                          step={5}
+                          value={selectedLayer.halftoneAngle ?? 30}
+                          onChange={e => handleInputChange('halftoneAngle', Number(e.target.value))}
+                          className="w-full p-2 border rounded-md"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">伽马校正</label>
+                        <input
+                          type="number"
+                          min={0.1}
+                          max={3}
+                          step={0.1}
+                          value={selectedLayer.halftoneGamma ?? 0.7}
+                          onChange={e => handleInputChange('halftoneGamma', Number(e.target.value))}
+                          className="w-full p-2 border rounded-md"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <label className="block text-sm font-medium mb-1">二值化阈值 (0-255)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={255}
+                        step={1}
+                        value={selectedLayer.floydSteinbergThreshold ?? 128}
+                        onChange={e => handleInputChange('floydSteinbergThreshold', Number(e.target.value))}
+                        className="w-full p-2 border rounded-md"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">低于此值的像素会被处理为黑色</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
-                 <div>
-                   <label className="block text-sm font-medium mb-1">功率最小值 (%)</label>
-                   <input
-                     type="number"
-                     min={0}
-                     max={100}
-                     step={1}
-                     value={selectedLayer.minPower ?? ""}
-                     onChange={e => {
-                      handleInputChange('minPower', e.target.value ? Number(e.target.value) : null)
-                      if(!e.target.value){
-                        console.log("字符非法")
-                      }
-                      const isInvalid = !e.target.value;          // 空串就视为非法
-                      e.currentTarget.classList.toggle('border-red-500', isInvalid);
-                     }}
-                     className="w-full p-2 border rounded-md"
-                   />
-                   <p className="text-xs text-gray-500 mt-1">扫描时的最小激光功率</p>
-                 </div>
+              {/* 新增扫描参数 */}
+              <div>
+                <label className="block text-sm font-medium mb-1">功率最大值 (%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={selectedLayer.maxPower ?? ""}
+                  onChange={e => {
+                    handleInputChange('maxPower', e.target.value ? Number(e.target.value) : null)
+                    if (!e.target.value) {
+                      console.log("字符非法")
+                    }
+                    const isInvalid = !e.target.value;          // 空串就视为非法
+                    e.currentTarget.classList.toggle('border-red-500', isInvalid);
+                  }}
+                  className="w-full p-2 border rounded-md"
+                />
+                <p className="text-xs text-gray-500 mt-1">扫描时的最大激光功率</p>
+              </div>
 
-                 {/* 单一功率模式提示 */}
-                 {selectedLayer.maxPower === selectedLayer.minPower && selectedLayer.maxPower !== undefined && selectedLayer.minPower !== undefined && (
-                   <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-                     <div className="flex items-start">
-                       <div className="flex-shrink-0">
-                         <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
-                           <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                         </svg>
-                       </div>
-                       <div className="ml-3">
-                         <h4 className="text-sm font-medium text-blue-800">单一功率模式</h4>
-                         <p className="text-sm text-blue-700 mt-1">
-                           最大值和最小值相同时，将使用单一功率 {selectedLayer.maxPower}% 雕刻暗于中灰度（127）的区域，
-                           亮于中灰度的区域不出光。这适合需要统一深度雕刻的场景。
-                         </p>
-                       </div>
-                     </div>
-                   </div>
-                 )}
+              <div>
+                <label className="block text-sm font-medium mb-1">功率最小值 (%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={selectedLayer.minPower ?? ""}
+                  onChange={e => {
+                    handleInputChange('minPower', e.target.value ? Number(e.target.value) : null)
+                    if (!e.target.value) {
+                      console.log("字符非法")
+                    }
+                    const isInvalid = !e.target.value;          // 空串就视为非法
+                    e.currentTarget.classList.toggle('border-red-500', isInvalid);
+                  }}
+                  className="w-full p-2 border rounded-md"
+                />
+                <p className="text-xs text-gray-500 mt-1">扫描时的最小激光功率</p>
+              </div>
 
-                 <div>
-                   <label className="block text-sm font-medium mb-1">移动速度 (mm/s)</label>
-                   <input
-                     type="number"
-                     min={10}
-                     max={500}
-                     step={10}
-                     value={selectedLayer.moveSpeed ?? ""}
-                     onChange={e => {
-                      handleInputChange('moveSpeed', e.target.value ? Number(e.target.value) : null)
-                      if(!e.target.value){
-                        console.log("字符非法")
-                      }
-                      const isInvalid = !e.target.value;          // 空串就视为非法
-                      e.currentTarget.classList.toggle('border-red-500', isInvalid);
-                     }}
-                     className="w-full p-2 border rounded-md"
-                   />
-                   <p className="text-xs text-gray-500 mt-1">激光头移动速度</p>
-                 </div>
-               </div>
-             ) : (
-               // --- 雕刻图层设置 ---
-               <div key="engrave" className="space-y-4">
-                   {/* 激光功率设置 */}
-                   <div>
-                     <label className="block text-sm font-medium mb-1">激光功率（%）</label>
-                     <input
-                       type="number"
-                       min={1}
-                       max={100}
-                       value={selectedLayer.power ?? ""}
-                       onChange={e => {
-                        handleInputChange('power', e.target.value ? Number(e.target.value) : null)
-                        if(!e.target.value){
-                        console.log("字符非法")
-                      }
-                      const isInvalid = !e.target.value;          // 空串就视为非法
-                      e.currentTarget.classList.toggle('border-red-500', isInvalid);
-                       }}
-                       className="w-full p-2 border rounded-md"
-                     />
-                   </div>
+              {/* 单一功率模式提示 */}
+              {selectedLayer.maxPower === selectedLayer.minPower && selectedLayer.maxPower !== undefined && selectedLayer.minPower !== undefined && (
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                  <div className="flex items-start">
+                    <div className="flex-shrink-0">
+                      <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="ml-3">
+                      <h4 className="text-sm font-medium text-blue-800">单一功率模式</h4>
+                      <p className="text-sm text-blue-700 mt-1">
+                        最大值和最小值相同时，将使用单一功率 {selectedLayer.maxPower}% 雕刻暗于中灰度（127）的区域，
+                        亮于中灰度的区域不出光。这适合需要统一深度雕刻的场景。
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-                   {/* 可滚动的轨迹列表 */}
-                   <div>
-                       <h3 className="text-md font-semibold mb-2">轨迹列表</h3>
-                       <div className="p-2 border rounded-lg bg-gray-200 overflow-y-auto" style={{ maxHeight: '250px' }}>
-                           <EngravingTrajectoryList layer={selectedLayer} items={items} canvasHeight={canvasHeight} />
-                       </div>
-                   </div>
-               </div>
-             )}
-           </>
-         )}
-       </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">移动速度 (mm/s)</label>
+                <input
+                  type="number"
+                  min={10}
+                  max={500}
+                  step={10}
+                  value={selectedLayer.moveSpeed ?? ""}
+                  onChange={e => {
+                    handleInputChange('moveSpeed', e.target.value ? Number(e.target.value) : null)
+                    if (!e.target.value) {
+                      console.log("字符非法")
+                    }
+                    const isInvalid = !e.target.value;          // 空串就视为非法
+                    e.currentTarget.classList.toggle('border-red-500', isInvalid);
+                  }}
+                  className="w-full p-2 border rounded-md"
+                />
+                <p className="text-xs text-gray-500 mt-1">激光头移动速度</p>
+              </div>
+            </div>
+          ) : (
+            // --- 雕刻图层设置 ---
+            <div key="engrave" className="space-y-4">
+              {/* 激光功率设置 */}
+              <div>
+                <label className="block text-sm font-medium mb-1">激光功率（%）</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={selectedLayer.power ?? ""}
+                  onChange={e => {
+                    handleInputChange('power', e.target.value ? Number(e.target.value) : null)
+                    if (!e.target.value) {
+                      console.log("字符非法")
+                    }
+                    const isInvalid = !e.target.value;          // 空串就视为非法
+                    e.currentTarget.classList.toggle('border-red-500', isInvalid);
+                  }}
+                  className="w-full p-2 border rounded-md"
+                />
+              </div>
+
+              {/* 可滚动的轨迹列表 */}
+              <div>
+                <h3 className="text-md font-semibold mb-2">轨迹列表</h3>
+                <div className="p-2 border rounded-lg bg-gray-200 overflow-y-auto" style={{ maxHeight: '250px' }}>
+                  <EngravingTrajectoryList layer={selectedLayer} items={items} canvasHeight={canvasHeight} />
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 
   if (layoutMode === 'grid') {
