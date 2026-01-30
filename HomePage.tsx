@@ -25,7 +25,7 @@ declare global {
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  
+
   // 状态管理
   const [image, setImage] = useState<string | null>(null); // 当前显示的图片
   const [brightness, setBrightness] = useState(0); // 亮度调节值
@@ -65,12 +65,12 @@ const HomePage: React.FC = () => {
           navigate('/whiteboard');
         }
         return;
-      }else{
-      console.log('[首页] Android调用setHomePageImage，base64长度:', base64Data.length);
-      console.log('[首页] base64Data前100:', base64Data.substring(0, 100));
-      setImage(base64Data);
-      setOriginalImage(base64Data);
-      setBaseImageForBrightnessContrast(base64Data);
+      } else {
+        console.log('[首页] Android调用setHomePageImage，base64长度:', base64Data.length);
+        console.log('[首页] base64Data前100:', base64Data.substring(0, 100));
+        setImage(base64Data);
+        setOriginalImage(base64Data);
+        setBaseImageForBrightnessContrast(base64Data);
       }
     };
 
@@ -84,24 +84,24 @@ const HomePage: React.FC = () => {
         // 无参数时，使用一张空白图片初始化基图、原图和展示图，然后再跳转
         console.log('[首页] setWhiteboardImage无参数，使用空白图初始化并跳转到白板界面');
         try {
-        //   const canvas = document.createElement('canvas');
-        //   // 选用与平台尺寸接近的默认尺寸，避免后续缩放产生模糊；若无要求，设置为 1000x1000
-        //   canvas.width = 1000;
-        //   canvas.height = 1000;
-        //   const ctx = canvas.getContext('2d');
-        //   if (ctx) {
-        //     // 填充为白色空白图
-        //     ctx.fillStyle = '#FFFFFF';
-        //     ctx.fillRect(0, 0, canvas.width, canvas.height);
-        //   }
-        //   const blankDataUrl = canvas.toDataURL('image/png');
+          //   const canvas = document.createElement('canvas');
+          //   // 选用与平台尺寸接近的默认尺寸，避免后续缩放产生模糊；若无要求，设置为 1000x1000
+          //   canvas.width = 1000;
+          //   canvas.height = 1000;
+          //   const ctx = canvas.getContext('2d');
+          //   if (ctx) {
+          //     // 填充为白色空白图
+          //     ctx.fillStyle = '#FFFFFF';
+          //     ctx.fillRect(0, 0, canvas.width, canvas.height);
+          //   }
+          //   const blankDataUrl = canvas.toDataURL('image/png');
 
-        //   // 设置基图、原图与展示图
-        //   setImage(blankDataUrl);
-        //   setOriginalImage(blankDataUrl);
-        //   setBaseImageForBrightnessContrast(blankDataUrl);
+          //   // 设置基图、原图与展示图
+          //   setImage(blankDataUrl);
+          //   setOriginalImage(blankDataUrl);
+          //   setBaseImageForBrightnessContrast(blankDataUrl);
 
-        //   // 不传递图片，直接跳转到白板
+          //   // 不传递图片，直接跳转到白板
           //navigate('/whiteboard');
         } catch (e) {
           console.error('初始化空白图片失败，直接跳转白板:', e);
@@ -135,7 +135,7 @@ const HomePage: React.FC = () => {
     if ((window as any).__pendingWhiteboardImage) {
       const pendingCall = (window as any).__pendingWhiteboardImage;
       console.log('[首页] 发现缓存的setWhiteboardImage调用:', pendingCall);
-      
+
       if (pendingCall.base64Data) {
         // 有图片数据时，跳转到白板并传递图片
         console.log('[首页] 处理缓存的setWhiteboardImage有参数，跳转到白板并传递图片');
@@ -182,60 +182,104 @@ const HomePage: React.FC = () => {
   // 检测图片尺寸并设置状态，不再手动调整图片显示尺寸
   const handleImageLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
     const img = event.currentTarget;
-    
+
     console.log('图片原始尺寸:', img.naturalWidth, 'x', img.naturalHeight);
-    
+
     // 获取容器信息用于调试
     const container = img.parentElement;
     if (container) {
       const containerRect = container.getBoundingClientRect();
       console.log('容器尺寸:', containerRect.width, 'x', containerRect.height);
-      
+
       // 计算白框区域的实际尺寸
       const whiteBoxWidth = containerRect.width - 32;
       const whiteBoxHeight = containerRect.height - 32;
       console.log('白框区域尺寸:', whiteBoxWidth, 'x', whiteBoxHeight);
-      
+
       // 计算白框内的内容区域（即padding以内的区域）
       const contentWidth = whiteBoxWidth - 16;
       const contentHeight = whiteBoxHeight - 16;
       console.log('白框内容区域尺寸:', contentWidth, 'x', contentHeight);
-      
+
       const scaleX = img.offsetWidth / img.naturalWidth;
       const scaleY = img.offsetHeight / img.naturalHeight;
       console.log('缩放比例:', scaleX.toFixed(3), 'x', scaleY.toFixed(3));
-      
+
       // 检查是否在白框内容区域内完整显示
       const isFullyVisibleInContent = img.offsetWidth <= contentWidth && img.offsetHeight <= contentHeight;
       console.log('图片是否在白框内容区域内完整显示:', isFullyVisibleInContent);
-      
+
       // 检查是否需要滚动条
       const needsScroll = img.offsetWidth > contentWidth || img.offsetHeight > contentHeight;
       console.log('是否需要滚动条:', needsScroll);
-      
+
       // 输出CSS属性信息
       console.log('CSS object-fit:', getComputedStyle(img).objectFit);
       console.log('CSS max-width:', getComputedStyle(img).maxWidth);
       console.log('CSS max-height:', getComputedStyle(img).maxHeight);
       console.log('CSS width:', getComputedStyle(img).width);
       console.log('CSS height:', getComputedStyle(img).height);
-      
+
       // 检查图片是否超出白框内可用空间
       const isOverflowingContent = img.offsetWidth > contentWidth || img.offsetHeight > contentHeight;
       console.log('图片是否超出白框内可用空间:', isOverflowingContent);
-      
+
       // 计算图片在白框内的显示比例
       const displayRatioX = img.offsetWidth / contentWidth;
       const displayRatioY = img.offsetHeight / contentHeight;
       console.log('图片在白框内的显示比例:', displayRatioX.toFixed(3), 'x', displayRatioY.toFixed(3));
-      
+
       // 输出实际显示尺寸
       console.log('实际显示尺寸:', img.offsetWidth, 'x', img.offsetHeight);
     }
   };
 
+  // 图片压缩工具函数
+  const compressImage = (file: File, maxWidth: number = 1280, quality: number = 0.8): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        // 计算缩放比例
+        if (width > maxWidth || height > maxWidth) {
+          const ratio = Math.min(maxWidth / width, maxWidth / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('无法创建Canvas上下文'));
+          return;
+        }
+
+        // 绘制并压缩
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+
+        URL.revokeObjectURL(objectUrl);
+        resolve(dataUrl);
+      };
+
+      img.onerror = (e) => {
+        URL.revokeObjectURL(objectUrl);
+        reject(e);
+      };
+
+      img.src = objectUrl;
+    });
+  };
+
   // 处理图片文件上传
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       console.log('选择的文件:', file.name, file.size, file.type);
@@ -246,26 +290,31 @@ const HomePage: React.FC = () => {
         return;
       }
 
-      // 检查文件大小（限制为10MB）
-      if (file.size > 10 * 1024 * 1024) {
-        alert('图片文件过大，请选择小于10MB的图片');
-        return;
-      }
+      // 尝试压缩图片
+      try {
+        const compressedDataUrl = await compressImage(file);
+        console.log('图片压缩成功，长度:', compressedDataUrl.length);
+        setImage(compressedDataUrl);
+        setOriginalImage(compressedDataUrl);
+        setBaseImageForBrightnessContrast(compressedDataUrl);
+      } catch (error) {
+        console.error('图片压缩失败，尝试使用原图:', error);
 
-      // 读取文件为Data URL
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const imageUrl = e.target?.result as string;
-        console.log('图片URL长度:', imageUrl.length);
-        setImage(imageUrl);
-        setOriginalImage(imageUrl);
-        setBaseImageForBrightnessContrast(imageUrl);
-      };
-      reader.onerror = (e) => {
-        console.error('文件读取失败:', e);
-        alert('图片读取失败，请重试');
-      };
-      reader.readAsDataURL(file);
+        // 降级处理：直接读取原图
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const imageUrl = e.target?.result as string;
+          console.log('原图URL长度:', imageUrl.length);
+          setImage(imageUrl);
+          setOriginalImage(imageUrl);
+          setBaseImageForBrightnessContrast(imageUrl);
+        };
+        reader.onerror = (e) => {
+          console.error('文件读取失败:', e);
+          alert('图片读取失败，请重试');
+        };
+        reader.readAsDataURL(file);
+      }
     }
 
     // 清空input值，允许重复选择同一文件
@@ -597,7 +646,7 @@ const HomePage: React.FC = () => {
       const edges = new window.cv.Mat();
       window.cv.cvtColor(src, gray, window.cv.COLOR_RGBA2GRAY, 0);
       window.cv.Canny(gray, edges, threshold1, threshold2);
-      
+
       // 反色，让线条变白，背景变黑
       window.cv.bitwise_not(edges, edges);
       // Canny输出是单通道，需要转回4通道显示
@@ -618,15 +667,15 @@ const HomePage: React.FC = () => {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         const img = new Image();
-        
+
         img.onload = () => {
           canvas.width = img.width;
           canvas.height = img.height;
-          
+
           if (ctx) {
             // 绘制图片到canvas
             ctx.drawImage(img, 0, 0);
-            
+
             // 将canvas转换为blob
             canvas.toBlob((blob) => {
               if (blob) {
@@ -635,7 +684,7 @@ const HomePage: React.FC = () => {
                 reader.onload = () => {
                   const arrayBuffer = reader.result as ArrayBuffer;
                   const buffer = Buffer.from(arrayBuffer);
-                  
+
                   // 使用Potrace将位图转换为SVG
                   potrace.trace(buffer, {
                     threshold: 128,
@@ -649,7 +698,7 @@ const HomePage: React.FC = () => {
                       reject(new Error('SVG转换失败'));
                       return;
                     }
-                    
+
                     console.log('Potrace转换成功，生成SVG内容长度:', svg.length);
                     resolve(svg);
                   });
@@ -663,11 +712,11 @@ const HomePage: React.FC = () => {
             reject(new Error('无法获取Canvas上下文'));
           }
         };
-        
+
         img.onerror = () => {
           reject(new Error('图片加载失败'));
         };
-        
+
         img.src = base64Image;
       } catch (error) {
         reject(error);
@@ -688,12 +737,12 @@ const HomePage: React.FC = () => {
     try {
       // 第一步：将原始图片转换为矢量图
       const originalSvgContent = await convertImageToSVG(image);
-      
+
       if (originalSvgContent) {
         try {
           // 第二步：解析SVG数据，将解析后的数据放到parsedItems中
           const parsedItems = await parseSvgWithSvgson(originalSvgContent);
-          
+
           // 第三步：提取线框
           applyCannyEdgeDetectionOpenCV(image, 120, 250, async (edgeImage) => {
             // 创建单一ImageObject的数据结构
@@ -709,13 +758,13 @@ const HomePage: React.FC = () => {
 
             // 将数据存储到localStorage，供白板页面读取
             localStorage.setItem('whiteboardImageData', JSON.stringify(whiteboardData));
-            
+
             // 设置加载状态为false
             setIsLoading(false);
-            
+
             // 跳转到白板页面
-            navigate('/whiteboard', { 
-              state: { 
+            navigate('/whiteboard', {
+              state: {
                 hasVectorData: true,
                 displayImage: edgeImage, // 用于显示的线框位图
                 vectorSource: {
@@ -723,12 +772,12 @@ const HomePage: React.FC = () => {
                   content: originalSvgContent,
                   parsedItems: parsedItems // 解析后的矢量数据
                 }
-              } 
+              }
             });
           });
         } catch (parseError) {
           console.error('SVG解析失败:', parseError);
-          
+
           // 即使解析失败，也继续处理，只是parsedItems为空数组
           applyCannyEdgeDetectionOpenCV(image, 120, 250, async (edgeImage) => {
             const whiteboardData = {
@@ -741,12 +790,12 @@ const HomePage: React.FC = () => {
             };
 
             localStorage.setItem('whiteboardImageData', JSON.stringify(whiteboardData));
-            
+
             // 设置加载状态为false
             setIsLoading(false);
-            
-            navigate('/whiteboard', { 
-              state: { 
+
+            navigate('/whiteboard', {
+              state: {
                 hasVectorData: true,
                 displayImage: edgeImage,
                 vectorSource: {
@@ -754,17 +803,17 @@ const HomePage: React.FC = () => {
                   content: originalSvgContent,
                   parsedItems: []
                 }
-              } 
+              }
             });
           });
         }
       }
-  } catch (error) {
-    console.error('线框提取和矢量化失败:', error);
-    alert('处理失败，请重试');
-    setIsLoading(false);
-  }
-};
+    } catch (error) {
+      console.error('线框提取和矢量化失败:', error);
+      alert('处理失败，请重试');
+      setIsLoading(false);
+    }
+  };
 
   // OpenCV.js 90度旋转：顺时针旋转图片90度
   function applyRotate90OpenCV(base64: string, callback: (result: string) => void) {
@@ -831,10 +880,10 @@ const HomePage: React.FC = () => {
     console.log('HomePage useEffect: 检查图片');
     console.log('location.state:', location.state);
     console.log('location.state.image:', (location.state as any)?.image);
-    
+
     let img = (location.state as any)?.image;
     console.log('从location.state获取的图片:', img ? '有图片' : '无图片');
-    
+
     if (!img) {
       // 如果location.state中没有图片，尝试从localStorage获取
       const localStorageImg = localStorage.getItem('croppedImage');
@@ -845,7 +894,7 @@ const HomePage: React.FC = () => {
         console.log('已从localStorage移除图片');
       }
     }
-    
+
     // 如果有图片，设置图片
     if (img) {
       console.log('HomePage: 有图片，设置图片并显示');
@@ -859,7 +908,7 @@ const HomePage: React.FC = () => {
       setBaseImageForBrightnessContrast(img);
       window.history.replaceState({}, document.title);
       // 禁止 setHomePageImage 再次覆盖
-      (window as any).setHomePageImage = () => {};
+      (window as any).setHomePageImage = () => { };
     } else {
       console.log('HomePage: 没有接收到图片');
     }
@@ -867,7 +916,7 @@ const HomePage: React.FC = () => {
 
   // 移除监听窗口大小变化以重新调整图片尺寸的 useEffect
   // 因为现在使用 CSS 的 object-fit: contain 来实现自适应，无需手动调整
-  
+
   // 添加窗口大小变化时的调试信息
   useEffect(() => {
     const handleResize = () => {
@@ -878,26 +927,26 @@ const HomePage: React.FC = () => {
             const adjustedWidth = imgElement.offsetWidth;
             const adjustedHeight = imgElement.offsetHeight;
             console.log('窗口大小变化后 - 调整后的图片尺寸:', adjustedWidth, 'x', adjustedHeight);
-            
+
             const container = imgElement.parentElement;
             if (container) {
               const containerRect = container.getBoundingClientRect();
               console.log('窗口大小变化后 - 容器尺寸:', containerRect.width, 'x', containerRect.height);
-              
+
               // 计算白框区域的实际尺寸
               const whiteBoxWidth = containerRect.width - 32;
               const whiteBoxHeight = containerRect.height - 32;
               console.log('窗口大小变化后 - 白框区域尺寸:', whiteBoxWidth, 'x', whiteBoxHeight);
-              
+
               // 计算白框内的内容区域（即padding以内的区域）
               const contentWidth = whiteBoxWidth - 16;
               const contentHeight = whiteBoxHeight - 16;
               console.log('窗口大小变化后 - 白框内容区域尺寸:', contentWidth, 'x', contentHeight);
-              
+
               const scaleX = adjustedWidth / imgElement.naturalWidth;
               const scaleY = adjustedHeight / imgElement.naturalHeight;
               console.log('窗口大小变化后 - 缩放比例:', scaleX.toFixed(3), 'x', scaleY.toFixed(3));
-              
+
               // 检查是否在白框内容区域内完整显示
               const isFullyVisibleInContent = adjustedWidth <= contentWidth && adjustedHeight <= contentHeight;
               console.log('窗口大小变化后 - 图片是否在白框内容区域内完整显示:', isFullyVisibleInContent);
@@ -1026,7 +1075,7 @@ const HomePage: React.FC = () => {
           />
           <span className="text-sm text-gray-600 w-12">{contrast}</span>
         </div>
-        
+
       </div>
 
       {/* 功能操作按钮区域 */}

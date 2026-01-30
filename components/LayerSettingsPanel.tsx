@@ -188,60 +188,60 @@ const LayerSettingsPanel: React.FC<LayerSettingsPanelProps> = ({ layers, selecte
                 />
                 <p className="text-xs text-gray-500 mt-1">每行扫描时在两端额外移动的距离</p>
               </div>
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={!!selectedLayer.halftone}
-                  onChange={e => handleCheckboxChange('halftone', e.target.checked)}
-                  id="halftone-checkbox"
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <label htmlFor="halftone-checkbox" className="ml-2 block text-sm text-gray-900">半调网屏</label>
-              </div>
+              {/* 半调模式选择：两个互斥的Checkbox */}
+              <div className="space-y-3 border-t border-b py-3 my-2">
+                <label className="block text-sm font-medium mb-2">图像处理模式</label>
+                <div className="flex flex-col space-y-2">
+                  {/* 选项 1: 半调网屏 (AM网点) */}
+                  <label className="inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!selectedLayer.halftone && selectedLayer.halftoneMode === 'halftone-dot'}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          // 启用半调网屏，模式设为 AM网点
+                          const updates: Partial<Layer> = { halftone: true, halftoneMode: 'halftone-dot' };
+                          onUpdateLayer(selectedLayer.id, updates);
+                        } else {
+                          // 取消勾选，关闭半调功能
+                          const updates: Partial<Layer> = { halftone: false };
+                          onUpdateLayer(selectedLayer.id, updates);
+                        }
+                      }}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">半调网屏 (AM网点)</span>
+                  </label>
 
-              {/* 半调网屏详细设置 */}
-              {selectedLayer.halftone && (
-                <div className="ml-6 space-y-3 border-l-2 border-blue-200 pl-4">
-                  <div className="mb-2">
-                    <label className="block text-sm font-medium mb-2">半调模式</label>
-                    <div className="flex flex-col space-y-2">
-                      {/* 选项 1: Floyd-Steinberg */}
-                      <label className="inline-flex items-center cursor-pointer">
-                        <input
-                          type="radio"
-                          name="halftoneMode"
-                          value="floyd-steinberg"
-                          checked={selectedLayer.halftoneMode !== 'halftone-dot'} // 默认为此模式
-                          onChange={() => {
-                            const updates: Partial<Layer> = { halftoneMode: 'floyd-steinberg' };
-                            onUpdateLayer(selectedLayer.id, updates);
-                          }}
-                          className="form-radio h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                        />
-                        <span className="ml-2 text-sm text-gray-700">Floyd-Steinberg 误差扩散</span>
-                      </label>
-
-                      {/* 选项 2: AM 网点 */}
-                      <label className="inline-flex items-center cursor-pointer">
-                        <input
-                          type="radio"
-                          name="halftoneMode"
-                          value="halftone-dot"
-                          checked={selectedLayer.halftoneMode === 'halftone-dot'}
-                          onChange={() => {
-                            const updates: Partial<Layer> = { halftoneMode: 'halftone-dot' };
-                            onUpdateLayer(selectedLayer.id, updates);
-                          }}
-                          className="form-radio h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                        />
-                        <span className="ml-2 text-sm text-gray-700">AM 网点半调</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* 没有任何参数输入框被渲染 */}
+                  {/* 选项 2: 1bit抖动 (误差扩散) */}
+                  <label className="inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!selectedLayer.halftone && selectedLayer.halftoneMode !== 'halftone-dot'}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          // 启用半调网屏，模式设为 误差扩散
+                          const updates: Partial<Layer> = { halftone: true, halftoneMode: 'floyd-steinberg' };
+                          onUpdateLayer(selectedLayer.id, updates);
+                        } else {
+                          // 取消勾选，关闭半调功能
+                          const updates: Partial<Layer> = { halftone: false };
+                          onUpdateLayer(selectedLayer.id, updates);
+                        }
+                      }}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">1bit抖动 (误差扩散)</span>
+                  </label>
                 </div>
-              )}
+                <p className="text-xs text-gray-500 mt-1">
+                  {!selectedLayer.halftone
+                    ? "当前为灰度模式 (根据亮度调整激光功率)"
+                    : selectedLayer.halftoneMode === 'halftone-dot'
+                      ? "使用网点大小模拟灰度 (适合印刷风格)"
+                      : "使用像素抖动模拟灰度 (适合照片还原)"}
+                </p>
+              </div>
 
 
 

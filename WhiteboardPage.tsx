@@ -33,10 +33,64 @@ function toBase64Utf8(str: string): string {
   try {
     return window.btoa(unescape(encodeURIComponent(str)));
   } catch (e) {
-    // 兜底：如果编码失败，退回原字符串（可能导致后续失败，但不阻塞）
+    // 兜底：如果编码失败，退回原字符串（可能导致后续失败，���不阻塞）
     return window.btoa(str);
   }
 }
+
+/**
+ * 图片压缩工具函数
+ * @param source 图片源（File对象、Blob对象或Base64字符串）
+ * @param maxWidth 最大宽度/高度（默认1280px）
+ * @param quality JPEG压缩质量（0-1，默认0.8）
+ */
+const compressImage = (source: string | File | Blob, maxWidth: number = 1280, quality: number = 0.8): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    let objectUrl: string | null = null;
+
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+
+      // 计算缩放比例
+      if (width > maxWidth || height > maxWidth) {
+        const ratio = Math.min(maxWidth / width, maxWidth / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        reject(new Error('无法创建Canvas上下文'));
+        return;
+      }
+
+      // 绘制并压缩
+      ctx.drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      resolve(dataUrl);
+    };
+
+    img.onerror = (e) => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      reject(e);
+    };
+
+    if (typeof source === 'string') {
+      img.src = source;
+    } else {
+      objectUrl = URL.createObjectURL(source);
+      img.src = objectUrl;
+    }
+  });
+};
 
 // 8.25
 interface AdaptiveSampleConfig {
@@ -674,44 +728,66 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
 
     // 处理普通图片数据（新：以是否为新一次导航为准，避免同图被拦截）
     if (location.state?.image && processedLocationState !== location.state) {
-      setProcessedImage(location.state.image);
       setProcessedLocationState(location.state);
 
-      const img = new Image();
-      img.onload = () => {
-        // 根据画布大小动态设定图片最大尺寸（占画布的70%）
-        const MAX_IMAGE_WIDTH = canvasWidth * 0.4;
-        const MAX_IMAGE_HEIGHT = canvasHeight * 0.4;
+      // 尝试压缩图片
+      compressImage(location.state.image).then(compressedUrl => {
+        setProcessedImage(compressedUrl);
 
-        let newWidth = img.width;
-        let newHeight = img.height;
+        const img = new Image();
+        img.onload = () => {
+          // 根据画布大小动态设定图片最大尺寸（占画布的70%）
+          const MAX_IMAGE_WIDTH = canvasWidth * 0.4;
+          const MAX_IMAGE_HEIGHT = canvasHeight * 0.4;
 
-        // 计算缩放比例，保持原图宽高比
-        const scale = Math.min(MAX_IMAGE_WIDTH / img.width, MAX_IMAGE_HEIGHT / img.height, 1);
-        if (scale < 1) {
-          newWidth = img.width * scale;
-          newHeight = img.height * scale;
-        }
+          let newWidth = img.width;
+          let newHeight = img.height;
 
-        // 如果图片太小，设定一个最小尺寸（至少占画布的20%）
-        const MIN_SIZE = Math.min(canvasWidth, canvasHeight) * 0.05;
-        if (Math.max(newWidth, newHeight) < MIN_SIZE) {
-          const minScale = MIN_SIZE / Math.max(newWidth, newHeight);
-          newWidth *= minScale;
-          newHeight *= minScale;
-        }
+          // 计算缩放比例，保持原图宽高比
+          const scale = Math.min(MAX_IMAGE_WIDTH / img.width, MAX_IMAGE_HEIGHT / img.height, 1);
+          if (scale < 1) {
+            newWidth = img.width * scale;
+            newHeight = img.height * scale;
+          }
 
-        addItem({
-          type: CanvasItemType.IMAGE,
-          x: canvasWidth / 2, // 图片中心坐标
-          y: canvasHeight / 2,
-          href: location.state.image,
-          width: newWidth,
-          height: newHeight,
-          rotation: 0,
-        } as Omit<ImageObject, 'id' | 'layerId'>);
-      };
-      img.src = location.state.image;
+          // 如果图片太小，设定一个最小尺寸（至少占画布的20%）
+          const MIN_SIZE = Math.min(canvasWidth, canvasHeight) * 0.05;
+          if (Math.max(newWidth, newHeight) < MIN_SIZE) {
+            const minScale = MIN_SIZE / Math.max(newWidth, newHeight);
+            newWidth *= minScale;
+            newHeight *= minScale;
+          }
+
+          addItem({
+            type: CanvasItemType.IMAGE,
+            x: canvasWidth / 2, // 图片中心坐标
+            y: canvasHeight / 2,
+            href: compressedUrl, // 使用压缩后的图片
+            width: newWidth,
+            height: newHeight,
+            rotation: 0,
+          } as Omit<ImageObject, 'id' | 'layerId'>);
+        };
+        img.src = compressedUrl;
+      }).catch(err => {
+        console.error("图片压缩失败，尝试使用原图:", err);
+        // 降级处理：使用原图
+        const img = new Image();
+        img.onload = () => {
+          // ... (重复上面的尺寸计算逻辑，或者简化处理)
+          addItem({
+            type: CanvasItemType.IMAGE,
+            x: canvasWidth / 2,
+            y: canvasHeight / 2,
+            href: location.state.image,
+            width: img.width * 0.4, // 简单缩放
+            height: img.height * 0.4,
+            rotation: 0,
+          } as Omit<ImageObject, 'id' | 'layerId'>);
+        };
+        img.src = location.state.image;
+      });
+
       // 一旦接收并开始加载本次图片，立即清除路由状态，防止回退或刷新导致重复导入
       try { window.history.replaceState({}, document.title); } catch { }
     }
@@ -1404,11 +1480,22 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   useEffect(() => {
     //MARK: 提供给外部调用的图片注入接口
     (window as any).setWhiteboardImage = (base64ata: string) => {
-      const img = new Image();
-      img.onload = () => {
-        addImage(base64ata, img.width, img.height);
-      };
-      img.src = base64ata;
+      // 自动压缩注入的图片
+      compressImage(base64ata).then(compressedUrl => {
+        const img = new Image();
+        img.onload = () => {
+          addImage(compressedUrl, img.width, img.height);
+        };
+        img.src = compressedUrl;
+      }).catch(e => {
+        console.error("外部注入图片压缩失败:", e);
+        // 失败则使用原图
+        const img = new Image();
+        img.onload = () => {
+          addImage(base64ata, img.width, img.height);
+        };
+        img.src = base64ata;
+      });
     };
     // 提供给Android/iOS调用的矢量导入接口
     (window as any).importVectorToWhiteboard = async (content: string, ext: string = 'svg') => {
@@ -1445,18 +1532,23 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
   const imageInputRef = React.useRef<HTMLInputElement>(null);
   const importInputRef = React.useRef<HTMLInputElement>(null);
 
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    //console.log("handleImageUpload", 1);
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    //console.log("handleImageUpload", file);
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string;
-        //console.log("handleImageUpload", dataUrl);
-        navigate('/', { state: { image: dataUrl } });
-      };
-      reader.readAsDataURL(file);
+      try {
+        // 上传前先压缩
+        const compressedDataUrl = await compressImage(file);
+        navigate('/', { state: { image: compressedDataUrl } });
+      } catch (e) {
+        console.error("上传图片压缩失败:", e);
+        // 降级处理
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const dataUrl = e.target?.result as string;
+          navigate('/', { state: { image: dataUrl } });
+        };
+        reader.readAsDataURL(file);
+      }
     }
     event.currentTarget.value = '';
   };
@@ -2237,7 +2329,7 @@ const WhiteboardPage: React.FC<WhiteboardPageProps> = () => {
       addImage(href, width, height);
     };
 
-  //MARK: 检测并设置画布大小 - 支持Android和iOS
+    //MARK: 检测并设置画布大小 - 支持Android和iOS
     const setPlatformCanvasSize = () => {
       let size: any = null;
 
